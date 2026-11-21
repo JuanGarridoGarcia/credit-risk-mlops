@@ -1,0 +1,12 @@
+{
+  "auc_gain_state_mean": 0.0021,
+  "auc_gain_state_95ci": [
+    0.0016,
+    0.0028
+  ],
+  "auc_gain_zip3_mean": -0.0003,
+  "auc_gain_zip3_95ci": [
+    -0.0011,
+    0.0005
+  ]
+}
