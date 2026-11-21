@@ -1,0 +1,7 @@
+# Raw and intermediate data are downloaded per machine, never committed
+data/
+# Python
+__pycache__/
+*.pyc
+.venv*/
+.ipynb_checkpoints/
