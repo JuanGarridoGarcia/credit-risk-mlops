@@ -214,7 +214,7 @@ Reading: the state adds a real but very small amount, below the 0.003 noise leve
 
 | # | Decision | Options | Recommendation | Why |
 |---|---|---|---|---|
-| 9.1 | Status mapping | As in 4.1; or drop the "does not meet the credit policy" loans | **As in 4.1**, with a flag | Same outcome meaning; dropping them loses 2,749 of the few early loans |
+| 9.1 | Status mapping | **Decided (D-013)**: as in 4.1, but the "does not meet the credit policy" loans are removed | | |
 | 9.2 | Columns dropped | Every `no` column, identifiers, `policy_code`, free text (v1), `funded_amnt_inv`; plus `mths_since_recent_bc_dlq` (doubtful) | **Drop all of them, including `mths_since_recent_bc_dlq`** | Strict rule: a feature must be proven available at listing. `issue_d` stays only for ordering and splitting |
 | 9.3 | Fields that start in 2012, 2015 or 2017 | (a) A model uses only fields filled over its whole training window; new fields enter at a retraining once enough matured history exists. (b) Use them from day one with missing values | **(a)** | (b) lets missingness encode the vintage. (a) is also a realistic production event (a new data field arrives) and is logged as such |
 | 9.4 | Training label rule | Matured cohorts; known by T | **Matured cohorts** | Known by T inflates the bad rate from about 13% to 18%; the model would learn a biased level, and the PD must be calibrated for EL |
