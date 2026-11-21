@@ -1,6 +1,6 @@
 # Data audit
 
-Step 0.2 of the playbook. Status: **draft, waiting for Juan's decisions in section 9**.
+Step 0.2 of the playbook. Status: **draft**. Decisions 9.1 to 9.3, 9.7 and 9.8 taken by Juan on 2026-11-21 (D-013 to D-018); 9.4 to 9.6 deferred by Juan to the design of the simulation.
 
 Every figure in this document is produced by [`notebooks/00_data_audit.ipynb`](../notebooks/00_data_audit.ipynb), which writes its tables to [`reports/data_audit/`](../reports/data_audit/). Nothing here is typed by hand from memory.
 
@@ -60,20 +60,20 @@ Proposed use:
 
 ## 4. Labels and their delay
 
-### 4.1 Status mapping (proposal)
+### 4.1 Status mapping (decided, D-013)
 
 | Status | Loans | Label |
 |---|---|---|
 | Fully Paid | 1,076,751 | 0 |
 | Charged Off | 268,559 | 1 |
 | Default (121+ days late, not yet charged off) | 40 | 1 |
-| Does not meet the credit policy. Status: Fully Paid | 1,988 | 0, flagged |
-| Does not meet the credit policy. Status: Charged Off | 761 | 1, flagged |
+| Does not meet the credit policy. Status: Fully Paid | 1,988 | Removed |
+| Does not meet the credit policy. Status: Charged Off | 761 | Removed |
 | Current, In Grace Period, Late (16-30), Late (31-120) | 912,569 | No label: still running at the snapshot |
 
-The "does not meet the credit policy" loans were all issued from 2007 to 2010 under an older policy. Their outcome means the same, so the proposal keeps them with a flag.
+The "does not meet the credit policy" loans were all issued from 2007 to 2010 under an older, looser policy. Juan removed them: they would muddy the data, and a user of the API expects scores under the current policy. **From here on, every figure excludes them** (2,257,919 loans in scope).
 
-Result: **1,348,099 loans with a final outcome**, 269,360 of them bad (20.0%).
+Result: **1,345,350 loans with a final outcome**, 268,599 of them bad (20.0%).
 
 ### 4.2 Default date
 
@@ -84,7 +84,7 @@ Result: **1,348,099 loans with a final outcome**, 269,360 of them bad (20.0%).
 
 Checks:
 
-- 2,325 bad loans never paid anything (`last_pymnt_d` empty): their default month is taken as issue + 1.
+- 2,313 bad loans never paid anything (`last_pymnt_d` empty): their default month is taken as issue + 1.
 - 4,015 bad loans had their last payment less than 5 months before the snapshot and were already charged off. So the 5-month lag is a typical value, not a fixed rule (a bankruptcy, for example, is charged off sooner). The estimate is capped at the snapshot.
 - The estimate has monthly precision, which is enough for monthly monitoring.
 
@@ -96,10 +96,10 @@ Resolution month: last payment for good loans; estimated charge-off month for ba
 
 | Term | Outcome | Loans | p10 | p25 | median | p75 | p90 |
 |---|---|---|---|---|---|---|---|
-| 36 | good | 859,280 | 5 | 12 | 22 | 35 | 36 |
-| 36 | bad | 163,926 | 9 | 13 | 19 | 26 | 32 |
-| 60 | good | 219,459 | 4 | 9 | 20 | 34 | 48 |
-| 60 | bad | 105,434 | 10 | 14 | 20 | 30 | 39 |
+| 36 | good | 857,491 | 5 | 12 | 22 | 35 | 36 |
+| 36 | bad | 163,277 | 9 | 13 | 19 | 26 | 32 |
+| 60 | good | 219,260 | 4 | 9 | 19 | 33 | 48 |
+| 60 | bad | 105,322 | 10 | 14 | 20 | 30 | 39 |
 
 Only 25% of good 36-month loans run to maturity; the rest are prepaid. Bad loans resolve in a narrower window around 1.5 to 2.5 years.
 
@@ -109,10 +109,10 @@ Table: `resolved_by_vintage.csv`.
 
 | Issue year | Loans 36m | Resolved 36m | Bad rate 36m* | Loans 60m | Resolved 60m | Bad rate 60m* |
 |---|---|---|---|---|---|---|
-| 2007 | 603 | 100% | 26.2% | | | |
-| 2008 | 2,393 | 100% | 20.7% | | | |
-| 2009 | 5,281 | 100% | 13.7% | | | |
-| 2010 | 9,156 | 100% | 10.9% | 3,381 | 100% | 22.4% |
+| 2007 | 251 | 100% | 17.9% | | | |
+| 2008 | 1,562 | 100% | 15.8% | | | |
+| 2009 | 4,716 | 100% | 12.6% | | | |
+| 2010 | 8,466 | 100% | 9.9% | 3,070 | 100% | 21.0% |
 | 2011 | 14,101 | 100% | 10.6% | 7,620 | 100% | 23.6% |
 | 2012 | 43,470 | 100% | 13.6% | 9,897 | 100% | 27.7% |
 | 2013 | 100,422 | 100% | 12.3% | 34,392 | 100% | 25.1% |
@@ -127,13 +127,14 @@ Table: `resolved_by_vintage.csv`.
 ### 4.5 Realised net return and LGD (D-007)
 
 - `total_pymnt` equals principal + interest + late fees + recoveries for every loan (largest gap: 1 cent).
-- **Net realised return** per loan = `(total_pymnt - collection_recovery_fee - funded_amnt) / funded_amnt`. Median: +13.7% for good loans, -50.8% for bad loans. **D-007 is supported**, with two limitations: Lending Club's 1% investor service fee is not in the data, and there are no payment-by-payment dates, so only the total return (not an exact annualised one) can be computed.
-- **LGD** = `(EAD - total_rec_prncp - (recoveries - collection_recovery_fee)) / EAD`, EAD = `funded_amnt`. Mean 0.634, median 0.676. 87 loans fall outside [0, 1] (recoveries above what was owed; minimum -1.17).
-- **Recoveries keep arriving after charge-off**, and there is no recovery date. Share of bad loans with zero recoveries by charge-off year: about 1% up to 2013, 17% in 2015, 34% in 2018, 82% in 2019. So the LGD of recent charge-offs is overstated. Table: `lgd_by_chargeoff_year.csv`. Decision 9.7.
+- **Net realised return** per loan = `(total_pymnt - collection_recovery_fee - funded_amnt) / funded_amnt`. Median: +13.6% for good loans, -50.8% for bad loans. **D-007 is supported**, with two limitations: Lending Club's 1% investor service fee is not in the data, and there are no payment-by-payment dates, so only the total return (not an exact annualised one) can be computed.
+- **LGD** = `(EAD - total_rec_prncp - (recoveries - collection_recovery_fee)) / EAD`, EAD = `funded_amnt`. Mean 0.634, median 0.676. 86 loans fall outside [0, 1] (recoveries above what was owed; minimum -1.17).
+- **Recoveries keep arriving after charge-off**, and there is no recovery date. Share of bad loans with zero recoveries by charge-off year: about 1% up to 2013, 17% in 2015, 34% in 2018, 82% in 2019. So the LGD of recent charge-offs is overstated. Table: `lgd_by_chargeoff_year.csv`.
+- How long recoveries take (table: `recovery_by_months_since_chargeoff.csv`), net recovery as a share of the funded amount by months since charge-off: 2.7% at 0 to 5 months, 6.0% at 6 to 11, 7.1% at 12 to 23, 6.6% to 7.4% at 24 to 35, 8.3% to 8.5% at 36 to 59, 5.8% at 60 or more. Most of it has arrived after 12 months. The oldest charge-offs are also from another collection era, which a single snapshot cannot separate from age. Basis for D-017.
 
 ## 5. Data quality
 
-Table: `quality.json`.
+Table: `quality.json`. Counts are on the loans in scope (after D-013).
 
 | Check | Result | Proposal (validated in F2) |
 |---|---|---|
@@ -144,23 +145,23 @@ Table: `quality.json`.
 | `term` | `" 36 months"`, `" 60 months"` (leading space) | Parse to 36 / 60 |
 | `dti` | 2 negative, 135 equal to 999 (a code), 2,561 above 100, 1,711 missing | Negative and 999 to missing |
 | `annual_inc` | 1,667 equal to 0; 3 above 10 million | Range rule; 0 checked against joint applications in F2 |
-| `revol_util` | 7,343 above 100% (possible: balance over limit) | Keep, range rule up to a fixed maximum |
-| `earliest_cr_line` | Parses for every row; 29 missing; never after the issue date | Parse to months of credit history at issue |
-| `home_ownership` | MORTGAGE, RENT, OWN plus 1,232 loans as ANY, OTHER or NONE | Merge the last three |
-| `emp_length` | Text (`"< 1 year"` to `"10+ years"`), 146,907 missing | Parse to 0 to 10 |
-| Funded below requested | 2,065 loans | `loan_amnt` as feature, `funded_amnt` as EAD |
+| `revol_util` | 7,316 above 100% (possible: balance over limit) | Keep, range rule up to a fixed maximum |
+| `earliest_cr_line` | Parses for every row; none missing (the 29 missing were old-policy loans); never after the issue date | Parse to months of credit history at issue |
+| `home_ownership` | MORTGAGE, RENT, OWN plus 1,189 loans as ANY, OTHER or NONE | Merge the last three |
+| `emp_length` | Text (`"< 1 year"` to `"10+ years"`), 146,873 missing | Parse to 0 to 10 |
+| Funded below requested | 1,924 loans | `loan_amnt` as feature, `funded_amnt` as EAD |
 | `int_rate` | 5.31% to 30.99% | Range rule |
-| `fico_range_low` | Minimum 610 | Range rule |
+| `fico_range_low` | Minimum 625 | Range rule |
 
 ## 6. Simulation over time
 
 ### 6.1 Volumes
 
-Lending Club grew from 603 loans in 2007 to 495,242 in 2018 (chart: `loans_per_month.png`, table: `loans_per_month.csv`).
+Lending Club grew from 251 loans in 2007 (after D-013) to 495,242 in 2018 (chart: `loans_per_month.png`, table: `loans_per_month.csv`).
 
 | Year | 2007 | 2008 | 2009 | 2010 | 2011 | 2012 | 2013 | 2014 | 2015 | 2016 | 2017 | 2018 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Loans | 603 | 2,393 | 5,281 | 12,537 | 21,721 | 53,367 | 134,814 | 235,629 | 421,095 | 434,407 | 443,579 | 495,242 |
+| Loans | 251 | 1,562 | 4,716 | 11,536 | 21,721 | 53,367 | 134,814 | 235,629 | 421,095 | 434,407 | 443,579 | 495,242 |
 
 ### 6.2 Labels the system can use at a simulated date T
 
@@ -168,17 +169,17 @@ At date T the system may only use outcomes already known at T. Because the estim
 
 Two possible rules for which known labels go into training:
 
-- **Known by T**: every loan resolved by T. Biased: for recent vintages only the early endings are known, mostly defaults. The bad rate it shows is 17% to 20%, against 13% to 14% for complete cohorts.
+- **Known by T**: every loan resolved by T. Biased: for recent vintages only the early endings are known, mostly defaults. The bad rate it shows is 17% to 20%, against 11% to 13% for complete cohorts.
 - **Matured cohorts**: only loans issued at least `term + 5` months before T, whose outcome is fully known. Unbiased, but older and smaller.
 
 | First training at T | Loans known by T | Their bad rate | Loans in matured cohorts | Their bad rate | Loans listed from T to 2018 |
 |---|---|---|---|---|---|
-| 2012-01 | 9,350 | 21.5% | 2,355 | 23.1% | 2,218,133 |
-| 2013-01 | 21,228 | 18.9% | 5,846 | 17.8% | 2,164,766 |
-| 2014-01 | 48,477 | 18.3% | 14,308 | 14.4% | 2,029,952 |
-| 2015-01 | 115,874 | 17.6% | 25,796 | 12.5% | 1,794,323 |
-| 2016-01 | 263,201 | 17.4% | 56,269 | 13.3% | 1,373,228 |
-| 2017-01 | 504,865 | 19.1% | 142,342 | 13.4% | 938,821 |
+| 2012-01 | 7,559 | 18.8% | 1,278 | 16.3% | 2,218,133 |
+| 2013-01 | 18,951 | 17.5% | 4,335 | 13.8% | 2,164,766 |
+| 2014-01 | 45,852 | 17.8% | 12,078 | 12.1% | 2,029,952 |
+| 2015-01 | 113,208 | 17.4% | 23,358 | 11.0% | 1,794,323 |
+| 2016-01 | 260,452 | 17.3% | 53,682 | 12.7% | 1,373,228 |
+| 2017-01 | 502,116 | 19.0% | 139,593 | 13.1% | 938,821 |
 
 Table: `labels_at_start_date.csv`.
 
@@ -192,8 +193,8 @@ Neither field is a protected attribute, but both are classic proxies: where some
 
 | Check | Result |
 |---|---|
-| Cardinality | 51 states; 957 zip prefixes (3 digits), 448 of them with fewer than 1,000 loans |
-| Bad rate by state (36-month loans issued up to 2015, states with 1,000+ loans) | From 9.2% (New Hampshire) to 18.8% (Mississippi). Table: `bad_rate_by_state.csv` |
+| Cardinality | 51 states; 956 zip prefixes (3 digits), 447 of them with fewer than 1,000 loans |
+| Bad rate by state (36-month loans issued up to 2015, states with 1,000+ loans) | From 9.2% (New Hampshire) to 18.7% (Mississippi). Table: `bad_rate_by_state.csv` |
 | Value on top of `sub_grade` (logistic regression, train 36-month loans 2012 to 2014, out-of-time test on 2015) | AUC 0.6786 with `sub_grade` only; **+0.0021** adding state (95% bootstrap interval +0.0016 to +0.0028); **-0.0003** adding zip prefix (-0.0011 to +0.0005) |
 
 Reading: the state adds a real but very small amount, below the 0.003 noise level of the AUC measured in the research phase. The zip prefix adds nothing. The legal and reputational risk of using them is large compared with that gain.
@@ -217,13 +218,13 @@ Reading: the state adds a real but very small amount, below the 0.003 noise leve
 | 9.1 | Status mapping | **Decided (D-013)**: as in 4.1, but the "does not meet the credit policy" loans are removed | | |
 | 9.2 | Columns dropped | **Decided (D-014, D-015)**: only fields proven in Browse Notes; `mths_since_recent_bc_dlq` dropped; free text not used in v1 | | |
 | 9.3 | Fields that start in 2012, 2015 or 2017 | **Decided (D-016)**: option (a); entry rule set with the retraining policy | | |
-| 9.4 | Training label rule | Matured cohorts; known by T | **Matured cohorts** | Known by T inflates the bad rate from about 13% to 18%; the model would learn a biased level, and the PD must be calibrated for EL |
-| 9.5 | Simulation window | First training 2014-01, replay 2014 to 2018; first training 2015-01; first training 2016-01 | **First training 2014-01, replay 2014-01 to 2018-12** | 2 million loans replayed and five years of monitoring and retraining. First model: 14,308 matured loans (about 2,060 defaults), weak but realistic. Business metric final for 36-month loans listed 2014 to 2015 (445,743 loans); from 2016 it is reported as "observed so far" |
-| 9.6 | Time-based split of the first model | Train on matured cohorts except their last 6 issue months, validate on those 6 months, real test = the forward replay; or random split | **Out-of-time as described** | A random split mixes vintages and hides drift |
+| 9.4 | Training label rule (**deferred** to the simulation design) | Matured cohorts; known by T | **Matured cohorts** | Known by T inflates the bad rate from about 12% to 18%; the model would learn a biased level, and the PD must be calibrated for EL |
+| 9.5 | Simulation window (**deferred** to the simulation design) | First training 2014-01, replay 2014 to 2018; first training 2015-01; first training 2016-01 | **First training 2014-01, replay 2014-01 to 2018-12** | 2 million loans replayed and five years of monitoring and retraining. First model: 12,078 matured loans (about 1,460 defaults, after D-013 removed 2,230 old-policy loans), weak but realistic. Business metric final for 36-month loans listed 2014 to 2015 (445,743 loans); from 2016 it is reported as "observed so far" |
+| 9.6 | Time-based split of the first model (**deferred** to the simulation design) | Train on matured cohorts except their last 6 issue months, validate on those 6 months, real test = the forward replay; or random split | **Out-of-time as described** | A random split mixes vintages and hides drift |
 | 9.7 | LGD labels | **Decided (D-017)**: only loans charged off at least 12 months before the training date | | |
-| 9.8 | `addr_state` and zip code | Keep as features; drop both; drop zip, keep state | **Drop both as features; keep `addr_state` for fairness monitoring by segment** | Gain below noise (state) or zero (zip); high legal risk |
+| 9.8 | `addr_state` and zip code | **Decided (D-018)**: neither is a feature; `addr_state` kept for fairness monitoring | | |
 
-Once these are decided they move to `decisions.md` as D-013 onwards, and `problem.md` section 7 is updated (it says "matured or closed"; decision 9.4 refines it).
+Decided items are recorded in `decisions.md` (D-013 to D-018). When 9.4 to 9.6 are decided, `problem.md` section 7 is updated too (it says "matured or closed"; decision 9.4 refines it).
 
 ## Appendix: full data dictionary
 
