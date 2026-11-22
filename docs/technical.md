@@ -22,7 +22,7 @@ Status of every step of the playbook. Updated in every pull request.
 | | 0.2 Data audit | Done | #1 | D-012 to D-018; 9.4 to 9.6 deferred to the simulation design |
 | F1 Foundations | 1.1 Repository, environment and code quality | Done | #2 | D-019 to D-024, D-037 |
 | | 1.2 Docker and docker compose | Done | #2 | D-025 to D-027 |
-| | 1.3 Minimal CI | In review | #2 | D-028 to D-032, D-038 proposed. Lint-failure check done; branch protection set by Juan |
+| | 1.3 Minimal CI | In review | #2 | D-028 to D-032, D-038 proposed. Lint-failure check done; branch protection set by Juan on 2026-11-22 |
 | | 1.4 Documentation skeleton | In review | #2 | D-033 to D-036 |
 | F2 Data | 2.1 Idempotent ingestion | Pending | | |
 | | 2.2 Data validation | Pending | | |
@@ -180,7 +180,7 @@ Each integration test opens its own database connection, so B4 cannot break anot
 
 **Supply chain** (D-030): actions pinned by commit hash, Docker images by digest, pre-commit hooks by commit hash, workflows read-only.
 
-**Branch protection** (D-032): ruleset on `main` set up by Juan once the CI has run.
+**Branch protection** (D-032): ruleset `protect-main`, set up by Juan on 2026-11-22 after the first CI run.
 
 **Checks of the step**
 
@@ -189,7 +189,7 @@ Each integration test opens its own database connection, so B4 cannot break anot
 | A PR with a lint error fails | Commit `345f076` added an unused import, committed with `--no-verify` to skip pre-commit on purpose. The quality job failed with ruff F401 ([run 45060339393](https://github.com/JuanGarridoGarcia/credit-risk-mlops/actions/runs/45060339393)) |
 | The same PR, fixed, passes | Commit `ab6db44` removed it; all four jobs green ([run 45060408197](https://github.com/JuanGarridoGarcia/credit-risk-mlops/actions/runs/45060408197)) |
 | CI takes a few minutes | 1 min 25 s on the first run and 1 min 18 s with warm caches (the integration job is the slowest; the other three take 10 to 16 s) |
-| CI blocks failing PRs on `main` | Once Juan sets the ruleset of D-032 |
+| CI blocks failing PRs on `main` | Ruleset of D-032 set by Juan on 2026-11-22; the four CI jobs show as required on this PR |
 
 ### Step 1.4 Documentation skeleton
 
