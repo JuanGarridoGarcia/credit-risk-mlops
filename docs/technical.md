@@ -22,7 +22,7 @@ Status of every step of the playbook. Updated in every pull request.
 | | 0.2 Data audit | Done | #1 | D-012 to D-018; 9.4 to 9.6 deferred to the simulation design |
 | F1 Foundations | 1.1 Repository, environment and code quality | Done | #2 | D-019 to D-024, D-037 |
 | | 1.2 Docker and docker compose | Done | #2 | D-025 to D-027 |
-| | 1.3 Minimal CI | In review | #2 | D-028 to D-032, D-038 proposed. Lint-failure check done; branch protection set by Juan on 2026-11-22 |
+| | 1.3 Minimal CI | In review | #2 | D-028 to D-032, D-038. Lint-failure check done; branch protection set by Juan on 2026-11-22 |
 | | 1.4 Documentation skeleton | In review | #2 | D-033 to D-036 |
 | F2 Data | 2.1 Idempotent ingestion | Pending | | |
 | | 2.2 Data validation | Pending | | |
@@ -176,7 +176,7 @@ Each integration test opens its own database connection, so B4 cannot break anot
 
 **Scheduled** (D-029): `.github/workflows/security.yml` every Monday at 06:00 UTC: pip-audit (also on PRs that change `uv.lock`) and Trivy on the image (HIGH and CRITICAL fail). `.github/dependabot.yml`: uv, Docker, docker compose and GitHub Actions, weekly; minor and patch grouped; major Postgres versions not proposed (D-027).
 
-**First Trivy scan** (2026-11-22): 0 CRITICAL, 13 distinct HIGH findings, all in Debian packages of the base image. 12 have no fix in Debian yet; 1 (zlib, CVE-2026-85091) is fixed in Debian but not yet in the official Python image. All 13 are listed in `.trivyignore.yaml` with a reason and an expiry date: 2026-12-22 for the unfixed ones, 2026-12-06 for zlib (proposal D-038). pip-audit: no known vulnerabilities.
+**First Trivy scan** (2026-11-22): 0 CRITICAL, 13 distinct HIGH findings, all in Debian packages of the base image. 12 have no fix in Debian yet; 1 (zlib, CVE-2026-85091) is fixed in Debian but not yet in the official Python image. All 13 are listed in `.trivyignore.yaml` with a reason and an expiry date: 2026-12-22 for the unfixed ones, 2026-12-06 for zlib (D-038). pip-audit: no known vulnerabilities.
 
 **Supply chain** (D-030): actions pinned by commit hash, Docker images by digest, pre-commit hooks by commit hash, workflows read-only.
 

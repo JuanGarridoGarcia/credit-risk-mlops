@@ -45,7 +45,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-035](#d-035) | 2026-11-22 | 1.4 | README as showcase, `docs/technical.md` as manual | Active |
 | [D-036](#d-036) | 2026-11-22 | 1.4 | Repository documents in English | Active |
 | [D-037](#d-037) | 2026-11-22 | 1.1 | Work branch named by the system | Active |
-| [D-038](#d-038) | 2026-11-22 | 1.3 | Base image patch not yet published upstream | Proposed |
+| [D-038](#d-038) | 2026-11-22 | 1.3 | Base image patch not yet published upstream: wait for the official image | Active |
 
 ## Decisions
 
@@ -332,7 +332,7 @@ Date: 2026-11-22 · Step: 1.3 · Status: Active
 - **Decision**: Workflow `security.yml`: **pip-audit** over every locked dependency (all groups) every Monday and on every PR that changes `uv.lock`; **Trivy** over the image every Monday, failing on HIGH or CRITICAL. Trivy exceptions live in `.trivyignore.yaml`, each with a reason and an expiry date. **Dependabot** weekly for uv, Docker, docker compose and GitHub Actions; minor and patch updates grouped per ecosystem, majors one by one.
 - **Alternatives considered**: No Dependabot (manual updates); Renovate; Grype or Docker Scout instead of Trivy
 - **Why**: Scheduled scans catch new vulnerabilities in unchanged code. Dependabot only proposes; the CI tests whether our system still works with the new version, so a green PR is worth as much as the tests behind it.
-- **Consequences**: Juan reviews and merges Dependabot PRs. A finding with no fix gets an exception that expires, so it is reviewed again instead of ignored forever. First scan: 13 HIGH findings in Debian base packages, 12 without a fix, 1 fixed in Debian but not yet in the official image (pending decision D-038).
+- **Consequences**: Juan reviews and merges Dependabot PRs. A finding with no fix gets an exception that expires, so it is reviewed again instead of ignored forever. First scan: 13 HIGH findings in Debian base packages, 12 without a fix, 1 fixed in Debian but not yet in the official image (D-038).
 
 <a id="d-030"></a>
 ### D-030 Actions pinned by commit hash; workflows read-only
@@ -421,11 +421,12 @@ Date: 2026-11-22 · Step: 1.1 · Status: Active
 - **Consequences**: The branch name does not appear in `main`; the PR title says the phase.
 
 <a id="d-038"></a>
-### D-038 Base image patch not yet published upstream
+### D-038 Base image patch not yet published upstream: wait for the official image
 
-Date: 2026-11-22 · Step: 1.3 · Status: Proposed (waiting for Juan)
+Date: 2026-11-22 · Step: 1.3 · Status: Active
 
 - **Context**: the first Trivy scan found CVE-2026-85091 (zlib, HIGH) fixed in Debian 13 but not yet in the official `python:3.12-slim` image.
-- **Decision (proposed)**: wait for the official image to be rebuilt. The finding is listed in `.trivyignore.yaml` with a 14-day expiry (2026-12-06); Dependabot proposes the new digest when it exists. If it is still unfixed at expiry, the weekly scan fails and this is reconsidered.
+- **Decision**: wait for the official image to be rebuilt. The finding is listed in `.trivyignore.yaml` with a 14-day expiry (2026-12-06); Dependabot proposes the new digest when it exists. If it is still unfixed at expiry, the weekly scan fails and this is reconsidered.
 - **Alternatives considered**: upgrade the affected packages in the Dockerfile (`apt-get install --only-upgrade`), which patches immediately but makes the build depend on the state of the Debian mirrors on the day it runs, so two builds of the same commit can differ.
 - **Why**: keeps the build reproducible (D-025), and nothing is deployed until F7, so the exposure is nil.
+- **Consequences**: if this happened with the API in production, the balance would change and the package would be patched in the Dockerfile at once.
