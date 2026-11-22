@@ -1,0 +1,10 @@
+loan_status,loans,first_issue,last_issue
+Fully Paid,1076751,2007-06-01,2018-12-01
+Current,878317,2013-10-01,2018-12-01
+Charged Off,268559,2007-08-01,2018-12-01
+Late (31-120 days),21467,2013-12-01,2018-12-01
+In Grace Period,8436,2013-12-01,2018-12-01
+Late (16-30 days),4349,2014-01-01,2018-12-01
+Does not meet the credit policy. Status:Fully Paid,1988,2007-06-01,2010-12-01
+Does not meet the credit policy. Status:Charged Off,761,2007-06-01,2010-12-01
+Default,40,2014-08-01,2018-07-01

@@ -1,0 +1,4 @@
+features,test_auc,test_log_loss
+sub_grade,0.6786,0.39726
+sub_grade+addr_state,0.6808,0.39657
+sub_grade+zip_code,0.6783,0.39707

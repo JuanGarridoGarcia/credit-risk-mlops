@@ -1,0 +1,38 @@
+{
+  "duplicate_id": 0,
+  "member_id_all_null": true,
+  "url_id_mismatch": 0,
+  "term_values": [
+    " 60 months",
+    " 36 months"
+  ],
+  "dti_negative": 2,
+  "dti_999": 135,
+  "dti_above_100": 2561,
+  "dti_null": 1711,
+  "annual_inc_zero": 1667,
+  "annual_inc_above_10M": 3,
+  "revol_util_above_100": 7316,
+  "earliest_cr_line_unparsable": 0,
+  "earliest_cr_line_null": 0,
+  "earliest_cr_line_after_issue": 0,
+  "funded_lt_requested": 1924,
+  "home_ownership_values": {
+    "ANY": 996,
+    "OTHER": 144,
+    "RENT": 893666,
+    "MORTGAGE": 1110194,
+    "NONE": 49,
+    "OWN": 252870
+  },
+  "emp_length_null": 146873,
+  "int_rate_range": [
+    5.31,
+    30.99
+  ],
+  "fico_range_low_min": 625.0,
+  "loan_amnt_range": [
+    500.0,
+    40000.0
+  ]
+}
