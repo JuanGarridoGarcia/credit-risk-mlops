@@ -1,0 +1,118 @@
+# Continuous integration (decision A10, D-028). Runs on every pull request and on every
+# push to main. Four jobs in parallel; all four are required checks for merging into main
+# (branch protection, decision A14). Target: under 5 minutes.
+# Actions are pinned by commit hash with the version in a comment (decision A12);
+# Dependabot updates both.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: read the repository and nothing else (decision A12).
+permissions:
+  contents: read
+
+# A new push to the same PR cancels the run that is still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.11.32"
+  FORCE_COLOR: "1"
+
+jobs:
+  quality:
+    name: quality (lint, format, types, lock)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: make lint
+
+  tests:
+    name: tests (unit + coverage)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: make test
+      # Coverage is measured and shown, with no minimum until F2 (decision A13).
+      - name: Coverage summary
+        if: always()
+        run: |
+          {
+            echo '### Coverage (branch)'
+            echo '```'
+            uv run --frozen coverage report
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  secrets:
+    name: secrets (gitleaks, full history)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        run: >
+          docker run --rm -v "$PWD:/repo" -w /repo
+          zricethezav/gitleaks:v8.30.0@sha256:691af3c7c5a48b16f187ce3446d5f194838f91238f27270ed36eef6359a574d9
+          git --redact --verbose /repo
+
+  integration:
+    name: integration (image + Postgres)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build the application image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runtime
+          tags: credit-risk:dev
+          load: true
+          cache-from: type=gha,scope=runtime
+          cache-to: type=gha,scope=runtime,mode=max
+      - name: Build the test image (package installed as in production)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: test
+          tags: credit-risk:test
+          load: true
+          cache-from: type=gha,scope=test
+          cache-to: type=gha,scope=test,mode=max
+      - name: Unit tests inside the image
+        run: docker run --rm credit-risk:test
+      - run: uv sync --frozen
+      # CI uses the development values of .env.example; nothing secret.
+      - run: cp .env.example .env
+      - run: make test-integration
+      - name: Postgres logs on failure
+        if: failure()
+        run: docker compose logs postgres
+      - if: always()
+        run: docker compose down -v

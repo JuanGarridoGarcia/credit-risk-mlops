@@ -1,0 +1,9 @@
+# Only what the Dockerfile needs enters the build context. Secrets and data never do (test B5).
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+!tests/
+**/__pycache__
+**/*.py[cod]

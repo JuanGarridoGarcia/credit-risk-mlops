@@ -201,15 +201,7 @@ Reading: the state adds a real but very small amount, below the 0.003 noise leve
 
 ## 8. Errors found during the audit and how they were solved
 
-| # | Error | Cause | Fix |
-|---|---|---|---|
-| E-1 | The first session could not see `KAGGLE_API_TOKEN` | Environment variables are read when the machine starts; the token was added after | New session for step 0.2. Lesson: secrets are set up before a thread starts |
-| E-2 | `kaggle` CLI failed with a proxy 403 on `api.kaggle.com` | The new CLI (2.x, needed for the new token format) talks to `api.kaggle.com`, which was not in the network allowlist (only `kaggle.com`, `www.kaggle.com`, `storage.googleapis.com`) | Added `api.kaggle.com` to the environment allowlist (approved by Juan) |
-| E-3 | The main dataset has no data dictionary | The uploader could not upload Lending Club's .xlsx | Second Kaggle dataset with the official dictionary; used as documentation only, with its hash recorded |
-| E-4 | 33 rows with text in `id` and nulls elsewhere | Summary rows Lending Club appended to its exports | Detected by missing `loan_amnt` and removed |
-| E-5 | Notebook killed for lack of memory (14 GB) | The full 151-column table was copied several times by filters | Load once, keep only the needed columns after the dictionary step. Peak now 9.8 GB |
-| E-6 | Dates such as `Dec-2015` did not parse | The parser needs a day | Prefix `01-` and parse as the first day of the month |
-| E-7 | Some charged-off loans had an estimated charge-off date after the snapshot | The 5-month charge-off lag is typical, not fixed | Estimate capped at the snapshot |
+Moved on 2026-11-22 to the project's error log (D-034): [E-001 to E-007 in `errors.md`](errors.md), now with how each one is prevented. Re-running this notebook in F1 found two more (E-010, E-011), fixed without changing any number.
 
 ## 9. Decisions for Juan
 

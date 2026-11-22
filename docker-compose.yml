@@ -1,0 +1,32 @@
+# Services of the system (decision A9, D-027). Only Postgres for now: MLflow enters in F3,
+# the API in F5 and Grafana in F6, each with the step that uses it and its tests.
+# Credentials come from .env (git-ignored); see .env.example.
+
+name: credit-risk
+
+services:
+  postgres:
+    # Same major version as AWS RDS (step 7.2). Pinned by version and digest.
+    image: postgres:18.7-trixie@sha256:eb63372c1e05c755f55fa30cbd07aecc443676fc6c0fa90b9002d01537841e1a
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      # Published only on this machine's loopback interface, never on the network.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # Since Postgres 18 the image keeps its data in /var/lib/postgresql/18/docker, so the
+      # volume is mounted on the parent directory. Mounting the old path
+      # (/var/lib/postgresql/data) would leave the data inside the container (E-009).
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  pgdata:

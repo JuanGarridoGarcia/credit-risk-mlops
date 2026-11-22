@@ -1,0 +1,53 @@
+# Decision A5 (D-023). Runs on every `git commit`; CI runs the same checks again
+# because a hook can be skipped (`--no-verify`) or not installed.
+# Install once per clone with `make install`.
+default_install_hook_types: [pre-commit]
+fail_fast: false
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: end-of-file-fixer
+        exclude: ^reports/
+      - id: trailing-whitespace
+        exclude: ^reports/
+      - id: no-commit-to-branch
+        args: [--branch, main]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 2ca41cc1372d1e939a6a879f18cdc19fc1cac1ce  # frozen: v8.30.0
+    hooks:
+      - id: gitleaks
+
+  # Notebooks that report results keep their outputs (decision A5); the list is explicit.
+  - repo: https://github.com/kynan/nbstripout
+    rev: da2cc151867afb69f79efbc67ef466593635acf5  # frozen: 0.9.2
+    hooks:
+      - id: nbstripout
+        exclude: ^notebooks/00_data_audit\.ipynb$
+
+  # ruff and mypy run from the project environment, so the versions are the ones
+  # pinned in uv.lock (one source of truth) and mypy sees the installed libraries.
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --frozen ruff check --fix --exit-non-zero-on-fix
+        language: system
+        types_or: [python, pyi, jupyter]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --frozen ruff format
+        language: system
+        types_or: [python, pyi, jupyter]
+      - id: mypy
+        name: mypy
+        entry: uv run --frozen mypy
+        language: system
+        types: [python]
+        pass_filenames: false
