@@ -1,7 +1,25 @@
 # Raw and intermediate data are downloaded per machine, never committed
 data/
+
+# Secrets: only .env.example (no real values) is versioned
+.env
+.env.*
+!.env.example
+
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
 .venv*/
+*.egg-info/
+build/
+dist/
+
+# Tools
 .ipynb_checkpoints/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
