@@ -1,0 +1,44 @@
+# Trivy exceptions (decision A11, D-029). Every entry has a reason and an expiry date:
+# after expired_at the finding counts again and the weekly scan fails, forcing a review.
+# Scope: OS packages of the python:3.12-slim (Debian 13) base image. None is used by our code;
+# they come with the base image. Reviewed 2026-11-22 (step 1.3).
+vulnerabilities:
+  - id: CVE-2026-76642
+    statement: "No fix available in Debian 13 yet (status: affected). Packages: bsdutils, libblkid1, liblastlog2-2, libmount1, libsmartcols1, libuuid1, login, mount, util-linux"
+    expired_at: 2026-12-22
+  - id: CVE-2026-78408
+    statement: "No fix available in Debian 13 yet (status: affected). Packages: bsdutils, libblkid1, liblastlog2-2, libmount1, libsmartcols1, libuuid1, login, mount, util-linux"
+    expired_at: 2026-12-22
+  - id: CVE-2026-78409
+    statement: "No fix available in Debian 13 yet (status: affected). Packages: bsdutils, libblkid1, liblastlog2-2, libmount1, libsmartcols1, libuuid1, login, mount, util-linux"
+    expired_at: 2026-12-22
+  - id: CVE-2026-78410
+    statement: "No fix available in Debian 13 yet (status: affected). Packages: bsdutils, libblkid1, liblastlog2-2, libmount1, libsmartcols1, libuuid1, login, mount, util-linux"
+    expired_at: 2026-12-22
+  - id: CVE-2026-54369
+    statement: "No fix available in Debian 13 yet (status: affected). Packages: libacl1"
+    expired_at: 2026-12-22
+  - id: CVE-2025-69720
+    statement: "No fix available in Debian 13 yet (status: affected). Packages: libncursesw6, libtinfo6, ncurses-base, ncurses-bin"
+    expired_at: 2026-12-22
+  - id: CVE-2026-119373
+    statement: "No fix available in Debian 13 yet (status: affected). Packages: libsqlite3-0"
+    expired_at: 2026-12-22
+  - id: CVE-2026-119374
+    statement: "No fix available in Debian 13 yet (status: affected). Packages: libsqlite3-0"
+    expired_at: 2026-12-22
+  - id: CVE-2026-119379
+    statement: "No fix available in Debian 13 yet (status: affected). Packages: libsqlite3-0"
+    expired_at: 2026-12-22
+  - id: CVE-2026-124709
+    statement: "No fix available in Debian 13 yet (status: affected). Packages: libssl3t64, openssl, openssl-provider-legacy"
+    expired_at: 2026-12-22
+  - id: CVE-2026-16742
+    statement: "No fix available in Debian 13 yet (status: affected). Packages: libsystemd0, libudev1"
+    expired_at: 2026-12-22
+  - id: CVE-2026-9538
+    statement: "No fix available in Debian 13 yet (status: fix_deferred). Packages: perl-base"
+    expired_at: 2026-12-22
+  - id: CVE-2026-85091
+    statement: "Fixed in Debian, but the official python:3.12-slim image has not been rebuilt yet; Dependabot proposes the new digest when it is. Short expiry on purpose. Packages: zlib1g"
+    expired_at: 2026-12-06
