@@ -1,7 +1,5 @@
 """Default command of the Docker image: print the package version and exit."""
 
-import os
-
 from credit_risk import __version__
 
 
