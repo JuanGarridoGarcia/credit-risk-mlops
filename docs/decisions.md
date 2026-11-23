@@ -51,6 +51,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-041](#d-041) | 2026-11-23 | 2.1 (audit 9.5) | Simulation window: first training 2014-01, replay 2014-01 to 2018-12 | Active |
 | [D-042](#d-042) | 2026-11-23 | 2.3 (audit 9.6) | Validation split: out-of-time, last 6 listing months | Active |
 | [D-043](#d-043) | 2026-11-23 | 2.1 | A separate simulator is the only code that reads the 2019 file | Active |
+| [D-044](#d-044) | 2026-11-23 | 2.1 | Two table layers: raw (text as delivered) and clean (typed) | Active |
 
 ## Decisions
 
@@ -490,3 +491,14 @@ Date: 2026-11-23 · Step: 2.1 · Status: Active
 - **Alternatives considered**: ingestion opens the full file on every run and filters the month.
 - **Why**: it separates the simulated world, which would not exist in production, from the system, which would. The system cannot filter the future wrongly because it never receives it. If a real source replaced the file, only the simulator would be thrown away; ingestion would not change.
 - **Consequences**: one more module and disk space for the deliveries. Deliveries keep the text exactly as in the file.
+
+<a id="d-044"></a>
+### D-044 Two table layers: raw (text as delivered) and clean (typed)
+
+Date: 2026-11-23 · Step: 2.1 · Status: Active
+
+- **Context**: deliveries arrive as text with formats and codes that are not usable as they are (`" 36 months"`, `"10+ years"`, `dti = 999`). The playbook requires the raw data to be stored as it is.
+- **Decision**: each stream (`listings`, `outcomes`) has a **raw** table with the exact text of the delivery plus load metadata (period, delivery file, its hash, load time), never modified after loading, and a **clean** table with correct types and coded values fixed. Validation (step 2.2) runs between the two: if a critical rule fails, nothing reaches the clean layer. Cleaning only puts the data in the form it should have arrived in; feature engineering (step 2.4) starts from the clean layer. The unit of load is the month, because `issue_d` has monthly precision.
+- **Alternatives considered**: clean layer only (convert at load, discard the text); raw layer only (convert in Python on every read).
+- **Why**: if a cleaning rule turns out to be wrong, the rule is fixed and the clean layer is rebuilt from raw without reloading anything, and "what exactly arrived?" can always be answered. Standard pattern (often called bronze and silver).
+- **Consequences**: about twice the storage. The API must clean each incoming listing with the same code as the clean layer, which constrains where cleaning is written (next decision).
