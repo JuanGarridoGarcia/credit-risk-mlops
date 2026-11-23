@@ -89,6 +89,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-079](#d-079) | 2026-11-23 | 3.2 | Tracking: an MLflow server in docker compose, metadata in its own Postgres database, artefacts in object storage | Active |
 | [D-080](#d-080) | 2026-11-23 | 3.3 | Monotone constraints on nine features with an undisputed direction; sign test for the logistic regression | Active |
 | [D-081](#d-081) | 2026-11-23 | 3.3 | Key segments: grade, covered term and listing quarter; a new model fails if it is clearly worse in any of them | Active |
+| [D-082](#d-082) | 2026-11-23 | 3.4 | Automatic promotion when every rule passes, with evidence, an alert and a tested rollback | Active |
 
 ## Decisions
 
@@ -937,3 +938,14 @@ Date: 2026-11-23 · Step: 3.3 · Status: Active
 - **Alternatives considered**: (A) global metrics only: a loss in one group goes unseen; (C) many segments: wide watch, but frequent false alarms.
 - **Why**: the blocking segments follow how the investor decides (grade, term) and how the world changes (time), with few false alarms.
 - **Consequences**: the baseline uses `grade` only, so it gives one PD per grade and its AUC inside a grade is 0.5; the segment test against the baseline is easy to pass, and does its real work for a challenger against the champion.
+
+<a id="d-082"></a>
+### D-082 Automatic promotion when every rule passes, with evidence, an alert and a tested rollback
+
+Date: 2026-11-23 · Step: 3.4 · Status: Active
+
+- **Context**: in F4 and F6 the simulation retrains unattended over five simulated years. The rules are strict: better than the champion by more than the noise (D-075), not clearly worse in any key segment (D-081), signs and monotonicity (D-080), and the behavioural tests of step 3.3.
+- **Decision**: a challenger that passes every rule becomes champion automatically: the registry alias `champion` moves to it. Safeguards: no rule can be skipped (there is no "force" option); every promotion stores its full evidence in MLflow (intervals, segments, test results); every promotion sends an alert; going back to the previous champion is one command, covered by a test (step 3.4).
+- **Alternatives considered**: (B) automatic up to "approved candidate", then a person confirms: human control, but the simulation stops at every retraining waiting, and such approvals tend to be given without looking; (C) shadow mode for some months before promotion: catches operational problems, but gives no evidence of better performance, because labels arrive years later.
+- **Why**: the rules are reviewed code, not a judgement made on the day; the simulation must run by itself; any promotion can be undone at once.
+- **Consequences**: a bank would add the human approval of B for regulatory reasons; this is a deliberate difference from real production, stated in the model card and the README. The quality of the rules is what makes this safe, so each rule has its own tests, including a deliberately bad model that must fail them (playbook 3.3).
