@@ -9,6 +9,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
+import credit_risk
 from credit_risk.contracts import LISTING_COLUMNS, OUTCOME_COLUMNS, OUTCOME_ONLY_COLUMNS
 from credit_risk.simulator import core
 from credit_risk.simulator.io import read_source, sha256, write_delivery
@@ -227,7 +228,8 @@ def test_nothing_after_the_simulated_date_is_published(
 
 # T1.11
 def test_system_code_never_touches_the_simulator() -> None:
-    package = ROOT / "src" / "credit_risk"
+    # The installed package, so the test also works in the image, where src/ is removed.
+    package = Path(credit_risk.__file__).parent
     offenders = []
     for path in package.rglob("*.py"):
         if "simulator" in path.relative_to(package).parts:
