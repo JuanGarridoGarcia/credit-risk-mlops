@@ -28,6 +28,7 @@ def table_name(settings: Settings) -> Iterator[str]:
         conn.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(name)))
 
 
+# B4
 def test_postgres_data_survives_container_recreation(settings: Settings, table_name: str) -> None:
     value = uuid.uuid4().hex
     table = sql.Identifier(table_name)

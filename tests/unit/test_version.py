@@ -9,6 +9,7 @@ import credit_risk
 PYPROJECT = Path(__file__).parents[2] / "pyproject.toml"
 
 
+# B1
 def test_package_version_matches_pyproject() -> None:
     declared = tomllib.loads(PYPROJECT.read_text())["project"]["version"]
 

@@ -21,6 +21,7 @@ def _looks_secret(text: str) -> bool:
     return any(marker in text.upper() for marker in SECRET_MARKERS)
 
 
+# B5
 def test_image_runs_as_non_root(image: str) -> None:
     uid = docker("run", "--rm", "--entrypoint", "id", image, "-u")
 

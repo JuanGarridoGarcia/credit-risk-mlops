@@ -39,6 +39,7 @@ def _rows(landing: Path, stream: str) -> pl.DataFrame:
     )
 
 
+# T1.12
 def test_counts_match_the_audit(published: Path) -> None:
     prepared = load_prepared(SOURCE, CACHE)
     assert prepared.summary_rows_dropped == 33

@@ -23,6 +23,7 @@ LANDING = ROOT / "data" / "landing"
 pytestmark = pytest.mark.data
 
 
+# T4.16
 def test_the_base_contract_alone_stops_exactly_at_the_recorded_changes() -> None:
     periods = sorted(date.fromisoformat(f"{p.name}-01") for p in LANDING.iterdir())
     assert len(periods) == 142

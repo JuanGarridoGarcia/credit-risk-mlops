@@ -2,7 +2,7 @@
 
 The full detail of the project, one section per step of the playbook: what was built, how, which numbers came out, which decisions and errors happened, and how it was checked. The README is the short version; this is the manual. Format decided in D-035.
 
-Related documents: [problem definition](problem.md), [data audit](data_audit.md), [decision log](decisions.md), [error log](errors.md), [validation rules](validation_rules.md).
+Related documents: [problem definition](problem.md), [data audit](data_audit.md), [decision log](decisions.md), [error log](errors.md), [validation rules](validation_rules.md), [test catalogue](tests.md).
 
 ## Contents
 
@@ -26,7 +26,7 @@ Status of every step of the playbook. Updated in every pull request.
 | | 1.3 Minimal CI | Done | #2 | D-028 to D-032, D-038. Lint-failure check done; branch protection set by Juan on 2026-11-22 |
 | | 1.4 Documentation skeleton | Done | #2 | D-033 to D-036 |
 | F2 Data | 2.1 Idempotent ingestion | In review | | D-039 to D-052; E-013 to E-019 |
-| | 2.2 Data validation | In review | | D-053 to D-056; E-020, E-021; rules in validation_rules.md |
+| | 2.2 Data validation | In review | | D-053 to D-057; E-020, E-021; rules in validation_rules.md; tests in tests.md |
 | | 2.3 Data versioning | Pending | | |
 | | 2.4 Features | Pending | | |
 | F3 Model | 3.1 Baseline | Pending | | |
@@ -198,6 +198,7 @@ Each integration test opens its own database connection, so B4 cannot break anot
 - `docs/technical.md`: this document.
 - `docs/decisions.md`: index and one card per decision (D-033); D-001 to D-018 converted with their text unchanged (checked automatically: every cell of the old table appears in the new file).
 - `docs/errors.md`: index and one card per error (D-034).
+- `docs/tests.md` (added in step 2.2, D-057): every test with its functions, where it runs and its change history; test B6 keeps it in step with the code.
 
 **Check of the step**: Juan's review of this pull request.
 
@@ -294,7 +295,7 @@ A value that does not fit stops the load with the column, the loan id and the va
 
 ### Step 2.2 Data validation
 
-Every month is validated before it enters the clean layer. The full catalogue of rules, with the reason and the failing rows of each, is in [validation_rules.md](validation_rules.md); this section explains how it is built. Decisions D-053 to D-056; errors E-020 and E-021.
+Every month is validated before it enters the clean layer. The full catalogue of rules, with the reason and the failing rows of each, is in [validation_rules.md](validation_rules.md); this section explains how it is built. Decisions D-053 to D-057; errors E-020 and E-021. Every test of the project, with its functions and its history, is in [tests.md](tests.md) (D-057).
 
 **Flow**
 

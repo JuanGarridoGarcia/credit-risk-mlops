@@ -64,6 +64,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-054](#d-054) | 2026-11-23 | 2.2 | Two severity levels: a critical rule stops the run, a warning is reported and stored | Active |
 | [D-055](#d-055) | 2026-11-23 | 2.2 | A critical failure stops the whole month; no row quarantine | Active |
 | [D-056](#d-056) | 2026-11-23 | 2.2 | Allowed values come from a dated contract: the 2013-12 base plus dated changes | Active |
+| [D-057](#d-057) | 2026-11-23 | 2.2 | Every test is listed in a catalogue kept in step with the code by a test | Active |
 
 ## Decisions
 
@@ -646,3 +647,14 @@ Date: 2026-11-23 · Step: 2.2 · Status: Active
 - **Alternatives considered**: (A) the 2014-01 list with a manual contract change each time, which stops again at every new run of the five-year replay; (B) the list from the whole file plus a warning when a value is seen for the first time, proposed first and rejected by Juan: it uses knowledge of the file's future to run operations, hiding the stops a real pipeline would have had; (C) the whole-file list without a warning.
 - **Why**: the contract only knows the past, as in a real system, and product changes are handled the way a real team handles them, with a reviewed change. Once accepted, a change is part of the history, so later replays run unattended and still see, each month, the contract that would have been in force then.
 - **Consequences**: a data test checks that the base contract alone stops the replay exactly at the months of the recorded changes, which shows that the stop works and that the list of changes is complete. Known simplification, documented: each change enters into force in the month the novelty first appears, as if the team reacted within the month.
+
+### D-057 Every test is listed in a catalogue kept in step with the code by a test
+
+Date: 2026-11-23 · Step: 2.2 (cross-cutting) · Status: Active
+
+- **Context**: decisions and errors each have a log with an index and a card, but tests were only described in tables per step of technical.md, with `# Tx.y` comments in the code. There was no single list of every test, no record of what changed in an approved test and why, and nothing stopped the tables and the code from drifting apart. B1 to B5 and three data tests had no marker in the code.
+- **Decision**: `docs/tests.md` lists every test with its ID, what it checks, its functions as `file::function`, its kind and where it runs, plus a change history. In the code, a comment `# <ID>` on the line before the first function of each test. Test B6 fails if a marker has no row, a row has no marker, a marker is in a file its row does not name, or a row names a function that does not exist.
+- **Alternatives considered**: keep the tables in technical.md only (no history, drifts silently); generate the catalogue from docstrings (the code becomes the only source, but the approval record and the history need a place of their own); pytest markers such as `@pytest.mark.test_id("T3.4")` (machine-readable, but noisier than a comment and still needs the catalogue).
+- **Why**: Juan approves every test, so the catalogue is the record of what he approved; a test that checks it keeps the record true without relying on memory.
+- **Consequences**: adding or changing a test means a row and a history line in the same pull request, or B6 fails in CI. The tables of technical.md stay as the summary of each step and link to the catalogue.
+

@@ -30,6 +30,7 @@ def full_env(clean_env: pytest.MonkeyPatch) -> None:
         clean_env.setenv(name, value)
 
 
+# B2
 @pytest.mark.usefixtures("full_env")
 def test_settings_read_from_env() -> None:
     settings = Settings()
