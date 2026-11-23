@@ -83,6 +83,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-073](#d-073) | 2026-11-23 | 3.2 | Hyperparameters are tuned on an inner time split of the training set; validation stays clean | Active |
 | [D-074](#d-074) | 2026-11-23 | 3.2 | Search: Optuna TPE with 50 seeded trials for LightGBM, a grid over `C` for the logistic regression | Active |
 | [D-075](#d-075) | 2026-11-23 | 3.2 | "Better by more than the noise": the 95% paired bootstrap interval of the difference lies above zero | Active |
+| [D-076](#d-076) | 2026-11-23 | 3.2 | The PD is calibrated with Platt scaling fitted on the validation set | Active |
 
 ## Decisions
 
@@ -865,3 +866,14 @@ Date: 2026-11-23 · Step: 3.2 (defines the noise rule used by D-042 and D-068) �
 - **Alternatives considered**: (A) a separate interval for each model, with a win only if they do not overlap: intuitive, but it counts the noise the two models share twice and misses real gains; (C) DeLong's test: a closed formula, but for AUC only.
 - **Why**: two models scored on the same loans move up and down together from one resample to the next; that shared movement is most of the noise of each AUC and cancels in the difference. A simulation with the size of the T0 validation set (4,324 loans, 429 defaults) and two models sharing most of their signal gave AUC 0.655 (95% interval 0.628 to 0.684) and 0.681 (0.655 to 0.707): the intervals overlap, but the paired difference, 0.026, had an interval from 0.012 to 0.040 (spread 0.007 against 0.014 for each model). The method works for any metric.
 - **Consequences**: one shared function computes the paired comparison for every use (candidates, baseline, champion and challenger). Its intervals and the 1,000 differences are logged with each run.
+
+<a id="d-076"></a>
+### D-076 The PD is calibrated with Platt scaling fitted on the validation set
+
+Date: 2026-11-23 · Step: 3.2 (closes part of the open point of D-042) · Status: Active
+
+- **Context**: AUC measures only ranking and does not change under any transformation that keeps the order, so a model can rank well with the wrong level. The PD multiplies into expected loss (D-002), so its level matters. At T0 the training set defaults at 13.2% (1,019 of 7,733, listed 2007 to 2010-02) and the more recent validation set at 9.9% (429 of 4,324): a model trained as is keeps the older level. Regularisation also pulls predictions towards the mean.
+- **Decision**: the chosen model's output is calibrated with **Platt scaling** (a logistic regression with two parameters on the model's log-odds) fitted on the validation set. The calibration quality reported for a model (Brier score and calibration by segment, D-006) is measured by 5-fold cross-fitting inside validation: the calibrator is fitted on four parts and measured on the fifth, five times.
+- **Alternatives considered**: (A) no calibration: the PD keeps the level of the training period and expected loss is inflated; (C) split validation into a selection half and a calibration half: clean, but more noise in both with 429 defaults. Isotonic regression instead of Platt: no fixed shape, but it overfits with a few hundred defaults.
+- **Why**: it moves the level to the most recent known period with only two parameters, stable with 429 defaults. Platt keeps the order, so the AUC and every paired AUC comparison of D-075 are not affected by it.
+- **Consequences**: the deployed model is the pair model plus calibrator. Isotonic calibration may enter later as a challenger once data are larger. Whether to refit the model on training plus validation is a separate decision.
