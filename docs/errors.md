@@ -27,6 +27,8 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-017](#e-017) | 2026-11-23 | 2.1 | The data tests folder was ignored by git | Minor |
 | [E-018](#e-018) | 2026-11-23 | 2.1 | polars reads a row with too few fields as nulls instead of failing | Major |
 | [E-019](#e-019) | 2026-11-23 | 2.1 | Column `desc` is a reserved word in SQL | Minor |
+| [E-020](#e-020) | 2026-11-23 | 2.2 | Required columns taken from the whole file, not from the past | Major |
+| [E-021](#e-021) | 2026-11-23 | 2.2 | Catalogue months of R2.13 written from a guess, not measured | Minor |
 
 ## Errors
 
@@ -219,3 +221,24 @@ Date: 2026-11-23 · Step: 2.1 · Severity: minor
 - **Cause**: `desc` (the loan description) is a reserved word (`ORDER BY ... DESC`).
 - **Fix**: quoted as `"desc"` in the migrations. Python code composes every name with `psycopg.sql.Identifier`, which always quotes, so it was not affected. dbmate runs each migration in a transaction, so the failed one left nothing behind.
 - **Prevention**: test T3.1 applies every migration on an empty database in CI.
+
+<a id="e-020"></a>
+### E-020 Required columns taken from the whole file, not from the past
+
+Date: 2026-11-23 · Step: 2.2 · Severity: major (caught before implementation)
+
+- **Symptom**: the first version of rules R4.1 and R4.2 (approved as group 4) listed the columns that "never came empty", measured on 2007 to 2018. A team at 2013-12 could not have known that: 4 columns complete through 2013 get empty values later (`num_rev_accts` 2015-10, `inq_last_6mths` 2016-01, `zip_code` 2017-01, one row each; `last_credit_pull_d` from 2014-08, 53 sporadic rows).
+- **Cause**: the same mistake Juan had caught for allowed values (D-056, option B): using knowledge of the file's future to define the contract.
+- **Fix**: found while implementing, before any code was merged, and approved by Juan: required columns come only from the history up to 2013-12 (complete through 2013, required from the month after their last gap); the 3 single rows became reviewed exceptions and `last_credit_pull_d` the dated change C9.
+- **Prevention**: test T4.16 runs the base contract alone over every real delivery and checks that it stops exactly at the months of the recorded changes, so a rule built from future data shows up as an unexplained stop. Every threshold chosen from data now says which months it was measured on.
+
+<a id="e-021"></a>
+### E-021 Catalogue months of R2.13 written from a guess, not measured
+
+Date: 2026-11-23 · Step: 2.2 · Severity: minor
+
+- **Symptom**: the catalogue said R2.13 (rate above every rate seen) fires in 2015 at 28.99% and in 2016 at 30.99%. The full load showed 2015-05 (26.77%), 2016-04 (29.96%) and 2016-05 (30.99%), plus 18 months of the history as rates rose.
+- **Cause**: the months were inferred from the yearly maximum rates instead of being measured with the rule itself.
+- **Fix**: catalogue corrected with the measured months.
+- **Prevention**: test T4.15 checks every number of the catalogue against the full real load, so a number written from a guess fails.
+

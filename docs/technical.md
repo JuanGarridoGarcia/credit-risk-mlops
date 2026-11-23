@@ -26,7 +26,7 @@ Status of every step of the playbook. Updated in every pull request.
 | | 1.3 Minimal CI | Done | #2 | D-028 to D-032, D-038. Lint-failure check done; branch protection set by Juan on 2026-11-22 |
 | | 1.4 Documentation skeleton | Done | #2 | D-033 to D-036 |
 | F2 Data | 2.1 Idempotent ingestion | In review | | D-039 to D-052; E-013 to E-019 |
-| | 2.2 Data validation | Pending | | |
+| | 2.2 Data validation | In review | | D-053 to D-056; E-020, E-021; rules in validation_rules.md |
 | | 2.3 Data versioning | Pending | | |
 | | 2.4 Features | Pending | | |
 | F3 Model | 3.1 Baseline | Pending | | |
@@ -291,3 +291,59 @@ A value that does not fit stops the load with the column, the loan id and the va
 | The raw data is stored as it is | T1.7, T3.7, T3.10 |
 | Loading a period twice does not duplicate rows | T3.3 |
 | Rows loaded equal the source | T3.2 (per load, also enforced by a check in `ops.ingest_log`), T3.13 |
+
+### Step 2.2 Data validation
+
+Every month is validated before it enters the clean layer. The full catalogue of rules, with the reason and the failing rows of each, is in [validation_rules.md](validation_rules.md); this section explains how it is built. Decisions D-053 to D-056; errors E-020 and E-021.
+
+**Flow**
+
+```
+raw (both streams) ──> strict cleaning ──> pandera rules on the typed month (in memory)
+                         (formats)          + rules against history: missing values, volume
+                                                     │
+                                                     v
+          one transaction: stage tables ──> SQL rules ──> replace the clean month
+                                               │          + warnings + missing-value profile
+                                               └─ a critical failure: rollback, nothing enters
+```
+
+- **The month is the unit** (D-055). `build_clean(conn, period)` cleans and validates both streams, then writes both in one transaction. A critical failure in either stream leaves the clean month as it was (or empty), records `failed` for both streams in `ops.ingest_log` with the failing rule ids, and raises `ValidationFailed` with the path of the report. Raw keeps the delivery as it arrived.
+- **Levels** (D-054). Critical stops the month; a warning is reported and stored in `ops.validation_warnings` (one row per month, stream, rule and column, with up to 20 examples), replaced together with the month.
+- **Dated contract** (D-056, `validation/contract.py`). The base is what was known up to 2013-12; changes C1 to C9 enter into force on their month; `contract_at(period)` builds the contract of a month. Reviewed exceptions (5 rows) pass only their rule, loan and month and are listed in every report.
+- **pandera** (D-053, `validation/rules.py`). Two schemas per stream and month, critical and warning, built from the contract in force, validated in lazy mode. Every check is named by its rule id. Missing values pass every check except the required-column ones.
+- **SQL** (`sql/validate_month.sql`). Both streams are copied with `COPY` into temporary stage tables (`CREATE TEMP TABLE ... (LIKE clean.x) ON COMMIT DROP`) inside the load transaction; one query returns every failing value of R1.3, R1.5, R1.6, R2.13, R3.11, R3.12 and R3.15 against the clean history plus the stage. Only if nothing critical fails is the month moved from the stage into clean.
+- **History rules** (`validation/report.py`). R4.6 compares the missing-value share of each column with the previous month's profile, stored in `ops.column_profile` on every load. R5 compares the volume with the median of the 12 previous live clean loads in `ops.ingest_log`; it is not applied with fewer than 12 months or a median below 1,000 (R5.3), and the report says so.
+- **Cleaning** now reports every failing column of a month at once (`CleaningError.failures`), as pandera does.
+- **Report** (D-053). Every run writes `validation/<YYYY-MM>/validation_<timestamp>.json` and a `.md` summary next to the landing folder (`data/validation`): status, rows per stream, contract changes in force, every finding with rule, level, stream, column, count and examples, and notes on rules not applied.
+
+**Postgres**: new migration `20261123130000_create_validation_tables.sql` with `ops.validation_warnings` and `ops.column_profile` (both with checks on period, stream and counts, and a foreign key to the load). `delete_period` also removes them.
+
+**Commands**: unchanged. `make ingest PERIOD=YYYY-MM` now validates; a failure exits with the report path.
+
+**Tests**
+
+| Group | File | Tests |
+|---|---|---|
+| T4 Validation (16) | `tests/unit/test_validation.py`, `tests/integration/test_validation.py`, `tests/data/test_ingest_data.py`, `tests/data/test_validation_data.py` | 1 a valid month passes every rule; 2 each critical pandera rule fails on a valid row with one change and names itself, the loan and the value (36 cases, and a check that every rule has one); 3 each warning lets the month pass and is counted (7 cases); 4 three broken rules reported at once; 5 limits inclusive (amount, rate, money tolerance, FICO, `dti`, volume ratios and the 1,000 minimum, missing-share 10 points); 6 each dated change fails the month before and passes from its month (C1 to C9); 7 reviewed exceptions pass only their rule, loan and month; 8 cleaning reports every failing column; 9 every rule in the code is in the catalogue and back; 10 each SQL and history rule has a failing case in Postgres; 11 a critical failure stops the whole month and rolls back a failing SQL rule; 12 warnings stored once per month; 13 a failed month enters once fixed; 14 every run writes its JSON and summary report; 15 real data: no critical failure, the 5 exceptions, and every warning count and month of the catalogue; 16 real data: the base contract alone stops exactly at the months of C1 to C9 |
+
+Tests T3 were kept as approved; their fixtures now start from rows that pass validation (`tests/valid_rows.py`) and `build_clean` builds a month instead of one stream, because the month became the unit.
+
+**Measurements** (2026-11-23, cloud machine, 4 CPUs)
+
+| What | Result |
+|---|---|
+| pandera rules over the 284 real deliveries | 28 s listings, 10 s outcomes |
+| Load all 142 months into raw and clean, with validation | 383 s (194 s without validation in step 2.1) |
+| Full real load | 0 critical failures; 5 reviewed exceptions; warnings: R2.10 2,563 rows, R2.11 3, R2.12 20, R2.13 21 months, R3.14 4, R3.15 433, R4.6 153 column-months (4 months in 2014 to 2018), R5.2 4 months |
+| Application image | 466 MB (pandera adds 10 MB; budget 500 MB, D-052) |
+
+**Checks of the step**
+
+| Playbook criterion | Result |
+|---|---|
+| Every run validates the data and a critical failure stops the pipeline | T4.2, T4.10, T4.11 |
+| Rules are explicit, with level and reason | `docs/validation_rules.md`; T4.9 keeps code and catalogue equal |
+| Each failure says what, where and why | T4.2, T4.14 |
+| Warnings are kept for monitoring | T4.12 |
+| The rules hold on the real data | T4.15, T4.16 |
