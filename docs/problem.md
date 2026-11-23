@@ -92,7 +92,7 @@ The minimum a model must beat to be worth deploying.
 
 Consequences:
 
-- **Training uses only loans whose outcome is complete** (matured or closed), as in the research phase. Training on running loans would teach the model that recent loans are safe.
+- **Training uses only matured cohorts** (D-040): loans listed at least `term + 5` months before the training date, whose outcome is fully known. Training on running loans would teach the model that recent loans are safe; training on every loan already closed would overstate the default rate, because bad loans end sooner than good ones.
 - **Real performance arrives 3 to 5 years late.** Monitoring therefore relies on data drift and on an **early-warning metric: the default rate within the first 12 months** of each monthly cohort, compared with what the model predicted for that cohort. This needs the date of default (or of last payment), to be confirmed in step 0.2.
 - Early in the simulation few loans have a complete outcome (Lending Club was small in 2007 to 2010). Step 0.2 quantifies how many loans are available for the first training.
 
