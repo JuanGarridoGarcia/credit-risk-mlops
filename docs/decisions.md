@@ -82,6 +82,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-072](#d-072) | 2026-11-23 | 3.2 | The gradient boosting candidate is LightGBM | Active |
 | [D-073](#d-073) | 2026-11-23 | 3.2 | Hyperparameters are tuned on an inner time split of the training set; validation stays clean | Active |
 | [D-074](#d-074) | 2026-11-23 | 3.2 | Search: Optuna TPE with 50 seeded trials for LightGBM, a grid over `C` for the logistic regression | Active |
+| [D-075](#d-075) | 2026-11-23 | 3.2 | "Better by more than the noise": the 95% paired bootstrap interval of the difference lies above zero | Active |
 
 ## Decisions
 
@@ -853,3 +854,14 @@ Date: 2026-11-23 · Step: 3.2 · Status: Active
 - **Alternatives considered**: (A) grid search for both: exhaustive, but the grid explodes with six hyperparameters; (B) random search with a fixed number of trials: simple and good, but it does not learn from earlier trials.
 - **Why**: TPE spends its trials where results are good and can stop bad trials early; Optuna records trials in a way MLflow can log (step 3.2). With a single hyperparameter, a grid is already the best search. A time budget depends on the machine's speed and load, so the same code, data and seed could give a different model; a fixed number of trials keeps the run reproducible (playbook 3.2: the same seed gives the same metrics).
 - **Consequences**: Optuna becomes a training dependency only, not needed to serve predictions. The 50 trials and the ranges searched are fixed in code and logged with every run; changing them is a new decision.
+
+<a id="d-075"></a>
+### D-075 "Better by more than the noise": the 95% paired bootstrap interval of the difference lies above zero
+
+Date: 2026-11-23 · Step: 3.2 (defines the noise rule of D-006, D-042 and D-068) · Status: Active
+
+- **Context**: "better by more than the metric noise" decides three things: logistic regression against LightGBM (D-068), the chosen model against the baseline, and later a challenger against the champion. D-042 fixed that noise is measured by bootstrap on the validation set, but not how two models are compared.
+- **Decision**: **paired bootstrap of the difference**. The validation set is resampled with replacement 1,000 times, with a fixed seed, stratified by label (each resample keeps the number of defaults and non-defaults). In each resample both models are scored on the same loans and the difference of the metric (new minus current) is computed. The new model wins only if the 95% interval of the 1,000 differences lies entirely above zero (below zero for a metric where lower is better, such as the Brier score). Otherwise there is no clear winner and the simpler or the current model stays.
+- **Alternatives considered**: (A) a separate interval for each model, with a win only if they do not overlap: intuitive, but it counts the noise the two models share twice and misses real gains; (C) DeLong's test: a closed formula, but for AUC only.
+- **Why**: two models scored on the same loans move up and down together from one resample to the next; that shared movement is most of the noise of each AUC and cancels in the difference. A simulation with the size of the T0 validation set (4,324 loans, 429 defaults) and two models sharing most of their signal gave AUC 0.655 (95% interval 0.628 to 0.684) and 0.681 (0.655 to 0.707): the intervals overlap, but the paired difference, 0.026, had an interval from 0.012 to 0.040 (spread 0.007 against 0.014 for each model). The method works for any metric.
+- **Consequences**: one shared function computes the paired comparison for every use (candidates, baseline, champion and challenger). Its intervals and the 1,000 differences are logged with each run.
