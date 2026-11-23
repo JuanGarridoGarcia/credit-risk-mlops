@@ -858,7 +858,7 @@ Date: 2026-11-23 · Step: 3.2 · Status: Active
 <a id="d-075"></a>
 ### D-075 "Better by more than the noise": the 95% paired bootstrap interval of the difference lies above zero
 
-Date: 2026-11-23 · Step: 3.2 (defines the noise rule of D-006, D-042 and D-068) · Status: Active
+Date: 2026-11-23 · Step: 3.2 (defines the noise rule used by D-042 and D-068) · Status: Active
 
 - **Context**: "better by more than the metric noise" decides three things: logistic regression against LightGBM (D-068), the chosen model against the baseline, and later a challenger against the champion. D-042 fixed that noise is measured by bootstrap on the validation set, but not how two models are compared.
 - **Decision**: **paired bootstrap of the difference**. The validation set is resampled with replacement 1,000 times, with a fixed seed, stratified by label (each resample keeps the number of defaults and non-defaults). In each resample both models are scored on the same loans and the difference of the metric (new minus current) is computed. The new model wins only if the 95% interval of the 1,000 differences lies entirely above zero (below zero for a metric where lower is better, such as the Brier score). Otherwise there is no clear winner and the simpler or the current model stays.
