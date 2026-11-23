@@ -77,6 +77,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-067](#d-067) | 2026-11-23 | 3.1 | F3 fixes a training procedure, not a model, using only data available at T0 | Active |
 | [D-068](#d-068) | 2026-11-23 | 3.2 | PD candidates: logistic regression and one gradient boosting model; within the noise, the simpler wins | Active |
 | [D-069](#d-069) | 2026-11-23 | 3.1 | Validation split per term: the last 6 matured listing months of each term | Active |
+| [D-070](#d-070) | 2026-11-23 | 3.1 | Coverage rule: a term is scored only with at least 200 defaults in its training and 200 in its validation | Active |
 
 ## Decisions
 
@@ -793,3 +794,14 @@ Date: 2026-11-23 · Step: 3.1 (supersedes D-042) · Status: Active (implementati
 - **Alternatives considered**: (A) keep D-042: no 60-month loan in validation, ever; (C) one model per term: each one specialises, but it splits data that are already scarce and doubles what must be maintained and monitored.
 - **Why**: a small, local change that puts both terms into validation in their natural proportion, and keeps each term out of time on its own.
 - **Consequences**: the 60-month validation is two years older than the 36-month one. Across terms, the training set can hold 36-month loans listed after some 60-month validation loans (at 2018-12: 36-month training up to 2015-01, 60-month validation 2013-02 to 2013-07), so the period conditions the model learned from those later loans can make the 60-month validation slightly optimistic; accepted and documented. `sql/training_ids.sql`, its tests (T5.4 and the polars cross-check T5.12) and the measurements of step 2.3 change; the test changes need Juan's approval first. What to do while a term has no matured loans (60-month loans at T0) is a separate decision.
+
+<a id="d-070"></a>
+### D-070 Coverage rule: a term is scored only with at least 200 defaults in its training and 200 in its validation
+
+Date: 2026-11-23 · Step: 3.1 · Status: Active
+
+- **Context**: 60-month loans started in 2010-05 and mature 65 months later (D-040), so at T0 the model has not seen a single one, and `term` is constant in its training set. Yet they were 25.5% of the loans listed in 2013 (D-069), so about one in four loans of the replay would be scored by a model that never saw their kind. Counting dates only (no outcomes), 60-month loans get their own training and validation loans around 2016.
+- **Decision**: each model records the terms it **covers**: a term is covered when the model's training set holds at least **200 defaults** of that term and its validation set (D-069) at least **200**. A loan of a term the champion does not cover gets no PD: it is marked out of coverage and is not bought. A term becomes covered at the first retraining that meets the rule. The minimum may be revised once the metric noise is measured (step 3.2).
+- **Alternatives considered**: (A) score every loan anyway: a 36-month risk for a 60-month loan, almost surely too low, and the error flows into expected loss and the buy decision; (C) adjust 60-month risk with partial outcomes observed by T0: scores everything from the start, but uses incomplete outcomes, the bias D-040 ruled out, and is hard to validate.
+- **Why**: an investor buys only what their model can assess. With fewer than about 200 defaults the error of the AUC and of the calibration of a term is too large to rely on (at T0, with 429 validation defaults in all, the AUC error is about 0.015).
+- **Consequences**: until 60-month loans are covered, about a quarter of the listed loans is not bought. The API, the stored predictions and the buy rule must handle "out of coverage". The business metric (D-007) compares our portfolio and the baseline portfolio on the same eligible loans with the same budget, and the share of loans out of coverage is reported apart. The covered terms are stored with each model.
