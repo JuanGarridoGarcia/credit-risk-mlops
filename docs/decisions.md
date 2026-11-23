@@ -58,6 +58,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-048](#d-048) | 2026-11-23 | 2.1 | Schema migrations with dbmate, plain SQL, never edited once merged | Active |
 | [D-049](#d-049) | 2026-11-23 | 2.1 | Idempotent loads: replace the whole period in one transaction, plus a load log | Active |
 | [D-050](#d-050) | 2026-11-23 | 2.1 | Deliveries written as gzip-compressed CSV, all text | Active |
+| [D-051](#d-051) | 2026-11-23 | 2.1 | Cleaning is minimal and has no opinions | Active |
 
 ## Decisions
 
@@ -574,3 +575,14 @@ Date: 2026-11-23 · Step: 2.1 · Status: Active
 - **Alternatives considered**: Parquet (typed, columnar, smaller and faster).
 - **Why**: it is the format Lending Club published, so "store the raw data as it is" (D-044) is literal; Postgres `COPY` reads CSV natively; the files can be opened with any tool. With Parquet the simulator would either write types, which is cleaning and belongs to the system (D-045), or write everything as text and lose Parquet's main advantage.
 - **Consequences**: larger and slower to read than Parquet, irrelevant at the size of a month. A change of format in a column is caught by validation on the raw layer (step 2.2), with strict cleaning (D-046) as a second net.
+
+<a id="d-051"></a>
+### D-051 Cleaning is minimal and has no opinions
+
+Date: 2026-11-23 · Step: 2.1 · Status: Active
+
+- **Context**: without a boundary, cleaning grows and ends up taking hidden modelling decisions (for example, capping `dti` at 100 would hide 2,561 loans from anyone reading the model code). The clean layer serves the PD model, the LGD model and monitoring alike.
+- **Decision**: cleaning may only (1) **convert types** (text to number, `Dec-2015` to a date), (2) **normalise documented formats** (`" 36 months"` to 36, `"10+ years"` to 10, `"< 1 year"` to 0) and (3) **decode values that Lending Club documents as "unknown"**. It never removes rows, fills missing values, caps extremes, merges categories or creates features: that is modelling, done in step 2.4 with its own reasons. Impossible or suspicious values are not fixed by cleaning; validation (step 2.2) detects them and decides whether to stop or warn.
+- **Alternatives considered**: broad cleaning that also merges rare categories, caps extremes and fills simple gaps, so the clean layer is ready to model.
+- **Why**: the clean layer stays "the data as it should have arrived", useful for every purpose and easy to audit; every modelling decision is visible where it is taken.
+- **Consequences**: more work in step 2.4. Applying the rule already changed a proposal of the audit: `dti = 999` is not documented as unknown and turned out to be a cap caused by implausible incomes (E-014), so it stays as it is; `annual_inc = 0` is a real value of joint applications. Both become validation rules.
