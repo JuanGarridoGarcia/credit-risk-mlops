@@ -27,7 +27,7 @@ Status of every step of the playbook. Updated in every pull request.
 | | 1.4 Documentation skeleton | Done | #2 | D-033 to D-036 |
 | F2 Data | 2.1 Idempotent ingestion | In review | | D-039 to D-052; E-013 to E-019 |
 | | 2.2 Data validation | In review | | D-053 to D-057; E-020, E-021; rules in validation_rules.md; tests in tests.md |
-| | 2.3 Data versioning | In design | | D-058 to D-060 |
+| | 2.3 Data versioning | In design | | D-058 to D-061 |
 | | 2.4 Features | Pending | | |
 | F3 Model | 3.1 Baseline | Pending | | |
 | | 3.2 Tracking and experiments | Pending | | |

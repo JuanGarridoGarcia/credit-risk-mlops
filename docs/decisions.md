@@ -68,6 +68,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-058](#d-058) | 2026-11-23 | 2.3 | A training set version is an immutable snapshot plus a manifest of where it came from | Active |
 | [D-059](#d-059) | 2026-11-23 | 2.3 | Snapshots in object storage by content hash; manifests in Postgres | Active |
 | [D-060](#d-060) | 2026-11-23 | 2.3 | A snapshot is two files: what training may see, and what only evaluation may see | Active |
+| [D-061](#d-061) | 2026-11-23 | 2.3 | Two hashes: the content hash names a version, the file checksum guards the stored file | Active |
 
 ## Decisions
 
@@ -690,4 +691,14 @@ Date: 2026-11-23 · Step: 2.3 · Status: Active
 - **Alternatives considered**: (A) features and label only: safest, but evaluation in money goes back to `clean` and is no longer reproducible from the snapshot; (B) everything in one file with a prefix on the evaluation columns: reproducible, but one wrong `select` puts future payments into the model.
 - **Why**: the structure prevents the leak instead of relying on discipline, and evaluation stays reproducible. `features.parquet` keeps every listing column, not only the model's: which columns the model uses and how they are prepared is step 2.4, so the snapshot does not depend on it.
 - **Consequences**: the version path of D-059 becomes a folder, `training_sets/<hash>/` with both files; the hash covers both. The label is allowed in the training file although it comes from the future because it is the target, never an input, and exists only for matured cohorts.
+
+### D-061 Two hashes: the content hash names a version, the file checksum guards the stored file
+
+Date: 2026-11-23 · Step: 2.3 · Status: Active
+
+- **Context**: the hash names a version (D-059) and checks that a rebuild gives the same data (D-058). That check must fire when the data changes, and only then. A Parquet file stores the version of the library that wrote it, its compression and its row groups, so the same data can give different bytes.
+- **Decision**: the **content hash** is SHA-256 over a canonical text form of the data: rows sorted by `id`, columns in a fixed order with their types, each value written in one fixed way. It is the identity and the path of the version. The **file checksum** (SHA-256 of the bytes of each stored file) goes in the manifest and is verified every time a file is read.
+- **Alternatives considered**: (A) the hash of the file bytes only: simple, but updating polars changes the bytes and the rebuild check raises false alarms, which teaches people to ignore it; (B) the content hash only: no way to tell that a stored file was corrupted or altered. polars `hash_rows` was rejected: its documentation warns that its result may change between versions.
+- **Why**: "are these the same data?" and "is this the file I stored?" are two different questions, each with its own hash.
+- **Consequences**: if a version is rebuilt and its path already exists, nothing is written: the content hash proves the data are the same, and the stored file is verified against its checksum; a failed checksum stops with an error instead of overwriting.
 
