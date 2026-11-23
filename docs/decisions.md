@@ -49,7 +49,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-039](#d-039) | 2026-11-23 | 2.1 | Simulated arrival: listings and outcomes as two separate streams | Active |
 | [D-040](#d-040) | 2026-11-23 | 2.3 (audit 9.4) | Training labels: matured cohorts only | Active |
 | [D-041](#d-041) | 2026-11-23 | 2.1 (audit 9.5) | Simulation window: first training 2014-01, replay 2014-01 to 2018-12 | Active |
-| [D-042](#d-042) | 2026-11-23 | 2.3 (audit 9.6) | Validation split: out-of-time, last 6 listing months | Active |
+| [D-042](#d-042) | 2026-11-23 | 2.3 (audit 9.6) | Validation split: out-of-time, last 6 listing months | Superseded by D-069 |
 | [D-043](#d-043) | 2026-11-23 | 2.1 | A separate simulator is the only code that reads the 2019 file | Active |
 | [D-044](#d-044) | 2026-11-23 | 2.1 | Two table layers: raw (text as delivered) and clean (typed) | Active |
 | [D-045](#d-045) | 2026-11-23 | 2.1 | Cleaning in one Python module; batch-only logic in SQL | Active |
@@ -76,6 +76,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-066](#d-066) | 2026-11-23 | F3 (cross-cutting) | uv, the uv_build backend and the uv Docker image move together, to 0.13.9 | Active |
 | [D-067](#d-067) | 2026-11-23 | 3.1 | F3 fixes a training procedure, not a model, using only data available at T0 | Active |
 | [D-068](#d-068) | 2026-11-23 | 3.2 | PD candidates: logistic regression and one gradient boosting model; within the noise, the simpler wins | Active |
+| [D-069](#d-069) | 2026-11-23 | 3.1 | Validation split per term: the last 6 matured listing months of each term | Active |
 
 ## Decisions
 
@@ -497,7 +498,7 @@ Date: 2026-11-23 · Step: 2.1 (audit decision 9.5) · Status: Active
 <a id="d-042"></a>
 ### D-042 Validation split: out-of-time, last 6 listing months
 
-Date: 2026-11-23 · Step: 2.3 (audit decision 9.6) · Status: Active
+Date: 2026-11-23 · Step: 2.3 (audit decision 9.6) · Status: Superseded by D-069 (the window is now taken per term)
 
 - **Context**: the validation set is where everything the model does not learn by itself is chosen (hyperparameters, early stopping, candidate comparison, calibration, buy threshold, metric noise). The test is the forward replay (D-041), which does not exist yet at training time.
 - **Decision**: at every training, the **last 6 listing months** of the matured cohorts (D-040) are the validation set; the earlier months are the training set. First model: train 7,745 loans (2007-06 to 2010-02), validation 4,333 loans with 432 defaults (2010-03 to 2010-08). Metric noise is measured by bootstrap on the validation set.
@@ -781,3 +782,14 @@ Date: 2026-11-23 · Step: 3.2 · Status: Active
 - **Alternatives considered**: (A) logistic regression only: simplest, but it can never use interactions even when data grow; (C) six models as in the research phase: the search at every retraining costs about six times more, for models that did not win there.
 - **Why**: the two archetypes of tabular modelling. The logistic regression is stable with little data, transparent and the regulatory standard in scoring; gradient boosting finds interactions and non-linear effects and handles missing values natively, which pays off with more data. Under D-067 the data of each date decide between them. The tie rule prefers what is easier to explain, check and maintain when the data cannot tell them apart.
 - **Consequences**: two preparation pipelines to maintain and test. The exact form of "within the noise" is fixed with the promotion rules (step 3.3).
+
+<a id="d-069"></a>
+### D-069 Validation split per term: the last 6 matured listing months of each term
+
+Date: 2026-11-23 · Step: 3.1 (supersedes D-042) · Status: Active (implementation in the F3 pull request)
+
+- **Context**: D-042 takes the last 6 listing months of all matured loans as validation. A 60-month loan matures 24 months later than a 36-month one (D-040), so the last 6 matured months are always 36-month loans: the validation set never holds a 60-month loan, at any cutoff. Selection, calibration and the tests by segment would never see them, although 60-month loans were 25.5% of the loans listed in 2013 (34,000 of 134,800; information available at T0).
+- **Decision**: the window is taken **per term**. At cutoff T, validation holds the 36-month loans listed from T-46 to T-41 and the 60-month loans listed from T-70 to T-65; earlier matured loans of each term are training. Everything else of D-042 stays: out of time, metric noise by bootstrap on validation, nothing that learns or chooses may touch the test (the forward replay).
+- **Alternatives considered**: (A) keep D-042: no 60-month loan in validation, ever; (C) one model per term: each one specialises, but it splits data that are already scarce and doubles what must be maintained and monitored.
+- **Why**: a small, local change that puts both terms into validation in their natural proportion, and keeps each term out of time on its own.
+- **Consequences**: the 60-month validation is two years older than the 36-month one. Across terms, the training set can hold 36-month loans listed after some 60-month validation loans (at 2018-12: 36-month training up to 2015-01, 60-month validation 2013-02 to 2013-07), so the period conditions the model learned from those later loans can make the 60-month validation slightly optimistic; accepted and documented. `sql/training_ids.sql`, its tests (T5.4 and the polars cross-check T5.12) and the measurements of step 2.3 change; the test changes need Juan's approval first. What to do while a term has no matured loans (60-month loans at T0) is a separate decision.
