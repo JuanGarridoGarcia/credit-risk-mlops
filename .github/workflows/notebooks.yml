@@ -13,7 +13,6 @@ on:
       - notebooks/**
       - reports/data_audit/**
       - uv.lock
-      - tools/same_pixels.py
       - .github/workflows/notebooks.yml
   workflow_dispatch:
 

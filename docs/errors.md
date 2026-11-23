@@ -263,11 +263,11 @@ Date: 2026-11-23 · Step: 2.4 · Severity: minor
 - **Fix**: a first step in the workflow stops the job with a clear error when the secret is empty. The secret is added by the repository owner in the GitHub settings.
 - **Prevention**: the same check stops every later run at the first step with the message, so a missing or deleted secret is seen at once.
 
-### E-024 The audit figure came out with different bytes on GitHub
+### E-024 The audit figure came out different on GitHub
 
 Date: 2026-11-23 · Step: 2.4 · Severity: minor
 
-- **Symptom**: the first full run of the Notebooks workflow (D-065) on GitHub executed the notebook without error and every table matched, but `reports/data_audit/loans_per_month.png` changed from 58,213 to 49,354 bytes. In the cloud machine where it was made, the same run gave the same bytes.
-- **Cause**: a PNG stores its pixels compressed. The image library (Pillow) compresses with zlib-ng, which takes different paths on different CPUs (this machine has AVX-512, GitHub's runners may not), so the same pixels can give different bytes. The font, the data and the library versions are the same on both machines.
-- **Fix**: `make notebooks` compares every output byte for byte except the PNG figures; `tools/same_pixels.py` decodes each figure and compares its pixels with the committed one. The workflow also runs on pull requests that change that script. Checked: the same image compressed another way passes, one changed pixel fails.
-- **Prevention**: the comparison now checks what the figure shows, not how it is stored. If the next GitHub run still finds different pixels, the drawing itself differs between machines and this entry is reopened.
+- **Symptom**: the first full run of the Notebooks workflow (D-065) on GitHub executed the notebook without error and every table matched, but `reports/data_audit/loans_per_month.png` changed from 58,213 to 49,354 bytes. Decoded, 38,719 pixels differed, spread over the whole plot. In the cloud machine where it was made, the same run gave the same bytes.
+- **Cause**: the figure is drawn from `loans_per_month.csv`, which matched byte for byte, with the same locked library versions, so the drawing itself depends on the machine. Ruled out here: the font (the system copy of DejaVu Sans gives the same image), the CPU paths of numpy and OpenBLAS (turning off AVX-512 gives the same image) and the PNG compression (a first fix compared pixels instead of bytes and still failed). The exact cause was not found, because the artifact with the GitHub image cannot be downloaded from the cloud machine.
+- **Fix**: Juan decided to leave the PNG figures out of the comparison: `git diff --exit-code -- reports/data_audit ':(exclude)*.png'`. A figure is a view of a table that is still compared, so a changed number is still caught. A failed run uploads its outputs as a workflow artifact, kept 14 days.
+- **Prevention**: every number shown in a figure is also written to a table in `reports/data_audit`, which is compared. A figure without its table would not be checked.

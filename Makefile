@@ -66,7 +66,6 @@ test-data: data ## Run the tests that need the real data file (not in CI)
 notebooks: ## Run the audit notebook top to bottom; fails if its outputs differ from the committed ones (D-065)
 	$(UV) --group notebooks jupyter nbconvert --to notebook --execute --inplace notebooks/00_data_audit.ipynb
 	git diff --exit-code --stat -- reports/data_audit ':(exclude)*.png'
-	$(UV) --group notebooks python tools/same_pixels.py reports/data_audit
 
 build: ## Build the application image
 	docker build $(DOCKER_BUILD_FLAGS) -t $(IMAGE) .

@@ -79,7 +79,6 @@ credit-risk-mlops/
   config/                   parameters in files (from F2)
   docs/                     problem, audit, decisions, errors, this document
   notebooks/                exploration and report notebooks, never production code
-  tools/                    small development scripts, not shipped in the image
   reports/                  generated tables and figures
   data/                     downloaded data, git-ignored
 ```
@@ -446,5 +445,5 @@ D-064 closes D-031. `make test-integration` runs the unit tests and the non-dest
 
 ### F2 cross-cutting: the audit notebook in CI
 
-D-065 closes the open point of D-021. `make notebooks` runs `notebooks/00_data_audit.ipynb` top to bottom with nbconvert and fails if any file of `reports/data_audit` differs from the committed one: byte for byte with `git diff --exit-code`, except the PNG figures, whose decoded pixels are compared by `tools/same_pixels.py` because the same pixels compress to different bytes on different CPUs (E-024). The `Notebooks` workflow runs it every Monday at 05:00 UTC, by hand, and on pull requests that touch the notebook, its outputs, `uv.lock` or the workflow, with the repository secret `KAGGLE_API_TOKEN`. Run here on 2026-11-23: 1 min 53 s, every output byte-identical.
+D-065 closes the open point of D-021. `make notebooks` runs `notebooks/00_data_audit.ipynb` top to bottom with nbconvert and fails if any file of `reports/data_audit` differs from the committed one: byte for byte with `git diff --exit-code`, except the PNG figures (E-024). A figure only draws a table that is compared, such as `loans_per_month.csv`, and its pixels change from one machine to another. A failed run keeps its outputs as a workflow artifact for 14 days. The `Notebooks` workflow runs it every Monday at 05:00 UTC, by hand, and on pull requests that touch the notebook, its outputs, `uv.lock` or the workflow, with the repository secret `KAGGLE_API_TOKEN`. Run here on 2026-11-23: 1 min 53 s, every output byte-identical.
 
