@@ -81,6 +81,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-071](#d-071) | 2026-11-23 | 3.2 | `installment` never enters; a recomputed instalment and its ratio to income are F3 experiments | Active |
 | [D-072](#d-072) | 2026-11-23 | 3.2 | The gradient boosting candidate is LightGBM | Active |
 | [D-073](#d-073) | 2026-11-23 | 3.2 | Hyperparameters are tuned on an inner time split of the training set; validation stays clean | Active |
+| [D-074](#d-074) | 2026-11-23 | 3.2 | Search: Optuna TPE with 50 seeded trials for LightGBM, a grid over `C` for the logistic regression | Active |
 
 ## Decisions
 
@@ -841,3 +842,14 @@ Date: 2026-11-23 · Step: 3.2 (closes part of the open point of D-042) · Status
 - **Alternatives considered**: (A) tune on the validation set directly: simple, but it is then spent and every later comparison is optimistic; (C) time-series cross-validation inside training (several expanding windows): the most robust, but several times dearer at every retraining, and at T0 its first windows (2007 and 2008) hold very few defaults.
 - **Why**: the same time logic as the outer split, at little cost, and the validation set stays honest for the decisions that matter most.
 - **Consequences**: at T0 tuning works with little data: about 4,700 inner training and 3,000 inner validation loans (estimated from listing counts); it grows by itself at later retrainings. A term with no loans in the inner window is tuned on the other term only. Whether calibration needs its own part of validation, and whether to refit on training plus validation, are still open.
+
+<a id="d-074"></a>
+### D-074 Search: Optuna TPE with 50 seeded trials for LightGBM, a grid over `C` for the logistic regression
+
+Date: 2026-11-23 · Step: 3.2 · Status: Active
+
+- **Context**: the search runs at every retraining (D-067) on the inner split (D-073). LightGBM has about six hyperparameters that matter; the logistic regression has one, the strength of its regularisation `C`.
+- **Decision**: **LightGBM**: Bayesian search with Optuna's TPE sampler, **50 trials**, fixed seed, early stopping on the inner validation set (so the number of trees is chosen by the data). **Logistic regression**: a grid of about 20 values of `C` on a log scale. The budget is a number of trials, never a time limit.
+- **Alternatives considered**: (A) grid search for both: exhaustive, but the grid explodes with six hyperparameters; (B) random search with a fixed number of trials: simple and good, but it does not learn from earlier trials.
+- **Why**: TPE spends its trials where results are good and can stop bad trials early; Optuna records trials in a way MLflow can log (step 3.2). With a single hyperparameter, a grid is already the best search. A time budget depends on the machine's speed and load, so the same code, data and seed could give a different model; a fixed number of trials keeps the run reproducible (playbook 3.2: the same seed gives the same metrics).
+- **Consequences**: Optuna becomes a training dependency only, not needed to serve predictions. The 50 trials and the ranges searched are fixed in code and logged with every run; changing them is a new decision.
