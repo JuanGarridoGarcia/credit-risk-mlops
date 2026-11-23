@@ -3,13 +3,12 @@
 import gzip
 import hashlib
 import io
-from datetime import date
 from pathlib import Path
 from typing import Final
 
 import polars as pl
 
-from credit_risk.contracts import LISTINGS, OUTCOMES, SOURCE_COLUMNS
+from credit_risk.contracts import SOURCE_COLUMNS
 from credit_risk.simulator.core import SourceError
 
 #: SHA-256 of ``accepted_2007_to_2018Q4.csv.gz`` recorded at the first download (D-012).
@@ -42,13 +41,6 @@ def read_source(path: Path, expected_sha256: str = SOURCE_SHA256) -> pl.DataFram
     if missing or extra:
         raise SourceError(f"unexpected columns: missing {sorted(missing)}, extra {sorted(extra)}")
     return frame
-
-
-def delivery_path(landing: Path, period: date, stream: str) -> Path:
-    """``<landing>/YYYY-MM/<stream>.csv.gz``."""
-    if stream not in (LISTINGS, OUTCOMES):
-        raise ValueError(f"unknown stream {stream!r}")
-    return landing / f"{period:%Y-%m}" / f"{stream}.csv.gz"
 
 
 def write_delivery(frame: pl.DataFrame, path: Path) -> None:

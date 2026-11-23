@@ -11,6 +11,8 @@ attribute whose visibility cannot be proven, so it is never a feature). ``outcom
 holds ``id`` plus every other column. Order follows the source file.
 """
 
+from datetime import date
+from pathlib import Path
 from typing import Final
 
 LISTINGS: Final = "listings"
@@ -179,3 +181,10 @@ OUTCOME_COLUMNS: Final[tuple[str, ...]] = ("id", *OUTCOME_ONLY_COLUMNS)
 
 #: Every column of the source file, in its order.
 SOURCE_COLUMNS: Final[frozenset[str]] = frozenset(LISTING_COLUMNS) | frozenset(OUTCOME_ONLY_COLUMNS)
+
+
+def delivery_path(landing: Path, period: date, stream: str) -> Path:
+    """Where the delivery of a month of a stream lives: ``<landing>/YYYY-MM/<stream>.csv.gz``."""
+    if stream not in STREAMS:
+        raise ValueError(f"unknown stream {stream!r}")
+    return landing / f"{period:%Y-%m}" / f"{stream}.csv.gz"

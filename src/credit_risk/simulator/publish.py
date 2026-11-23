@@ -8,9 +8,9 @@ from pathlib import Path
 
 import polars as pl
 
-from credit_risk.contracts import LISTINGS, OUTCOMES
+from credit_risk.contracts import LISTINGS, OUTCOMES, delivery_path
 from credit_risk.simulator import core
-from credit_risk.simulator.io import SOURCE_SHA256, delivery_path, read_source, write_delivery
+from credit_risk.simulator.io import SOURCE_SHA256, read_source, write_delivery
 
 log = logging.getLogger(__name__)
 
