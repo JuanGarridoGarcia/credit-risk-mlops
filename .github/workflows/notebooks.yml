@@ -48,3 +48,10 @@ jobs:
       - run: make notebooks
         env:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      # On failure, keep the outputs this run produced, to compare them with the committed ones.
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: data-audit-outputs
+          path: reports/data_audit/
+          retention-days: 14

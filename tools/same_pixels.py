@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 
 def _committed(path: Path) -> bytes:
@@ -23,20 +23,32 @@ def _committed(path: Path) -> bytes:
     ).stdout
 
 
-def _pixels(data: bytes) -> tuple[str, tuple[int, int], bytes]:
+def _image(data: bytes) -> Image.Image:
     with Image.open(io.BytesIO(data)) as image:
-        return image.mode, image.size, image.tobytes()
+        return image.convert("RGBA")
+
+
+def difference(new: bytes, old: bytes) -> str | None:
+    """None if both PNGs show the same pixels, otherwise what differs."""
+    a, b = _image(new), _image(old)
+    if a.size != b.size:
+        return f"size {a.size} instead of {b.size}"
+    diff = ImageChops.difference(a, b)
+    box = diff.getbbox(alpha_only=False)
+    if box is None:
+        return None
+    count = sum(1 for p in diff.get_flattened_data() if any(p))
+    return f"{count} pixels differ, inside the box {box}"
 
 
 def main(folder: str) -> int:
-    changed = [
-        path
-        for path in sorted(Path(folder).glob("*.png"))
-        if _pixels(path.read_bytes()) != _pixels(_committed(path))
-    ]
-    for path in changed:
-        print(f"{path}: pixels differ from the committed image")
-    return 1 if changed else 0
+    failed = False
+    for path in sorted(Path(folder).glob("*.png")):
+        found = difference(path.read_bytes(), _committed(path))
+        if found:
+            print(f"{path}: {found}")
+            failed = True
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
