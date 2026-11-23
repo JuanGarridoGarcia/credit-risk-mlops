@@ -63,6 +63,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-053](#d-053) | 2026-11-23 | 2.2 | Validation rules written with pandera on polars | Active |
 | [D-054](#d-054) | 2026-11-23 | 2.2 | Two severity levels: a critical rule stops the run, a warning is reported and stored | Active |
 | [D-055](#d-055) | 2026-11-23 | 2.2 | A critical failure stops the whole month; no row quarantine | Active |
+| [D-056](#d-056) | 2026-11-23 | 2.2 | Allowed values come from a dated contract: the 2013-12 base plus dated changes | Active |
 
 ## Decisions
 
@@ -634,3 +635,14 @@ Date: 2026-11-23 · Step: 2.2 · Status: Active
 - **Alternatives considered**: quarantine of rows (good rows go to clean, bad rows to a quarantine table, the run goes on); a hybrid that quarantines below a threshold of failed rows and stops above it.
 - **Why**: failed rows are rarely random, they share a cause (a new format in one segment), so removing them biases training without anyone noticing. Listings and outcomes go together: a quarantined outcome makes its loan look still running and loses its label, the censoring bias D-040 avoids. Stopping costs little with monthly retraining. Quarantine fits high-volume streaming systems where stopping costs money; here the equivalent is the F5 API, which rejects one bad request without stopping the service.
 - **Consequences**: in step 2.3 the training set builder refuses to build at T if any month up to T is missing from clean, so a stopped month never becomes a silent gap. The report must be detailed enough to replace a quarantine table.
+
+<a id="d-056"></a>
+### D-056 Allowed values come from a dated contract: the 2013-12 base plus dated changes
+
+Date: 2026-11-23 · Step: 2.2 · Status: Active
+
+- **Context**: rules such as "`application_type` is `Individual`" need a list of allowed values and limits. Lending Club changed its product during the replay window: `home_ownership = ANY` from 2014-09, the first loans in North Dakota in 2015-07, joint applications in 2015-10, `DirectPay` disbursement in 2016-01, loans above 35,000 in 2016-03, the hardship program in the outcomes from 2017-06 (checked on the cleaned deliveries on 2026-11-23).
+- **Decision**: the contract starts from what was known up to 2013-12, the last month loaded as history before the replay (D-041). Each later change is recorded as a dated contract change with its month of entry into force, its reason and its pull request, like a migration. A delivery is validated with the contract in force in its month. A value that arrives before its change enters into force fails as critical.
+- **Alternatives considered**: (A) the 2014-01 list with a manual contract change each time, which stops again at every new run of the five-year replay; (B) the list from the whole file plus a warning when a value is seen for the first time, proposed first and rejected by Juan: it uses knowledge of the file's future to run operations, hiding the stops a real pipeline would have had; (C) the whole-file list without a warning.
+- **Why**: the contract only knows the past, as in a real system, and product changes are handled the way a real team handles them, with a reviewed change. Once accepted, a change is part of the history, so later replays run unattended and still see, each month, the contract that would have been in force then.
+- **Consequences**: a data test checks that the base contract alone stops the replay exactly at the months of the recorded changes, which shows that the stop works and that the list of changes is complete. Known simplification, documented: each change enters into force in the month the novelty first appears, as if the team reacted within the month.
