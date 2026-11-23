@@ -60,6 +60,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-050](#d-050) | 2026-11-23 | 2.1 | Deliveries written as gzip-compressed CSV, all text | Active |
 | [D-051](#d-051) | 2026-11-23 | 2.1 | Cleaning is minimal and has no opinions | Active |
 | [D-052](#d-052) | 2026-11-23 | 2.1 | Image size budget raised from 300 to 500 MB | Active |
+| [D-053](#d-053) | 2026-11-23 | 2.2 | Validation rules written with pandera on polars | Active |
 
 ## Decisions
 
@@ -598,3 +599,14 @@ Date: 2026-11-23 · Step: 2.1 (changes the threshold of test B5, D-025/D-026) ·
 - **Alternatives considered**: keep 300 MB and clean with pandas in the API (two implementations, against D-045); keep 300 MB with two images, one for loading with polars and one for the API without it (same two implementations, plus another image).
 - **Why**: the size follows from a decision already taken; breaking the single-implementation rule to save 150 MB does not pay. 456 MB is a normal size for an ML service, and scikit-learn and model libraries will enter in F3 and F5.
 - **Consequences**: B5 still catches anything that should not be in the image. The budget is reviewed when the model libraries enter.
+
+<a id="d-053"></a>
+### D-053 Validation rules written with pandera on polars
+
+Date: 2026-11-23 · Step: 2.2 · Status: Active
+
+- **Context**: step 2.2 needs rules that detect broken data before it reaches the model and stop the pipeline when a critical one fails.
+- **Decision**: rules are written as **pandera** schemas on polars frames, validated in "lazy" mode so that every failure of a run is collected at once, not only the first. Each run writes its own report (JSON plus a readable summary). Rules that cross tables (every outcome has its listing) are SQL (D-045). Pydantic validates single API requests in F5, a different job.
+- **Alternatives considered**: Great Expectations (best known, HTML reports, but heavy, complex and without polars support, so data would go through pandas against D-046); Pydantic row by row (slow for a month and blind to table rules such as volume or uniqueness); our own rules in polars and SQL (full control, but a tool of our own to test and maintain).
+- **Why**: native on polars, light, rules are code reviewed in the pull request. Collecting every failure at once means one fix-and-rerun cycle instead of one per failure, and failures seen together point to a common cause. Checked on 2026-11-23 that pandera 0.36 works with polars 2.1.
+- **Consequences**: the run report is ours to build. Great Expectations is not shown in this project.
