@@ -139,7 +139,7 @@ Table: `quality.json`. Counts are on the loans in scope (after D-013).
 | Check | Result | Proposal (validated in F2) |
 |---|---|---|
 | Duplicate `id` | 0 | Uniqueness rule |
-| Summary rows at the end of the file | 33 | Removed at ingestion |
+| Summary rows inside the file (two at the end of each original Lending Club file that Kaggle concatenated, plus one section title; corrected 2026-11-23, they are not only at the end) | 33 | Removed at ingestion |
 | `member_id` | Empty in every row | Drop |
 | `url` | Always `...loan_id=<id>`: no information | Drop |
 | `term` | `" 36 months"`, `" 60 months"` (leading space) | Parse to 36 / 60 |
