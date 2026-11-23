@@ -12,7 +12,7 @@ DOCKER_BUILD_FLAGS ?=
 # Loads .env into the environment of a recipe line (the Python settings read it from there).
 LOAD_ENV := set -a && . ./.env && set +a
 
-.PHONY: help install lint format test build test-image up down test-integration clean audit check data publish test-data migrate ingest snapshot
+.PHONY: help install lint format test build test-image up down test-integration clean audit check data publish test-data migrate ingest snapshot diff-cover
 
 help: ## List the available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -33,7 +33,7 @@ format: ## Fix what can be fixed automatically (lint fixes and formatting)
 	$(UV) ruff format .
 
 test: ## Run the unit tests with branch coverage (no Docker needed)
-	$(UV) pytest tests/unit --cov --cov-report=term-missing --cov-report=xml
+	$(UV) pytest tests/unit --cov --cov-report=term-missing --cov-report=xml --cov-fail-under=0
 
 SOURCE := data/raw/accepted_2007_to_2018Q4.csv.gz
 # Schema migrations (D-048): dbmate from its official image, pinned by version and digest.
@@ -77,9 +77,15 @@ up: ## Start the services (Postgres) and wait until they are healthy
 down: ## Stop the services; the data stays in the volume (use 'docker compose down -v' to wipe it)
 	docker compose down
 
-test-integration: up ## Run the tests that need Docker (run 'make build' first); the destructive one runs last
-	$(LOAD_ENV) && IMAGE=$(IMAGE) $(UV) pytest -m "integration and not destructive"
+test-integration: up ## Tests that need Docker (run 'make build' first), destructive last; coverage of unit + integration at least 85% (D-064)
+	$(UV) coverage erase
+	$(UV) pytest tests/unit --cov --cov-report= --cov-fail-under=0
+	$(LOAD_ENV) && IMAGE=$(IMAGE) $(UV) pytest -m "integration and not destructive" --cov --cov-append --cov-report=xml --cov-fail-under=0
 	$(LOAD_ENV) && $(UV) pytest -m destructive
+	$(UV) coverage report
+
+diff-cover: ## At least 90% of the lines changed against origin/main are covered (D-064; run after test-integration)
+	$(UV) diff-cover coverage.xml --compare-branch=origin/main --fail-under=90
 
 clean: ## Remove caches and build outputs
 	rm -rf .mypy_cache .ruff_cache .pytest_cache .coverage coverage.xml htmlcov build dist
@@ -89,4 +95,4 @@ audit: ## Check every locked dependency (all groups) against known vulnerabiliti
 	uv export --frozen --all-groups --no-emit-project --format requirements-txt > .audit-requirements.txt
 	$(UV) pip-audit --strict --disable-pip --require-hashes -r .audit-requirements.txt; status=$$?; rm -f .audit-requirements.txt; exit $$status
 
-check: lint test build test-image test-integration ## Everything CI runs on a pull request, in one command
+check: lint test build test-image test-integration diff-cover ## Everything CI runs on a pull request, in one command

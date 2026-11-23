@@ -51,14 +51,15 @@ jobs:
           enable-cache: true
       - run: uv sync --frozen
       - run: make test
-      # Coverage is measured and shown, with no minimum until F2 (decision A13).
-      - name: Coverage summary
+      # Unit tests alone are shown here; the minimum (D-064) is checked in the integration
+      # job, over unit + integration tests together.
+      - name: Coverage summary (unit tests only)
         if: always()
         run: |
           {
-            echo '### Coverage (branch)'
+            echo '### Coverage of the unit tests (branch)'
             echo '```'
-            uv run --frozen coverage report
+            uv run --frozen coverage report --fail-under=0
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -77,11 +78,13 @@ jobs:
           git --redact --verbose /repo
 
   integration:
-    name: integration (image + Postgres)
+    name: integration (image + Postgres, coverage)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # diff-cover compares with origin/main (D-064)
       - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           version: ${{ env.UV_VERSION }}
@@ -110,7 +113,23 @@ jobs:
       - run: uv sync --frozen
       # CI uses the development values of .env.example; nothing secret.
       - run: cp .env.example .env
+      # Unit + integration tests with coverage: at least 85% of branches (D-064).
       - run: make test-integration
+      # At least 90% of the lines this change adds or modifies are covered (D-064).
+      - run: make diff-cover
+      - name: Coverage summary (unit + integration)
+        if: always()
+        run: |
+          {
+            echo '### Coverage of unit + integration tests (branch)'
+            echo '```'
+            uv run --frozen coverage report --fail-under=0 || true
+            echo '```'
+            echo '### Changed lines'
+            echo '```'
+            uv run --frozen diff-cover coverage.xml --compare-branch=origin/main || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Postgres logs on failure
         if: failure()
         run: docker compose logs postgres

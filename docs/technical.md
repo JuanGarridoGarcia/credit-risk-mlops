@@ -28,7 +28,7 @@ Status of every step of the playbook. Updated in every pull request.
 | F2 Data | 2.1 Idempotent ingestion | In review | | D-039 to D-052; E-013 to E-019 |
 | | 2.2 Data validation | In review | | D-053 to D-057; E-020, E-021; rules in validation_rules.md; tests in tests.md |
 | | 2.3 Data versioning | In review | | D-058 to D-061; E-022 |
-| | 2.4 Features | In design | | D-062, D-063 |
+| | 2.4 Features | In review | | D-062, D-063 |
 | F3 Model | 3.1 Baseline | Pending | | |
 | | 3.2 Tracking and experiments | Pending | | |
 | | 3.3 Model tests and promotion rules | Pending | | |
@@ -403,4 +403,43 @@ The version at T0 built from a database loaded only up to 2014-01 (data test) an
 | A version records where it came from | T5.7 |
 | Changes in the data are detected, not silently absorbed | T5.10, T5.11 |
 | No information from after T, no leakage into training | T5.3, T5.5, T5.12 |
+
+### Step 2.4 Features
+
+The model receives 30 features computed by `credit_risk.features.build_features`, the same function in training, in the API (F5) and in monitoring (F6). Decisions D-062 and D-063.
+
+**Two layers** (D-062)
+
+```
+cleaned listing(s) ──> build_features (fixed, no state) ──> model pipeline (F3)
+                       id + 30 features, gaps kept          learned: fill gaps, encode,
+                                                            scale; fitted on train only
+```
+
+- **Fixed layer** (`features.py`): pure polars expressions on each row; nothing depends on other rows, so one listing and a whole month give the same values (T6.6).
+- **Learned layer** (F3): inside the model pipeline, fitted on the training split of a version (step 2.3) and saved with the model.
+
+**v1 features** (D-063). 20 listing columns used as they are, the FICO midpoint, the credit history in months, and 8 categorical columns. Left out: `installment` (funded-amount leak, decided in F3), `pub_rec_bankruptcies` (filled only from 2009, D-016), free text (D-015), state and zip code (D-018), the bureau fields reported from 2012 and 2015 and the second-applicant fields (D-016). Engineered features (ratios, logarithms, `sub_grade` as a number) are F3 experiments, each kept only if it beats the metric noise.
+
+Checked on the real deliveries before writing the code: the credit history goes from 6 to 999 months and is never negative; `fico_range_high` is `fico_range_low` + 4 in 2,260,227 loans and + 5 in 441.
+
+**Tests**
+
+| Group | File | Tests |
+|---|---|---|
+| T6 Features (8) | `tests/unit/test_features.py`, `tests/data/test_features_data.py` | 1 credit history by hand; 2 FICO midpoint by hand; 3 `id` and the 30 features with their types; 4 no forbidden column reaches the output; 5 every source visible at listing and reported since 2007; 6 one row equals a whole month in any order; 7 no gap filled; 8 real data: the version at 2018-12 in range |
+
+The full real load of the data tests now runs once per session (`tests/data/conftest.py`) and is shared by T3.13, T3.15, T4.15 and T6.8.
+
+**Checks of the step**
+
+| Playbook criterion | Result |
+|---|---|
+| Features are computed the same way in training and serving | One function for both; T6.6 |
+| No feature uses information from after the listing | T6.4, T6.5; outcomes live in another file of the version (D-060, T5.5) |
+| What is learned is fitted on training data only | By design (D-062): nothing learned in `features.py`; T6.7 |
+
+### F2 cross-cutting: coverage minimum
+
+D-064 closes D-031. `make test-integration` runs the unit tests and the non-destructive integration tests under one coverage measurement and fails below 85% of branches; `make diff-cover` fails when less than 90% of the lines changed against `origin/main` are covered. Both run in the CI integration job, which also writes the two reports to the run summary. Measured on 2026-11-23: unit tests alone 58%, unit and integration 89%.
 

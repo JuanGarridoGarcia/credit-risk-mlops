@@ -13,6 +13,7 @@ Every test of the project, what it checks, where it lives and where it runs. Jua
 - [T3 Loading](#t3-loading)
 - [T4 Validation](#t4-validation)
 - [T5 Training set versions](#t5-training-set-versions)
+- [T6 Features](#t6-features)
 - [Change history](#change-history)
 
 ## How tests are organised
@@ -23,7 +24,7 @@ Tests are grouped by the piece they check. Group B holds the foundations of F1 (
 |---|---|---|---|---|---|
 | Unit | `tests/unit/` | none | Nothing | `make test`, `make test-image` | CI (job `tests`), and inside the image (job `integration`) |
 | Integration | `tests/integration/` | `integration` (`destructive` for B4) | Docker: compose Postgres or the built image | `make test-integration` | CI (job `integration`) |
-| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15, T5.13, T5.14) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
+| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15, T5.13, T5.14, T6.8) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
 
 Integration and data tests never skip: if what they need is missing, they fail.
 
@@ -46,7 +47,8 @@ Changing what an approved test checks needs Juan's approval again. B6 fails if a
 | T3 Loading | F2, step 2.1 | 15 | 2026-11-23 (T3.14 and T3.15 on approval in step 2.2) | [technical.md, step 2.1](technical.md#step-21-idempotent-ingestion) |
 | T4 Validation | F2, step 2.2 | 16 | 2026-11-23 | [validation_rules.md](validation_rules.md), [technical.md, step 2.2](technical.md#step-22-data-validation) |
 | T5 Training set versions | F2, step 2.3 | 14 | 2026-11-23 | [technical.md, step 2.3](technical.md#step-23-data-versioning) |
-| **Total** | | **74** | | |
+| T6 Features | F2, step 2.4 | 8 | 2026-11-23 | [technical.md, step 2.4](technical.md#step-24-features) |
+| **Total** | | **82** | | |
 
 ## B Foundations
 
@@ -164,6 +166,21 @@ F2, step 2.3.
 | T5.13 | Real data at T0 = 2014-01: the counts known at T0 (train 7,733 with 1,019 defaults, validation 4,324 with 429), reconciled with the audit: the 21 and 4 loans resolved after T0, found in the later deliveries, give back 12,078 and 2,230 (E-022) | `tests/data/test_snapshot_data.py::test_the_first_training_set_has_the_audit_counts` | Data | Local |
 | T5.14 | Real data at T0: matured loans with no outcome known at T are measured and recorded in the manifest | `tests/data/test_snapshot_data.py::test_loans_without_a_known_outcome_are_measured` | Data | Local |
 
+## T6 Features
+
+F2, step 2.4.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T6.1 | Credit history in months by hand: same month, one month, years apart, across a year end, missing date | `tests/unit/test_features.py::test_credit_history_in_months` | Unit | CI, image |
+| T6.2 | FICO midpoint by hand: 4-point and 5-point ranges, missing bound | `tests/unit/test_features.py::test_fico_midpoint` | Unit | CI, image |
+| T6.3 | The output is `id` and the 30 features (D-063), in a fixed order, with their types | `tests/unit/test_features.py::test_the_output_is_id_and_the_30_features_with_their_types` | Unit | CI, image |
+| T6.4 | No forbidden column reaches the output even when present in the input: outcomes, label, split, `installment`, free text, state, zip code, identifiers, `pub_rec_bankruptcies` | `tests/unit/test_features.py::test_no_forbidden_column_reaches_the_output` | Unit | CI, image |
+| T6.5 | Every source column is visible at listing (D-014) and reported since 2007 (D-016), according to the audit's data dictionary | `tests/unit/test_features.py::test_every_source_is_visible_at_listing_and_filled_since_2007` | Unit | CI, image |
+| T6.6 | One listing alone gives the same features as inside a whole month, in any order (training equals serving, D-045) | `tests/unit/test_features.py::test_one_row_gives_the_same_as_a_whole_month_in_any_order` | Unit | CI, image |
+| T6.7 | The fixed layer fills no gap: each feature is missing exactly where one of its sources is (D-062) | `tests/unit/test_features.py::test_missing_values_stay_missing` | Unit | CI, image |
+| T6.8 | Real data: the features of the version at 2018-12 (522,904 loans) compute with no error and every value is within its range | `tests/data/test_features_data.py::test_the_features_of_the_largest_version_are_in_range` | Data | Local |
+
 ## Change history
 
 | Date | Test | Change | Why |
@@ -179,3 +196,5 @@ F2, step 2.3.
 | 2026-11-23 | B6 | Also fails if a test function in `tests/` is in no row | Approved by Juan with T3.14 and T3.15: no test enters without being catalogued |
 | 2026-11-23 | T5.1 to T5.14 | Written (step 2.3) | Approved by Juan |
 | 2026-11-23 | T5.13 | Expected counts changed from the audit's (12,078; train 7,745; validation 4,333 with 432 defaults) to those known at T0, plus a reconciliation with the audit | The audit used outcomes resolved after T0 ([E-022](errors.md#e-022)); approved by Juan |
+| 2026-11-23 | T6.1 to T6.8 | Written (step 2.4) | Approved by Juan |
+| 2026-11-23 | T3.13, T3.15, T4.15 | The full real load moved to `tests/data/conftest.py`, done once per session and shared with T6.8. What each test checks is unchanged | Loading the 142 months takes about 6 minutes; doing it twice is waste |

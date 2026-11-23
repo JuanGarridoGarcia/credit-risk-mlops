@@ -17,6 +17,7 @@ credit-risk = "credit_risk.__main__:main"
 
 [dependency-groups]
 dev = [
+    "diff-cover>=11.0",
     "mypy>=2.4",
     "pip-audit>=2.9",
     "pre-commit>=4.7",
@@ -120,4 +121,7 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
-# No fail_under until F2 (decision A13).
+# D-064: at least 85% of branches over unit + integration tests (checked by
+# `make test-integration`), and 90% of the lines each pull request changes (`make diff-cover`).
+fail_under = 85
+exclude_also = ['if __name__ == "__main__":']
