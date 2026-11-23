@@ -53,6 +53,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-043](#d-043) | 2026-11-23 | 2.1 | A separate simulator is the only code that reads the 2019 file | Active |
 | [D-044](#d-044) | 2026-11-23 | 2.1 | Two table layers: raw (text as delivered) and clean (typed) | Active |
 | [D-045](#d-045) | 2026-11-23 | 2.1 | Cleaning in one Python module; batch-only logic in SQL | Active |
+| [D-046](#d-046) | 2026-11-23 | 2.1 | polars in system code; conversion only at the model boundary | Active |
 
 ## Decisions
 
@@ -514,3 +515,14 @@ Date: 2026-11-23 · Step: 2.1 · Status: Active
 - **Alternatives considered**: SQL or dbt inside Postgres (fast in batch, but the API would need a second implementation in Python); hybrid dbt for batch plus Python for the API with a test that both agree.
 - **Why**: it meets the playbook rule "no second implementation of anything" without workarounds. Juan wants to show SQL; the batch-only pieces give real SQL work with no risk of two versions.
 - **Consequences**: data leaves Postgres and comes back on each clean load (2 million rows in total, acceptable). dbt is not used for cleaning; it may be considered for F6 monitoring.
+
+<a id="d-046"></a>
+### D-046 polars in system code; conversion only at the model boundary
+
+Date: 2026-11-23 · Step: 2.1 (open question from D-024) · Status: Active
+
+- **Context**: the simulator, cleaning and features need a dataframe library. The same cleaning code serves a month in batch and a single row in the API (D-045).
+- **Decision**: **polars** in all system code. Where a modelling library needs pandas or numpy, the conversion happens in **one function at the model input** and nowhere else. pandas does not appear elsewhere in the code.
+- **Alternatives considered**: pandas.
+- **Why**: polars is strict with types: a value that cannot be converted fails instead of silently becoming missing (fail fast), so every conversion follows a rule written by us and tested both ways. It is faster in batch (the simulator reads 2.26 million rows) and the F0 audit is already in polars. Measured on 2026-11-23 for a sample cleaning of one row (the API case): polars 0.3 ms, pandas 1.4 ms, both far below the 200 ms budget, so speed online does not decide. scikit-learn 1.9.1 accepts polars input directly (checked).
+- **Consequences**: SHAP, tree libraries or MLflow signatures may need a conversion; checked library by library in F3. Lenient options (`strict=False`) are not used in cleaning.
