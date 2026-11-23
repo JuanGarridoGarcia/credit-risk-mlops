@@ -86,6 +86,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-076](#d-076) | 2026-11-23 | 3.2 | The PD is calibrated with Platt scaling fitted on the validation set | Active |
 | [D-077](#d-077) | 2026-11-23 | 3.2 | No refit on training plus validation: the deployed model is exactly the one measured | Active |
 | [D-078](#d-078) | 2026-11-23 | 3.2 | Two images from one Dockerfile: `serve` (budget 800 MB) and `train` (budget 1.5 GB) | Active |
+| [D-079](#d-079) | 2026-11-23 | 3.2 | Tracking: an MLflow server in docker compose, metadata in its own Postgres database, artefacts in object storage | Active |
 
 ## Decisions
 
@@ -901,3 +902,14 @@ Date: 2026-11-23 · Step: 3.2 (supersedes D-052, changes test B5) · Status: Act
 - **Alternatives considered**: (A) one image with everything, budget about 1.5 GB: simple, but the API carries hundreds of MB it never uses; (C) no MLflow in serving, with a home-made model format: the smallest image, but custom code to save and load models, which MLflow already solves, and a source of errors.
 - **Why**: each image carries only what it uses. The serving image matters most: it is pulled at every deployment and every scale-out (start-up time and transfer cost), and it runs all the time exposed to the network, so every extra library is attack surface and more findings for Trivy. The training image runs now and then, as a batch job, exposed to nobody.
 - **Consequences**: CI builds, tests and scans two images. Test B5 checks each image against its own budget (the test change needs Juan's approval). Per-prediction SHAP values do not need the `shap` library in the API: LightGBM computes them itself and for the logistic regression they are coefficient times value. The budgets are set from the measured images in the F3 pull request.
+
+<a id="d-079"></a>
+### D-079 Tracking: an MLflow server in docker compose, metadata in its own Postgres database, artefacts in object storage
+
+Date: 2026-11-23 · Step: 3.2 · Status: Active
+
+- **Context**: every training produces what must be found months later: the hyperparameters tried, metrics and their bootstrap intervals (D-075), the commit, the snapshot hash (D-059), library versions and the model itself. The model registry is also what will name the champion (step 3.4). MLflow stores metadata (small and queryable) and artefacts (models, figures, reports).
+- **Decision**: an **MLflow tracking server** as a docker compose service. Metadata go to a separate database, `mlflow`, in the existing Postgres; artefacts go to object storage: a local folder (volume) now, an S3 bucket in AWS. Every run must carry a fixed list of required fields (commit, snapshot hash, seed, library versions, metrics with their intervals), and a test checks that no run is logged without them (playbook 3.2).
+- **Alternatives considered**: (A) MLflow without a server, in a local `mlruns/` folder: no infrastructure, but no reliable concurrent access, the model registry needs a database, and it looks nothing like production; (C) a managed service (Weights & Biases, Databricks): polished, nothing to run, but an external account, cost, data leaving the system, and the chosen cloud is AWS.
+- **Why**: the same split as D-059: large immutable files to object storage, queryable metadata to the database. Moving to AWS changes only the artefact address. Large binaries in Postgres would bloat its backups and pay for a database without using what makes it useful.
+- **Consequences**: one more service in compose and in the integration tests. The MLflow server image is pinned by version and digest like the others (D-030), and Dependabot watches it.
