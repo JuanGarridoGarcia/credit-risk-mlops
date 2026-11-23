@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 authors = [{ name = "Juan Garrido García" }]
 dependencies = [
+    "polars>=2.1",
     "psycopg[binary]>=3.3",
     "pydantic-settings>=2.16",
 ]
@@ -105,6 +106,7 @@ addopts = ["-ra", "--strict-markers", "--strict-config"]
 markers = [
     "integration: needs Docker (Postgres via docker compose, or the built image)",
     "destructive: recreates containers; runs last and on its own",
+    "data: needs the real Lending Club file in data/raw (not in CI)",
 ]
 xfail_strict = true
 filterwarnings = ["error"]

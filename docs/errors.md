@@ -21,6 +21,9 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-011](#e-011) | 2026-11-22 | 1.1 | Audit notebook deleted a variable a function still reads | Minor |
 | [E-012](#e-012) | 2026-11-22 | 1.2 | Image test could not search the whole file system | Minor |
 | [E-013](#e-013) | 2026-11-23 | 2.1 | Audit text and notebook disagreed on the charge-off month by one month | Minor |
+| [E-014](#e-014) | 2026-11-23 | 2.1 | `dti = 999` proposed as "unknown" without looking at the income of those rows | Minor |
+| [E-015](#e-015) | 2026-11-23 | 2.1 | Publishing every delivery took almost 6 minutes | Minor |
+| [E-016](#e-016) | 2026-11-23 | 2.1 | Splitting the whole snapshot by month at once ran out of memory | Minor |
 
 ## Errors
 
@@ -153,3 +156,33 @@ Date: 2026-11-23 · Step: 2.1 · Severity: minor
 - **Cause**: the text was written from Lending Club's 150-day rule, the code from the data; nothing compared them.
 - **Fix**: checked against the data on 2026-11-23, using the months between the last payment and the snapshot (2019-03) for loans still open: "In Grace Period" 0 to 1 months, "Late (16-30 days)" mostly 1, "Late (31-120 days)" 2 to 4 (3,938 loans at 4, only 17 at 5), "Default" (121+ days, not yet charged off) only 40 loans. Loans leave the late states at about 5 months after the last payment, so `last_pymnt_d` + 5 is the supported rule. Text corrected; numbers in the audit and in D-040 to D-042 were computed with the notebook's rule and do not change.
 - **Prevention**: the rule is implemented once, in the simulator, with unit tests that state it explicitly; the documentation points to that code.
+
+<a id="e-014"></a>
+### E-014 `dti = 999` proposed as "unknown" without looking at the income of those rows
+
+Date: 2026-11-23 · Step: 2.1 · Severity: minor (caught before any code was written)
+
+- **Symptom**: the audit (section 5) proposed turning `dti = 999` into missing, and Claude repeated it as the example of a cleaning rule. Checking `annual_inc = 0` at Juan's suggestion (look at related columns) showed that the 135 loans with `dti = 999` have annual incomes of only 15 to 3,600 dollars: 999 is a cap on an enormous ratio caused by an implausible income, not a code for "unknown".
+- **Cause**: the proposal was based on the value alone, without checking the columns it is computed from.
+- **Fix**: under the cleaning boundary (D-051), cleaning keeps `dti = 999` and `dti = -1` as they are; validation flags them and feature engineering (step 2.4) decides. The same check showed that all 1,667 loans with `annual_inc = 0` are joint applications with `annual_inc_joint` filled and, in 1,659 of them, `dti` empty (division by zero income): a real value, not a code.
+- **Prevention**: a value is treated as a code only if Lending Club's documentation says so; otherwise it is a validation rule. Every rule about a derived column is checked against the columns it is derived from.
+
+<a id="e-015"></a>
+### E-015 Publishing every delivery took almost 6 minutes
+
+Date: 2026-11-23 · Step: 2.1 · Severity: minor
+
+- **Symptom**: the first version of the simulator took 5 min 40 s to publish the 284 deliveries (2007-06 to 2019-03).
+- **Cause**: Python's `gzip` compresses at level 9 by default. Measured on the largest month (2016-03, 36.5 MB of CSV): level 9 takes 10 s for 8.4 MB, level 6 takes 1.1 s for 8.8 MB.
+- **Fix**: level 6 (`GZIP_LEVEL` in `simulator/io.py`). Full publication: 60 s.
+- **Prevention**: measure before optimising; the measurement is recorded next to the constant.
+
+<a id="e-016"></a>
+### E-016 Splitting the whole snapshot by month at once ran out of memory
+
+Date: 2026-11-23 · Step: 2.1 · Severity: minor
+
+- **Symptom**: a version that split the prepared snapshot into all monthly deliveries in one `group_by` was killed by the kernel for lack of memory (15 GB machine).
+- **Cause**: it held the full table (2.26 million rows, 151 text columns) plus a copy split into 284 pieces.
+- **Fix**: the prepared snapshot is cached as Parquet and read lazily; each delivery reads only its month.
+- **Prevention**: the data test (T1.12) publishes the full file on every run of `make test-data`, so a change that brings the problem back is seen at once.

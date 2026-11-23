@@ -12,7 +12,7 @@ DOCKER_BUILD_FLAGS ?=
 # Loads .env into the environment of a recipe line (the Python settings read it from there).
 LOAD_ENV := set -a && . ./.env && set +a
 
-.PHONY: help install lint format test build test-image up down test-integration clean audit check
+.PHONY: help install lint format test build test-image up down test-integration clean audit check data publish test-data
 
 help: ## List the available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -34,6 +34,18 @@ format: ## Fix what can be fixed automatically (lint fixes and formatting)
 
 test: ## Run the unit tests with branch coverage (no Docker needed)
 	$(UV) pytest tests/unit --cov --cov-report=term-missing --cov-report=xml
+
+SOURCE := data/raw/accepted_2007_to_2018Q4.csv.gz
+
+data: ## Download the Lending Club file from Kaggle if missing (needs KAGGLE_API_TOKEN); its hash is checked on use
+	@if [ ! -f $(SOURCE) ]; then mkdir -p data/raw && $(UV) kaggle datasets download wordsforthewise/lending-club -f accepted_2007_to_2018Q4.csv.gz -p data/raw; fi
+
+publish: data ## Simulator: publish every monthly delivery up to PERIOD (YYYY-MM) into data/landing
+	@test -n "$(PERIOD)" || { echo "usage: make publish PERIOD=YYYY-MM"; exit 1; }
+	$(UV) python -m credit_risk.simulator --until $(PERIOD)
+
+test-data: data ## Run the tests that need the real data file (not in CI)
+	$(UV) pytest -m data
 
 build: ## Build the application image
 	docker build $(DOCKER_BUILD_FLAGS) -t $(IMAGE) .

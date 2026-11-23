@@ -391,6 +391,7 @@ name = "credit-risk"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "polars" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings" },
 ]
@@ -419,6 +420,7 @@ notebooks = [
 
 [package.metadata]
 requires-dist = [
+    { name = "polars", specifier = ">=2.1" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3" },
     { name = "pydantic-settings", specifier = ">=2.16" },
 ]
