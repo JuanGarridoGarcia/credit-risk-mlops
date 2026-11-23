@@ -31,7 +31,8 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-021](#e-021) | 2026-11-23 | 2.2 | Catalogue months of R2.13 written from a guess, not measured | Minor |
 | [E-022](#e-022) | 2026-11-23 | 2.3 | First training set counted with outcomes known only after T0 | Minor |
 | [E-023](#e-023) | 2026-11-23 | 2.4 | Notebooks workflow failed deep in the notebook when the Kaggle secret was missing | Minor |
-| [E-024](#e-024) | 2026-11-23 | 2.4 | The audit figure came out with different bytes on GitHub | Minor |
+| [E-024](#e-024) | 2026-11-23 | 2.4 | The audit figure came out different on GitHub | Minor |
+| [E-025](#e-025) | 2026-11-23 | 2.4 | PR blocked: a required CI check was renamed | Minor |
 
 ## Errors
 
@@ -271,3 +272,12 @@ Date: 2026-11-23 · Step: 2.4 · Severity: minor
 - **Cause**: the cloud machine where the figure was made has a system-wide `/etc/matplotlib/matplotlibrc` that sets the font to Inter (plus `figure.dpi` and text hinting). matplotlib reads it silently, so the committed figure used Inter while GitHub, without that file, used matplotlib's own DejaVu Sans. The figure depended on the machine's settings, not only on the code and the locked versions. Found by printing the GitHub image in the job log: same plot, different font. On the way, comparing pixels instead of bytes was tried and failed for the same reason.
 - **Fix**: the notebook calls `matplotlib.rcdefaults()` right after choosing the backend, so it ignores any machine settings. The figure was made again: the new file is byte-identical to the one GitHub produced. Independently, Juan decided to leave the PNG figures out of the comparison (`git diff --exit-code -- reports/data_audit ':(exclude)*.png'`): a figure only draws a table that is still compared, so a changed number is still caught, and a figure check is more likely to fail for reasons that are not errors. A failed run uploads its outputs as a workflow artifact, kept 14 days.
 - **Prevention**: `rcdefaults()` makes every figure of the notebook independent of the machine. Every number shown in a figure is also written to a table in `reports/data_audit`, which is compared.
+
+### E-025 PR blocked: a required CI check was renamed
+
+Date: 2026-11-23 · Step: 2.4 · Severity: minor
+
+- **Symptom**: with every check of PR #5 green, GitHub still showed it as blocked.
+- **Cause**: the `protect-main` ruleset (D-037) requires checks by their job name. D-064 renamed the job `integration (image + Postgres)` to `integration (image + Postgres, coverage)`, so the required check never reported and GitHub waited for it.
+- **Fix**: the job keeps its original name; the coverage steps stay inside it.
+- **Prevention**: a comment above each required job in `ci.yml` says that its name is required by the ruleset and must not change without changing the ruleset too.

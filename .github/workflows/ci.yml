@@ -27,6 +27,7 @@ env:
 
 jobs:
   quality:
+    # The ruleset on main requires this job by its name: rename both or neither (E-025).
     name: quality (lint, format, types, lock)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -40,6 +41,7 @@ jobs:
       - run: make lint
 
   tests:
+    # The ruleset on main requires this job by its name: rename both or neither (E-025).
     name: tests (unit + coverage)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -64,6 +66,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   secrets:
+    # The ruleset on main requires this job by its name: rename both or neither (E-025).
     name: secrets (gitleaks, full history)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -78,6 +81,7 @@ jobs:
           git --redact --verbose /repo
 
   integration:
+    # The ruleset on main requires this job by its name: rename both or neither (E-025).
     name: integration (image + Postgres)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
