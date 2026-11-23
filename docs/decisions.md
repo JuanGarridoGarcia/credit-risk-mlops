@@ -59,7 +59,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-049](#d-049) | 2026-11-23 | 2.1 | Idempotent loads: replace the whole period in one transaction, plus a load log | Active |
 | [D-050](#d-050) | 2026-11-23 | 2.1 | Deliveries written as gzip-compressed CSV, all text | Active |
 | [D-051](#d-051) | 2026-11-23 | 2.1 | Cleaning is minimal and has no opinions | Active |
-| [D-052](#d-052) | 2026-11-23 | 2.1 | Image size budget raised from 300 to 500 MB | Active |
+| [D-052](#d-052) | 2026-11-23 | 2.1 | Image size budget raised from 300 to 500 MB | Superseded by D-078 |
 | [D-053](#d-053) | 2026-11-23 | 2.2 | Validation rules written with pandera on polars | Active |
 | [D-054](#d-054) | 2026-11-23 | 2.2 | Two severity levels: a critical rule stops the run, a warning is reported and stored | Active |
 | [D-055](#d-055) | 2026-11-23 | 2.2 | A critical failure stops the whole month; no row quarantine | Active |
@@ -85,6 +85,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-075](#d-075) | 2026-11-23 | 3.2 | "Better by more than the noise": the 95% paired bootstrap interval of the difference lies above zero | Active |
 | [D-076](#d-076) | 2026-11-23 | 3.2 | The PD is calibrated with Platt scaling fitted on the validation set | Active |
 | [D-077](#d-077) | 2026-11-23 | 3.2 | No refit on training plus validation: the deployed model is exactly the one measured | Active |
+| [D-078](#d-078) | 2026-11-23 | 3.2 | Two images from one Dockerfile: `serve` (budget 800 MB) and `train` (budget 1.5 GB) | Active |
 
 ## Decisions
 
@@ -616,7 +617,7 @@ Date: 2026-11-23 · Step: 2.1 · Status: Active
 <a id="d-052"></a>
 ### D-052 Image size budget raised from 300 to 500 MB
 
-Date: 2026-11-23 · Step: 2.1 (changes the threshold of test B5, D-025/D-026) · Status: Active
+Date: 2026-11-23 · Step: 2.1 (changes the threshold of test B5, D-025/D-026) · Status: Superseded by D-078 (two images with their own budgets)
 
 - **Context**: with polars in the package (D-046), the image grew from 211 MB to 456 MB and test B5 (at most 300 MB) failed. polars' compiled runtime alone takes 170 MB. The API needs polars to clean with the same code as the monthly load (D-045).
 - **Decision**: the budget of B5 becomes **500 MB**.
@@ -889,3 +890,14 @@ Date: 2026-11-23 · Step: 3.2 (closes the open point of D-042) · Status: Active
 - **Alternatives considered**: (B) refit and reuse the calibrator: more data, but the calibrator was fitted on the outputs of another model, and the deployed model was never measured; (C) refit and calibrate on out-of-sample predictions from time windows: uses everything, but far more complex, and the deployed model is still not measured directly.
 - **Why**: after a refit no clean data would remain to check that the final model beats the baseline: only the forward test, years later, after it had already been deciding purchases. In a regulated field such as credit, the artefact deployed is the artefact validated. The recent months are not lost: the calibrator moves the level to them, and the next retraining puts them in training.
 - **Consequences**: the ranking at each date is learned without the latest 6 matured months of each term. Option C may be tried later as a challenger.
+
+<a id="d-078"></a>
+### D-078 Two images from one Dockerfile: `serve` (budget 800 MB) and `train` (budget 1.5 GB)
+
+Date: 2026-11-23 · Step: 3.2 (supersedes D-052, changes test B5) · Status: Active (budgets to be confirmed by measuring the real images)
+
+- **Context**: the image is at 466 MB of a 500 MB budget (D-052). Installed size added by the F3 libraries, measured on 2026-11-23 in clean environments (approximate, they share some dependencies): scikit-learn and LightGBM 209 MB; plus mlflow-skinny 280 MB; scikit-learn, LightGBM, Optuna and full MLflow 643 MB; SHAP 252 MB. Serving needs only to load a model and predict; training also needs the search, tracking and reports.
+- **Decision**: two build targets of the same Dockerfile, from the same `uv.lock`. **`serve`**: the package with scikit-learn, LightGBM and mlflow-skinny, budget **800 MB**. **`train`**: everything in `serve` plus Optuna, full MLflow and SHAP, budget **1.5 GB**. The training-only libraries go into a `train` dependency group.
+- **Alternatives considered**: (A) one image with everything, budget about 1.5 GB: simple, but the API carries hundreds of MB it never uses; (C) no MLflow in serving, with a home-made model format: the smallest image, but custom code to save and load models, which MLflow already solves, and a source of errors.
+- **Why**: each image carries only what it uses. The serving image matters most: it is pulled at every deployment and every scale-out (start-up time and transfer cost), and it runs all the time exposed to the network, so every extra library is attack surface and more findings for Trivy. The training image runs now and then, as a batch job, exposed to nobody.
+- **Consequences**: CI builds, tests and scans two images. Test B5 checks each image against its own budget (the test change needs Juan's approval). Per-prediction SHAP values do not need the `shap` library in the API: LightGBM computes them itself and for the logistic regression they are coefficient times value. The budgets are set from the measured images in the F3 pull request.
