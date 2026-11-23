@@ -9,6 +9,7 @@ Related documents: [problem definition](problem.md), [data audit](data_audit.md)
 1. Tracking sheet
 2. F0 Framing (steps 0.1, 0.2)
 3. F1 Foundations (steps 1.1 to 1.4)
+4. F2 Data (steps 2.1 to 2.4)
 
 ---
 
@@ -19,12 +20,12 @@ Status of every step of the playbook. Updated in every pull request.
 | Phase | Step | Status | PR | Notes |
 |---|---|---|---|---|
 | F0 Framing | 0.1 Problem, metric, baseline and constraints | Done | #1 | D-001 to D-011 |
-| | 0.2 Data audit | Done | #1 | D-012 to D-018; 9.4 to 9.6 deferred to the simulation design |
+| | 0.2 Data audit | Done | #1 | D-012 to D-018; 9.4 to 9.6 decided in F2 (D-040 to D-042) |
 | F1 Foundations | 1.1 Repository, environment and code quality | Done | #2 | D-019 to D-024, D-037 |
 | | 1.2 Docker and docker compose | Done | #2 | D-025 to D-027 |
-| | 1.3 Minimal CI | In review | #2 | D-028 to D-032, D-038. Lint-failure check done; branch protection set by Juan on 2026-11-22 |
-| | 1.4 Documentation skeleton | In review | #2 | D-033 to D-036 |
-| F2 Data | 2.1 Idempotent ingestion | Pending | | |
+| | 1.3 Minimal CI | Done | #2 | D-028 to D-032, D-038. Lint-failure check done; branch protection set by Juan on 2026-11-22 |
+| | 1.4 Documentation skeleton | Done | #2 | D-033 to D-036 |
+| F2 Data | 2.1 Idempotent ingestion | In review | | D-039 to D-051; E-013 to E-019 |
 | | 2.2 Data validation | Pending | | |
 | | 2.3 Data versioning | Pending | | |
 | | 2.4 Features | Pending | | |
@@ -213,3 +214,80 @@ make build
 make test-image
 make test-integration
 ```
+
+---
+
+## 4. F2 Data
+
+As in F1, every decision of F2 was explained to Juan and taken by him one at a time (2026-11-23), and every test was approved before it was written. The three decisions of the audit deferred to the simulation design were taken first: training labels from matured cohorts (D-040), first training in 2014-01 with replay to 2018-12 (D-041) and an out-of-time validation of the last 6 listing months (D-042).
+
+### Step 2.1 Idempotent ingestion
+
+**Flow**
+
+```
+ data/raw/accepted_2007_to_2018Q4.csv.gz         the 2019 snapshot (D-012)
+        │  only the simulator reads it (D-043)
+        v
+ credit_risk.simulator                           plays Lending Club
+        │  make publish PERIOD=YYYY-MM
+        v
+ data/landing/YYYY-MM/listings.csv.gz           loans listed that month (D-039)
+ data/landing/YYYY-MM/outcomes.csv.gz           loans resolved that month
+        │  make ingest PERIOD=YYYY-MM
+        v
+ raw.listings, raw.outcomes                      text as delivered (D-044)
+        │  credit_risk.cleaning (D-045, D-051); validation goes here in step 2.2
+        v
+ clean.listings, clean.outcomes                  typed
+ ops.ingest_log                                  one row per load (D-049)
+```
+
+**Delivery contract** (`credit_risk.contracts`). `listings`: the 107 columns visible at listing (audit dictionary, D-014) plus `issue_d` and `mths_since_recent_bc_dlq`, 109 in total. `outcomes`: `id` plus the 42 post-listing columns. Deliveries are gzip CSV, all text (D-050). The system depends on the contract, never on the simulator.
+
+**Simulator** (`credit_risk.simulator`). Checks the SHA-256 of the source and its columns; drops the 33 summary rows, which sit between the 16 concatenated Lending Club files (two totals after each plus one section title), and stops on any other row that is not a loan; places each loan in its listing month and, if resolved, in its resolution month: the last payment month for good loans, last payment + 5 months for bad ones (issue + 5 if they never paid), capped at the snapshot 2019-03 (data_audit 4.2, E-013); loans still running produce no outcome; an unknown `loan_status` stops it. Rows are written in numeric id order, gzip level 6 with no timestamp, so the same input gives the same bytes. The prepared snapshot is cached as Parquet keyed by the source hash and read lazily, one month at a time (E-016). Publishing everything (2007-06 to 2019-03, 142 months, 284 files, 350 MB) takes 60 s (E-015).
+
+**Cleaning** (`credit_risk.cleaning`, D-051). One rule per column, six kinds; the API will call the same functions on a single listing.
+
+| Rule | Conversion | Columns |
+|---|---|---|
+| Integer | digits to a 64-bit integer | `id` |
+| Number | text to a float; odd values such as -1, 999 or 0 stay as they are | 87 in listings, 25 in outcomes |
+| Month | `Dec-2015` to 2015-12-01 | 3 in listings, 8 in outcomes |
+| Term | `" 36 months"` to 36, `" 60 months"` to 60 | `term` |
+| Employment length | `"< 1 year"` to 0 ... `"10+ years"` to 10 | `emp_length` |
+| Flag | `Y`/`y` to true, `N`/`n` to false | `pymnt_plan`, `hardship_flag`, `debt_settlement_flag` |
+| Text | unchanged, spaces included | categories, free text, statuses (16 in listings, 6 in outcomes) |
+
+A value that does not fit stops the load with the column, the loan id and the value; a missing value stays missing. No column is removed, not even `member_id` (always empty) or `url`. Checking `annual_inc = 0` and `dti = 999` against related columns before writing the rules changed the audit's proposal (E-014): both stay as they are and go to validation.
+
+**Postgres** (migrations in `db/migrations`, applied by dbmate from its image pinned by digest, D-048). Schemas `raw`, `clean` and `ops`. Raw and clean tables hold `period`, `load_id` and the contract columns, with `id` as primary key (a loan in two months is rejected). Deliveries are read strictly with the standard `csv` module (exact header, exact number of fields per record, E-018), then loaded with `COPY`. Each load of a period runs in one transaction: open a row in `ops.ingest_log`, delete the period, `COPY`, check rows loaded = rows in file, close the row (D-049). The same file again is logged as `unchanged`; a different one as `replaced`; a failure is rolled back and logged as `failed` with the error. Clean is always rebuilt from raw, never from the files. Ingestion requires an autocommit connection, so that each load is its own transaction and a failure record is never rolled back with it. SQL lives in `src/credit_risk/sql/`; names are composed with `psycopg.sql.Identifier`, values are always parameters (D-047).
+
+**Commands**: `make data` (download), `make publish PERIOD=YYYY-MM`, `make migrate`, `make ingest PERIOD=YYYY-MM`, `make test-data` (tests on the real file, not in CI).
+
+**Tests**
+
+| Group | File | Tests |
+|---|---|---|
+| T1 Simulator (12) | `tests/unit/simulator/test_simulator.py`, `tests/data/test_simulator_data.py` | 1 wrong hash rejected; 2 each loan listed once, in its month; 3 listing columns exactly the dictionary's, none of the outcome; 4 outcome columns; 5 resolution month by hand (paid, bad, never paid, capped, Default, old policy); 6 running loans produce no outcome (and an unknown status stops it); 7 text unchanged; 8 identical bytes twice, no gzip timestamp; 9 summary rows dropped wherever they are, no loan lost, count reported, any other odd row stops it; 10 no outcome before its listing, nothing after the simulated date; 11 system code never imports the simulator or names the source file; 12 real file: 2,260,668 listings, 1,348,099 outcomes, 33 summary rows, snapshot 2019-03 |
+| T2 Cleaning (11) | `tests/unit/test_cleaning.py`, `tests/data/test_cleaning_data.py` | 1 to 6 each rule with values that fit and values that must fail; 7 every contract column has exactly one rule; 8 the error names column, loan and value; 9 rows and order kept; 10 one row at a time equals a whole month (D-045); 11 the 284 real deliveries clean with no error and the same missing values per column |
+| T3 Loading (13) | `tests/integration/test_ingest.py`, `tests/data/test_ingest_data.py` | 1 migrations up, down, up on an empty database; 2 rows and log of a load; 3 same file twice changes nothing; 4 corrected delivery replaces the month with no ghost row; 5 a failure (truncated record at the end; a primary key violation during `COPY`) leaves the month as it was and is logged; 6 deleting a month leaves the others; 7 text survives Postgres; 8 SQL injection stored as text; 9 clean equals the cleaned delivery, with Postgres types; 10 clean rebuilt from raw without the delivery file; 11 missing delivery names the file; 12 a loan in two months rejected; 13 real data: all 142 months load with the audit counts |
+
+**Measurements** (2026-11-23, cloud machine, 4 CPUs)
+
+| What | Result |
+|---|---|
+| Publish all deliveries | 60 s (5 min 40 s with gzip level 9, E-015) |
+| Clean the 284 real deliveries | 7 s |
+| Load all 142 months into raw and clean | 194 s |
+| 10,000 rows of the largest month into a table | `INSERT` row by row 2.83 s, `COPY` 0.05 s (57 times faster, D-047) |
+| Largest month (2016-03) | 61,992 listings |
+
+**Checks of the step**
+
+| Playbook criterion | Result |
+|---|---|
+| Any period can be loaded, reloaded or deleted with no side effects | T3.2 to T3.6, T3.12 |
+| The raw data is stored as it is | T1.7, T3.7, T3.10 |
+| Loading a period twice does not duplicate rows | T3.3 |
+| Rows loaded equal the source | T3.2 (per load, also enforced by a check in `ops.ingest_log`), T3.13 |
