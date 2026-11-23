@@ -80,11 +80,11 @@ Result: **1,345,350 loans with a final outcome**, 268,599 of them bad (20.0%).
 **There is no charge-off date column.** It can be estimated:
 
 - The first missed payment is the month after `last_pymnt_d`.
-- Lending Club charged a loan off at about 150 days past due, so about 5 months after the first missed payment.
+- Lending Club charged a loan off at about 150 days past due. The estimate used is **5 months after the last payment** (`last_pymnt_d` + 5), or issue + 5 when the loan never paid. (Corrected on 2026-11-23, E-013: this text first said "5 months after the first missed payment", which is one month later than what the notebook computes. The notebook's rule is the one supported by the data; see E-013.)
 
 Checks:
 
-- 2,313 bad loans never paid anything (`last_pymnt_d` empty): their default month is taken as issue + 1.
+- 2,313 bad loans never paid anything (`last_pymnt_d` empty): their first missed payment is issue + 1 and their charge-off month is estimated as issue + 5.
 - 4,015 bad loans had their last payment less than 5 months before the snapshot and were already charged off. So the 5-month lag is a typical value, not a fixed rule (a bankruptcy, for example, is charged off sooner). The estimate is capped at the snapshot.
 - The estimate has monthly precision, which is enough for monthly monitoring.
 

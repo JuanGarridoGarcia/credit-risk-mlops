@@ -20,6 +20,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-010](#e-010) | 2026-11-22 | 1.1 | Audit outputs changed row order between runs | Minor |
 | [E-011](#e-011) | 2026-11-22 | 1.1 | Audit notebook deleted a variable a function still reads | Minor |
 | [E-012](#e-012) | 2026-11-22 | 1.2 | Image test could not search the whole file system | Minor |
+| [E-013](#e-013) | 2026-11-23 | 2.1 | Audit text and notebook disagreed on the charge-off month by one month | Minor |
 
 ## Errors
 
@@ -142,3 +143,13 @@ Date: 2026-11-22 · Step: 1.2 · Severity: minor
 - **Cause**: the image runs as an unprivileged user (D-025), which cannot read some system folders, so `find` exited with an error.
 - **Fix**: the test inspects the image as root (`--user 0`), only to look; the image itself still runs unprivileged, which `test_image_runs_as_non_root` checks.
 - **Prevention**: the test itself; recorded so the reason for `--user 0` is clear.
+
+<a id="e-013"></a>
+### E-013 Audit text and notebook disagreed on the charge-off month by one month
+
+Date: 2026-11-23 · Step: 2.1 · Severity: minor
+
+- **Symptom**: while specifying the simulator's resolution month, `data_audit.md` section 4.2 described the charge-off month as "5 months after the first missed payment" (`last_pymnt_d` + 6), while the notebook computes `last_pymnt_d` + 5 (and issue + 5 for loans that never paid, which the text called "issue + 1").
+- **Cause**: the text was written from Lending Club's 150-day rule, the code from the data; nothing compared them.
+- **Fix**: checked against the data on 2026-11-23, using the months between the last payment and the snapshot (2019-03) for loans still open: "In Grace Period" 0 to 1 months, "Late (16-30 days)" mostly 1, "Late (31-120 days)" 2 to 4 (3,938 loans at 4, only 17 at 5), "Default" (121+ days, not yet charged off) only 40 loans. Loans leave the late states at about 5 months after the last payment, so `last_pymnt_d` + 5 is the supported rule. Text corrected; numbers in the audit and in D-040 to D-042 were computed with the notebook's rule and do not change.
+- **Prevention**: the rule is implemented once, in the simulator, with unit tests that state it explicitly; the documentation points to that code.

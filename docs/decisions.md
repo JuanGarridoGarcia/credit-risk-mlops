@@ -57,6 +57,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-047](#d-047) | 2026-11-23 | 2.1 | Database access: psycopg 3 with SQL in `.sql` files, `COPY` for bulk loads | Active |
 | [D-048](#d-048) | 2026-11-23 | 2.1 | Schema migrations with dbmate, plain SQL, never edited once merged | Active |
 | [D-049](#d-049) | 2026-11-23 | 2.1 | Idempotent loads: replace the whole period in one transaction, plus a load log | Active |
+| [D-050](#d-050) | 2026-11-23 | 2.1 | Deliveries written as gzip-compressed CSV, all text | Active |
 
 ## Decisions
 
@@ -562,3 +563,14 @@ Date: 2026-11-23 · Step: 2.1 · Status: Active
 - **Alternatives considered**: upsert row by row (`INSERT ... ON CONFLICT DO UPDATE`), which leaves behind rows removed from a corrected delivery and is slower; skip a period already loaded, which never applies a corrected delivery unless forced by hand.
 - **Why**: atomic, fast with `COPY`, and correct with corrected deliveries. The log gives traceability and the row count check the playbook asks for. The largest month (2016-03) has 61,992 loans, so rewriting a whole month costs nothing.
 - **Consequences**: readers never see a half-loaded month: until the commit they see the old version, after it the new one (Postgres MVCC).
+
+<a id="d-050"></a>
+### D-050 Deliveries written as gzip-compressed CSV, all text
+
+Date: 2026-11-23 · Step: 2.1 · Status: Active
+
+- **Context**: the simulator (D-043) writes one `listings` and one `outcomes` delivery per month.
+- **Decision**: deliveries are **gzip-compressed CSV** files with every value as text, exactly as in the source file.
+- **Alternatives considered**: Parquet (typed, columnar, smaller and faster).
+- **Why**: it is the format Lending Club published, so "store the raw data as it is" (D-044) is literal; Postgres `COPY` reads CSV natively; the files can be opened with any tool. With Parquet the simulator would either write types, which is cleaning and belongs to the system (D-045), or write everything as text and lose Parquet's main advantage.
+- **Consequences**: larger and slower to read than Parquet, irrelevant at the size of a month. A change of format in a column is caught by validation on the raw layer (step 2.2), with strict cleaning (D-046) as a second net.
