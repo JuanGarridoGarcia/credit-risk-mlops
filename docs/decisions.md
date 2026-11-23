@@ -90,6 +90,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-080](#d-080) | 2026-11-23 | 3.3 | Monotone constraints on nine features with an undisputed direction; sign test for the logistic regression | Active |
 | [D-081](#d-081) | 2026-11-23 | 3.3 | Key segments: grade, covered term and listing quarter; a new model fails if it is clearly worse in any of them | Active |
 | [D-082](#d-082) | 2026-11-23 | 3.4 | Automatic promotion when every rule passes, with evidence, an alert and a tested rollback | Active |
+| [D-083](#d-083) | 2026-11-23 | 3.5 | The API returns the four main reasons of each prediction; the full SHAP vector is stored with it | Active |
 
 ## Decisions
 
@@ -949,3 +950,14 @@ Date: 2026-11-23 · Step: 3.4 · Status: Active
 - **Alternatives considered**: (B) automatic up to "approved candidate", then a person confirms: human control, but the simulation stops at every retraining waiting, and such approvals tend to be given without looking; (C) shadow mode for some months before promotion: catches operational problems, but gives no evidence of better performance, because labels arrive years later.
 - **Why**: the rules are reviewed code, not a judgement made on the day; the simulation must run by itself; any promotion can be undone at once.
 - **Consequences**: a bank would add the human approval of B for regulatory reasons; this is a deliberate difference from real production, stated in the model card and the README. The quality of the rules is what makes this safe, so each rule has its own tests, including a deliberately bad model that must fail them (playbook 3.3).
+
+<a id="d-083"></a>
+### D-083 The API returns the four main reasons of each prediction; the full SHAP vector is stored with it
+
+Date: 2026-11-23 · Step: 3.5 · Status: Active
+
+- **Context**: SHAP explains one prediction as a base value (the model's mean prediction) plus one contribution per feature, in log-odds, and the contributions add up exactly to the prediction minus the base value. LightGBM computes them itself and for the logistic regression they are coefficient times value, so the API does not need the `shap` library (D-078); one loan takes milliseconds. Platt calibration (D-076) is a straight line in log-odds (`a x prediction + b`), so after it every contribution is multiplied by `a`, the base value becomes `a x base + b`, and the sum still holds.
+- **Decision**: the API returns, with each PD, its **four main reasons** (the four largest contributions, with sign). The full vector of contributions and the base value are stored with the prediction in the database.
+- **Alternatives considered**: (A) explanations only in reports: the investor sees a PD without knowing why, and a single decision cannot be audited later; (C) the full vector in the API response: hard to read, and the detail is stored anyway.
+- **Why**: every decision is explained and can be audited years later, as regulated credit requires (reasons for a refusal), without flooding the user.
+- **Consequences**: slightly larger responses and about 30 numbers more per stored prediction. A model test checks, for every model, that base value plus contributions equals the prediction (playbook 3.5).
