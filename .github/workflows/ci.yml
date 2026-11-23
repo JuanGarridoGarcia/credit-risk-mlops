@@ -78,7 +78,7 @@ jobs:
           git --redact --verbose /repo
 
   integration:
-    name: integration (image + Postgres, coverage)
+    name: integration (image + Postgres)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
