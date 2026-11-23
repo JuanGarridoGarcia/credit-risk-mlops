@@ -74,6 +74,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-064](#d-064) | 2026-11-23 | F2 (cross-cutting) | Coverage: 85% of branches over unit and integration tests, 90% of the lines each pull request changes | Active |
 | [D-065](#d-065) | 2026-11-23 | F2 (cross-cutting) | The audit notebook runs in CI every week and on pull requests that touch it, and must reproduce its outputs | Active |
 | [D-066](#d-066) | 2026-11-23 | F3 (cross-cutting) | uv, the uv_build backend and the uv Docker image move together, to 0.13.9 | Active |
+| [D-067](#d-067) | 2026-11-23 | 3.1 | F3 fixes a training procedure, not a model, using only data available at T0 | Active |
 
 ## Decisions
 
@@ -757,3 +758,14 @@ Date: 2026-11-23 · Step: F3 (cross-cutting, first task of F3) · Status: Active
 - **Alternatives considered**: (A) merge Dependabot PR #3 as it was: backend and frontend out of step, CI and the image would still build with 0.11; (B) stay on 0.11 until something breaks: the gap only grows and the jump gets harder.
 - **Why**: uv and `uv_build` are released together and tested together. One version everywhere means the machine, CI and the image build the package in exactly the same way. The upper bound `<0.14` keeps a future minor release from entering without a pull request, since uv is still before 1.0 and a minor release can change behaviour.
 - **Consequences**: `uv.lock` did not change (`uv lock --check` passes with 0.13.9). Checked here with uv 0.13.9: `make lint`, `make test` (139 tests), `uv build`, `make build`, `make test-image` and `make test-integration` (coverage 90%) all pass; image size unchanged (466 MB). Future uv updates follow the same rule: the three places in one pull request.
+
+<a id="d-067"></a>
+### D-067 F3 fixes a training procedure, not a model, using only data available at T0
+
+Date: 2026-11-23 · Step: 3.1 · Status: Active
+
+- **Context**: the whole file, up to 2018, is on disk. F3 designs what is trained at T0 = 2014-01 (D-041): 7,745 training loans and 4,333 validation loans (D-042). The same design is run again at every retraining (F4, F6), on up to about 500,000 loans. Settings that suit 7,745 loans (shallow trees, strong regularisation) may not suit 500,000.
+- **Decision**: every design choice of F3 is made with the T0 snapshot only. What F3 fixes is a **procedure**: the candidate models, how their hyperparameters are searched, how the winner is chosen and calibrated. The search runs again at every retraining, on the training and validation sets of that date. Alternative models enter later as challengers, under the promotion rules of step 3.3.
+- **Alternatives considered**: (A) fix concrete values at T0 (for example depth 2 and 150 trees) and only refit them later: honest, but the values never adapt to more data; (B) design with snapshots of later dates (backtesting): the validation of a 2018 snapshot holds loans of 2015, inside the replay used as test (D-041), so the design would carry information from the future and the final business metric would be optimistic (data snooping).
+- **Why**: in a real system nobody at T0 knows the future, and nobody freezes hyperparameters forever: they automate how they are chosen. Each choice uses only what was known at its date, as already required by D-056.
+- **Consequences**: a retraining takes longer, because it includes the search; F3 must fix the search budget and the candidate list. Nothing in F3 reads a snapshot later than 2014-01.
