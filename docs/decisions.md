@@ -67,6 +67,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-057](#d-057) | 2026-11-23 | 2.2 | Every test is listed in a catalogue kept in step with the code by a test | Active |
 | [D-058](#d-058) | 2026-11-23 | 2.3 | A training set version is an immutable snapshot plus a manifest of where it came from | Active |
 | [D-059](#d-059) | 2026-11-23 | 2.3 | Snapshots in object storage by content hash; manifests in Postgres | Active |
+| [D-060](#d-060) | 2026-11-23 | 2.3 | A snapshot is two files: what training may see, and what only evaluation may see | Active |
 
 ## Decisions
 
@@ -679,4 +680,14 @@ Date: 2026-11-23 · Step: 2.3 · Status: Active
 - **Alternatives considered**: (A) DVC, the best known tool, which keeps a `.dvc` pointer in git and the file in remote storage: it fits a person versioning data with the code, but here the pipeline would have to commit to git at every training; (C) everything in Postgres, one table per version: simple and all SQL, but the database grows with large copies and training reads from it.
 - **Why**: each piece goes where it is handled best: large immutable files to object storage, metadata that must be queried to the database. It maps directly to S3 in AWS.
 - **Consequences**: the path is the content hash, so a path can never point to different content, the same content is stored once and a file is never overwritten. A storage layer with a local and an S3 implementation; the local folder stays out of git.
+
+### D-060 A snapshot is two files: what training may see, and what only evaluation may see
+
+Date: 2026-11-23 · Step: 2.3 · Status: Active
+
+- **Context**: a snapshot serves two purposes. Training needs the columns visible at listing (D-014) and the label (D-040). Evaluation in money needs payments, recoveries and the funded amount: realised return (D-007) and LGD (D-017). Those are future information; if the model saw them, it would be pure leakage.
+- **Decision**: one version, one manifest, two files joined by `id`. `features.parquet` holds every column of `clean.listings`, the label and the split (train or validation). `evaluation.parquet` holds the outcome columns. Training receives only the path of the first. A test checks that the first holds no outcome column.
+- **Alternatives considered**: (A) features and label only: safest, but evaluation in money goes back to `clean` and is no longer reproducible from the snapshot; (B) everything in one file with a prefix on the evaluation columns: reproducible, but one wrong `select` puts future payments into the model.
+- **Why**: the structure prevents the leak instead of relying on discipline, and evaluation stays reproducible. `features.parquet` keeps every listing column, not only the model's: which columns the model uses and how they are prepared is step 2.4, so the snapshot does not depend on it.
+- **Consequences**: the version path of D-059 becomes a folder, `training_sets/<hash>/` with both files; the hash covers both. The label is allowed in the training file although it comes from the future because it is the target, never an input, and exists only for matured cohorts.
 
