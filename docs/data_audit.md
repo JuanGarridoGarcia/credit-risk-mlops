@@ -1,6 +1,6 @@
 # Data audit
 
-Step 0.2 of the playbook. Status: **draft**. Decisions 9.1 to 9.3, 9.7 and 9.8 taken by Juan on 2026-11-21 (D-013 to D-018); 9.4 to 9.6 deferred by Juan to the design of the simulation.
+Step 0.2 of the playbook. Status: **draft**. Decisions 9.1 to 9.3, 9.7 and 9.8 taken by Juan on 2026-11-21 (D-013 to D-018); 9.4 to 9.6 deferred by Juan to the design of the simulation and decided on 2026-11-23 in F2 (D-040 to D-042).
 
 Every figure in this document is produced by [`notebooks/00_data_audit.ipynb`](../notebooks/00_data_audit.ipynb), which writes its tables to [`reports/data_audit/`](../reports/data_audit/). Nothing here is typed by hand from memory.
 
