@@ -88,6 +88,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-078](#d-078) | 2026-11-23 | 3.2 | Two images from one Dockerfile: `serve` (budget 800 MB) and `train` (budget 1.5 GB) | Active |
 | [D-079](#d-079) | 2026-11-23 | 3.2 | Tracking: an MLflow server in docker compose, metadata in its own Postgres database, artefacts in object storage | Active |
 | [D-080](#d-080) | 2026-11-23 | 3.3 | Monotone constraints on nine features with an undisputed direction; sign test for the logistic regression | Active |
+| [D-081](#d-081) | 2026-11-23 | 3.3 | Key segments: grade, covered term and listing quarter; a new model fails if it is clearly worse in any of them | Active |
 
 ## Decisions
 
@@ -925,3 +926,14 @@ Date: 2026-11-23 · Step: 3.3 · Status: Active
 - **Alternatives considered**: (A) no constraints, with a directional test that rejects the model if it fails: most flexible, but with little data it fails through noise and there is no fix short of changing the model; (C) constraints on every numeric feature: most interpretable, but it forces a made-up direction where none is clear (`total_acc`, `revol_bal`).
 - **Why**: consistent explanations, more robustness to changes in the data, and standard practice in regulated scoring, limited to where the direction is beyond dispute. The constraint holds everything else equal, so a borrower who earns more but borrows much more is still riskier, through `dti`. Before relaxing a constraint, an apparent reversal is checked against the number of loans in that range (bootstrap interval) and against `verification_status`, since high unverified incomes may be inflated.
 - **Consequences**: a small loss of AUC is possible if a real effect is not monotone; a constraint is removed only by a new decision with that evidence. The list is fixed in code and logged with every run.
+
+<a id="d-081"></a>
+### D-081 Key segments: grade, covered term and listing quarter; a new model fails if it is clearly worse in any of them
+
+Date: 2026-11-23 · Step: 3.3 · Status: Active
+
+- **Context**: a model can raise the global AUC while getting worse in one group, for example ranking grades A to C better (most loans) and grades E to G worse. Testing many segments has its own problem: with 20 segments and two equally good models, the chance that at least one fails by luck is about 40% (1 - 0.975^20).
+- **Decision**: blocking segments are `grade` (F and G merged), `term` (covered terms only, D-070) and the listing quarter inside validation; a segment with fewer than 50 defaults is merged with its neighbour. In each segment two things are compared with the paired bootstrap of D-075: the AUC inside the segment, and the calibration error (absolute difference between the mean predicted PD and the observed default rate). A new model **fails** if, in any segment, the 95% interval of the difference shows it clearly worse (AUC difference entirely below zero, or calibration error difference entirely above zero). It need not improve everywhere. `purpose`, `home_ownership` and `verification_status` are reported in the model card but do not block.
+- **Alternatives considered**: (A) global metrics only: a loss in one group goes unseen; (C) many segments: wide watch, but frequent false alarms.
+- **Why**: the blocking segments follow how the investor decides (grade, term) and how the world changes (time), with few false alarms.
+- **Consequences**: the baseline uses `grade` only, so it gives one PD per grade and its AUC inside a grade is 0.5; the segment test against the baseline is easy to pass, and does its real work for a challenger against the champion.
