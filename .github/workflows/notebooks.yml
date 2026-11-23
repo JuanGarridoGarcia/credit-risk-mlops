@@ -48,13 +48,6 @@ jobs:
       - run: make notebooks
         env:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      # TEMPORARY (E-024 diagnosis, to be reverted): print the new figure in the log.
-      - if: failure()
-        run: |
-          uv run --frozen --group notebooks python -c "import matplotlib, PIL, numpy, sys; print(matplotlib.__version__, PIL.__version__, numpy.__version__, sys.version)"
-          uv run --frozen --group notebooks python -c "from matplotlib import font_manager as fm; print(fm.findfont(fm.FontProperties(family=['sans-serif'])))"
-          lscpu | grep -i 'model name\|flags' | cut -c1-300
-          base64 -w 2000 reports/data_audit/loans_per_month.png
       # On failure, keep the outputs this run produced, to compare them with the committed ones.
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
