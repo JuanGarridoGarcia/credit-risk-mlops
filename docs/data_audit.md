@@ -56,6 +56,7 @@ Proposed use:
 | `funded_amnt_inv` | Result of the listing (how much investors funded) | Not in Browse Notes | Drop |
 | Fields that start being reported in a given year | Their missingness tells the model the vintage | Bureau family 1 from 2012 (37 columns, for example `tot_cur_bal`, `mths_since_recent_inq`); bureau family 2 from December 2015 (14 columns, for example `open_acc_6m`, filled for 99.8% of loans from January 2016); joint applications from late 2015 and second applicant data from 2017; `desc` stops in 2014. Table: `missingness_by_year.csv` | Decision 9.3 |
 | `issue_d` | Encodes the vintage; later vintages defaulted more for the same profile | Bad rate of resolved 36-month loans: 12.3% for 2013, 14.9% for 2015 | Not a feature. Used only to order and split in time |
+| `installment` | Looks like listing data, but is computed on the **funded** amount, not the requested one (found in step 2.2, 2026-11-23) | Against the amortisation formula on `loan_amnt`, 2,760 loans differ by more than 1%; on `funded_amnt`, only 433. 2,062 resolved loans were not fully funded (0.15%), and their instalment reveals it | Decided in F3: recompute from `loan_amnt`, `int_rate` and `term`, or drop |
 | `grade` and `int_rate` | Not leakage, but their meaning drifts: Lending Club re-priced the grades over time | Mean rate of grade E: 14.1% in 2007, 25.2% in 2018 | Feature, monitored for drift |
 
 ## 4. Labels and their delay

@@ -2,7 +2,7 @@
 
 The full detail of the project, one section per step of the playbook: what was built, how, which numbers came out, which decisions and errors happened, and how it was checked. The README is the short version; this is the manual. Format decided in D-035.
 
-Related documents: [problem definition](problem.md), [data audit](data_audit.md), [decision log](decisions.md), [error log](errors.md).
+Related documents: [problem definition](problem.md), [data audit](data_audit.md), [decision log](decisions.md), [error log](errors.md), [validation rules](validation_rules.md).
 
 ## Contents
 
