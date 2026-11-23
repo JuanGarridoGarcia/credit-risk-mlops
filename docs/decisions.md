@@ -73,6 +73,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-063](#d-063) | 2026-11-23 | 2.4 | v1 features: the columns filled since 2007 plus two required transformations; engineered features are F3 experiments | Active |
 | [D-064](#d-064) | 2026-11-23 | F2 (cross-cutting) | Coverage: 85% of branches over unit and integration tests, 90% of the lines each pull request changes | Active |
 | [D-065](#d-065) | 2026-11-23 | F2 (cross-cutting) | The audit notebook runs in CI every week and on pull requests that touch it, and must reproduce its outputs | Active |
+| [D-066](#d-066) | 2026-11-23 | F3 (cross-cutting) | uv, the uv_build backend and the uv Docker image move together, to 0.13.9 | Active |
 
 ## Decisions
 
@@ -744,5 +745,15 @@ Date: 2026-11-23 · Step: F2 (cross-cutting, closes the open point of D-021) · 
 - **Decision**: a `Notebooks` workflow runs `make notebooks` every Monday, by hand, and on pull requests that touch `notebooks/`, `reports/data_audit/`, `uv.lock` or the workflow. It fails if the notebook raises an error or if any file of `reports/data_audit` differs from the committed one. The Kaggle token is a repository secret, `KAGGLE_API_TOKEN`. The notebook file itself is not compared: execution timestamps and kernel metadata change on every run.
 - **Alternatives considered**: (A) on every pull request: the Kaggle token and 1.6 GB on every run, and several minutes more for a notebook that almost never changes; (C) only locally with `make test-data`: free, but nobody watches it.
 - **Why**: the notebook cannot break in silence and normal pull requests stay fast. Running without an error is not enough: a library update or a change in the data could change a number without any error, so the outputs are compared like a regression test.
-- **Consequences**: Juan adds the `KAGGLE_API_TOKEN` secret to the repository. Checked on 2026-11-23: the notebook ran in 1 min 53 s and every file of `reports/data_audit` came out byte-identical. The first run on GitHub drew the figure differently from the cloud machine, and Juan decided to leave the PNG figures out of the comparison; the tables they draw are still compared (E-024).
+- **Consequences**: Juan adds the `KAGGLE_API_TOKEN` secret to the repository. Checked on 2026-11-23: the notebook ran in 1 min 53 s and every file of `reports/data_audit` came out byte-identical. The first run on GitHub drew the figure differently from the cloud machine, and Juan decided to leave the PNG figures out of the comparison; the tables they draw are still compared (E-024). Added on 2026-11-23 (E-026): workflows started by Dependabot only see Dependabot secrets, so `KAGGLE_API_TOKEN` must exist twice, as an Actions secret and as a Dependabot secret, both under Settings > Secrets and variables.
 
+<a id="d-066"></a>
+### D-066 uv, the uv_build backend and the uv Docker image move together, to 0.13.9
+
+Date: 2026-11-23 · Step: F3 (cross-cutting, first task of F3) · Status: Active
+
+- **Context**: uv appears in three places: the `UV_VERSION` of every workflow (`ci.yml`, `security.yml`, `notebooks.yml`), the `astral/uv` image of the `Dockerfile`, and the build backend `uv_build` in `pyproject.toml`. Dependabot PR #3 proposed `uv_build>=0.13.9,<0.14` alone, which would have left the backend two minor versions ahead of the uv that builds it. All three were at 0.11.32 (`uv_build>=0.9,<0.12`).
+- **Decision**: one pull request moves the three together: `UV_VERSION: "0.13.9"` in every workflow, `astral/uv:0.13.9` pinned by digest (`sha256:d3b601f0...`) in the `Dockerfile`, and `uv_build>=0.13.9,<0.14` in `pyproject.toml`. Juan closed Dependabot PR #3.
+- **Alternatives considered**: (A) merge Dependabot PR #3 as it was: backend and frontend out of step, CI and the image would still build with 0.11; (B) stay on 0.11 until something breaks: the gap only grows and the jump gets harder.
+- **Why**: uv and `uv_build` are released together and tested together. One version everywhere means the machine, CI and the image build the package in exactly the same way. The upper bound `<0.14` keeps a future minor release from entering without a pull request, since uv is still before 1.0 and a minor release can change behaviour.
+- **Consequences**: `uv.lock` did not change (`uv lock --check` passes with 0.13.9). Checked here with uv 0.13.9: `make lint`, `make test` (139 tests), `uv build`, `make build`, `make test-image` and `make test-integration` (coverage 90%) all pass; image size unchanged (466 MB). Future uv updates follow the same rule: the three places in one pull request.

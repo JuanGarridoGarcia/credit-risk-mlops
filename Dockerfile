@@ -5,7 +5,7 @@
 # Base images are pinned by version AND digest; Dependabot proposes updates.
 
 ARG PYTHON_IMAGE=python:3.12.16-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
-ARG UV_IMAGE=astral/uv:0.11.32@sha256:df4cae8f3a96d175e2e5f992e597550000edbe78fdc2594d5cd8de1a217f504c
+ARG UV_IMAGE=astral/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d
 
 FROM ${UV_IMAGE} AS uv
 
