@@ -72,6 +72,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-062](#d-062) | 2026-11-23 | 2.4 | Two layers of preparation: fixed transformations in the package, learned ones inside the model | Active |
 | [D-063](#d-063) | 2026-11-23 | 2.4 | v1 features: the columns filled since 2007 plus two required transformations; engineered features are F3 experiments | Active |
 | [D-064](#d-064) | 2026-11-23 | F2 (cross-cutting) | Coverage: 85% of branches over unit and integration tests, 90% of the lines each pull request changes | Active |
+| [D-065](#d-065) | 2026-11-23 | F2 (cross-cutting) | The audit notebook runs in CI every week and on pull requests that touch it, and must reproduce its outputs | Active |
 
 ## Decisions
 
@@ -734,4 +735,14 @@ Date: 2026-11-23 · Step: F2 (cross-cutting, closes D-031) · Status: Active
 - **Alternatives considered**: (A) a minimum on unit tests alone, around 55%: almost meaningless for the SQL code, or a push to mock Postgres, which is what SQL must not be tested against; (B) 85% over unit and integration only: simple, but a pull request could add untested code while the total stays above 85%.
 - **Why**: 85% protects what exists; 90% on new lines makes every change bring its tests, which is what D-031 meant by "no PR may lower coverage", without freezing an arbitrary number. 100% was not chosen: it pushes tests that execute lines without checking anything (Goodhart's law) and costs most on defensive branches that are hard to reach. Juan approving every test stays the main defence.
 - **Consequences**: new dev dependency `diff-cover`; the CI checkout of the integration job fetches the full history to compare with `main`.
+
+### D-065 The audit notebook runs in CI every week and on pull requests that touch it, and must reproduce its outputs
+
+Date: 2026-11-23 · Step: F2 (cross-cutting, closes the open point of D-021) · Status: Active
+
+- **Context**: Juan asked in F1 to run notebooks top to bottom in CI, once the data download existed. There is one notebook, the data audit. It downloads the 1.6 GB file from Kaggle itself, checks its hash, runs in about 2 minutes, and its outputs in `reports/data_audit` are deterministic (E-010).
+- **Decision**: a `Notebooks` workflow runs `make notebooks` every Monday, by hand, and on pull requests that touch `notebooks/`, `reports/data_audit/`, `uv.lock` or the workflow. It fails if the notebook raises an error or if any file of `reports/data_audit` differs from the committed one. The Kaggle token is a repository secret, `KAGGLE_API_TOKEN`. The notebook file itself is not compared: execution timestamps and kernel metadata change on every run.
+- **Alternatives considered**: (A) on every pull request: the Kaggle token and 1.6 GB on every run, and several minutes more for a notebook that almost never changes; (C) only locally with `make test-data`: free, but nobody watches it.
+- **Why**: the notebook cannot break in silence and normal pull requests stay fast. Running without an error is not enough: a library update or a change in the data could change a number without any error, so the outputs are compared like a regression test.
+- **Consequences**: Juan adds the `KAGGLE_API_TOKEN` secret to the repository. Checked on 2026-11-23: the notebook ran in 1 min 53 s and every file of `reports/data_audit` came out byte-identical.
 

@@ -12,7 +12,7 @@ DOCKER_BUILD_FLAGS ?=
 # Loads .env into the environment of a recipe line (the Python settings read it from there).
 LOAD_ENV := set -a && . ./.env && set +a
 
-.PHONY: help install lint format test build test-image up down test-integration clean audit check data publish test-data migrate ingest snapshot diff-cover
+.PHONY: help install lint format test build test-image up down test-integration clean audit check data publish test-data migrate ingest snapshot diff-cover notebooks
 
 help: ## List the available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -62,6 +62,10 @@ snapshot: migrate ## Build the training set version at T (YYYY-MM) from clean (D
 
 test-data: data ## Run the tests that need the real data file (not in CI)
 	$(UV) pytest -m data
+
+notebooks: ## Run the audit notebook top to bottom; fails if its outputs differ from the committed ones (D-065)
+	$(UV) --group notebooks jupyter nbconvert --to notebook --execute --inplace notebooks/00_data_audit.ipynb
+	git diff --exit-code --stat -- reports/data_audit
 
 build: ## Build the application image
 	docker build $(DOCKER_BUILD_FLAGS) -t $(IMAGE) .
