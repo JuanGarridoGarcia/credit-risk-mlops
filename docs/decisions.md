@@ -61,6 +61,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-051](#d-051) | 2026-11-23 | 2.1 | Cleaning is minimal and has no opinions | Active |
 | [D-052](#d-052) | 2026-11-23 | 2.1 | Image size budget raised from 300 to 500 MB | Active |
 | [D-053](#d-053) | 2026-11-23 | 2.2 | Validation rules written with pandera on polars | Active |
+| [D-054](#d-054) | 2026-11-23 | 2.2 | Two severity levels: a critical rule stops the run, a warning is reported and stored | Active |
 
 ## Decisions
 
@@ -610,3 +611,14 @@ Date: 2026-11-23 · Step: 2.2 · Status: Active
 - **Alternatives considered**: Great Expectations (best known, HTML reports, but heavy, complex and without polars support, so data would go through pandas against D-046); Pydantic row by row (slow for a month and blind to table rules such as volume or uniqueness); our own rules in polars and SQL (full control, but a tool of our own to test and maintain).
 - **Why**: native on polars, light, rules are code reviewed in the pull request. Collecting every failure at once means one fix-and-rerun cycle instead of one per failure, and failures seen together point to a common cause. Checked on 2026-11-23 that pandera 0.36 works with polars 2.1.
 - **Consequences**: the run report is ours to build. Great Expectations is not shown in this project.
+
+<a id="d-054"></a>
+### D-054 Two severity levels: a critical rule stops the run, a warning is reported and stored
+
+Date: 2026-11-23 · Step: 2.2 · Status: Active
+
+- **Context**: not every failed rule means broken data. Some values are impossible (a missing id, an unknown term), others are only unusual and can have a real-world cause (a month with 41% fewer loans after a peak, as in 2016-04 after 2016-03).
+- **Decision**: every rule has one of two severities. A **critical** failure stops the run for that month: nothing reaches the clean layer and the load is logged as failed. A **warning** failure lets the run continue, appears in the run report and is stored in a table, so F6 monitoring can follow it over time. The severity of each rule is written next to the rule and approved with it.
+- **Alternatives considered**: every rule critical (safe, but the pipeline would stop for normal market swings and people learn to ignore or bypass it); every rule a warning (never stops, so broken data could reach training unseen, against the rigor standard).
+- **Why**: a critical rule says "this is impossible, do not go on"; a warning says "this is strange, a person should look". Mixing them up either blocks the pipeline for no reason or lets real errors through. Monthly volume in this data swings from -41% to +240% month over month, so volume rules compare against the same month of the previous year or a rolling median and are warnings; only an empty or absurd month is critical.
+- **Consequences**: each rule needs a stated severity and reason. Warnings need a table and a place in the report. What happens to the rows of a month that fails a critical rule (stop the month or quarantine rows) is the next decision.
