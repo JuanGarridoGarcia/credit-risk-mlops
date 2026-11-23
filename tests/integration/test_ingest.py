@@ -14,8 +14,9 @@ from credit_risk.cleaning import clean_listings, clean_outcomes
 from credit_risk.contracts import LISTING_COLUMNS, OUTCOME_COLUMNS, delivery_path
 from credit_risk.ingest import DeliveryError, build_clean, delete_period, ingest, load_raw
 from credit_risk.settings import Settings
+from tests import valid_rows
 
-from .conftest import PgConnection, database_url, dbmate
+from .conftest import MIGRATIONS, PgConnection, database_url, dbmate
 
 pytestmark = pytest.mark.integration
 
@@ -25,31 +26,12 @@ TRICKY_DESC = 'Line one, with a comma\nline two "quoted" <br/>'
 INJECTION = "x'); DROP TABLE raw.listings; --"
 
 
-def _listing(id_: int, **values: str | None) -> dict[str, str | None]:
-    row: dict[str, str | None] = dict.fromkeys(LISTING_COLUMNS)
-    defaults = {
-        "loan_amnt": "10000.0",
-        "term": " 36 months",
-        "emp_length": "10+ years",
-        "issue_d": "Mar-2015",
-        "dti": "12.5",
-    }
-    row.update({"id": str(id_), **defaults, **values})
-    return row
+def _listing(id_: int, period: date = MARCH, /, **values: str | None) -> dict[str, str | None]:
+    return valid_rows.listing(id_, period, **values)
 
 
-def _outcome(id_: int, **values: str | None) -> dict[str, str | None]:
-    row: dict[str, str | None] = dict.fromkeys(OUTCOME_COLUMNS)
-    defaults = {
-        "funded_amnt": "10000.0",
-        "loan_status": "Fully Paid",
-        "pymnt_plan": "n",
-        "hardship_flag": "N",
-        "debt_settlement_flag": "N",
-        "last_pymnt_d": "Mar-2015",
-    }
-    row.update({"id": str(id_), **defaults, **values})
-    return row
+def _outcome(id_: int, period: date = MARCH, /, **values: str | None) -> dict[str, str | None]:
+    return valid_rows.outcome(id_, period, **values)
 
 
 def _write(landing: Path, period: date, stream: str, rows: list[dict[str, Any]]) -> Path:
@@ -64,8 +46,8 @@ def _write(landing: Path, period: date, stream: str, rows: list[dict[str, Any]])
 
 
 def _month(landing: Path, period: date, ids: list[int], **listing: str | None) -> None:
-    _write(landing, period, "listings", [_listing(i, **listing) for i in ids])
-    _write(landing, period, "outcomes", [_outcome(i) for i in ids[:1]])
+    _write(landing, period, "listings", [_listing(i, period, **listing) for i in ids])
+    _write(landing, period, "outcomes", [_outcome(i, period) for i in ids[:1]])
 
 
 def _one(conn: PgConnection, query: str, *params: object) -> Any:
@@ -95,7 +77,7 @@ def test_migrations_apply_roll_back_and_apply_again(
 ) -> None:
     url = database_url(settings, empty_database)
     dbmate(url, "up")
-    for _ in range(3):
+    for _ in range(MIGRATIONS):
         dbmate(url, "rollback")
     conninfo = settings.postgres_conninfo().replace(
         f"dbname={settings.postgres_db}", f"dbname={empty_database}"
@@ -108,7 +90,7 @@ def test_migrations_apply_roll_back_and_apply_again(
         assert left == []
     dbmate(url, "up")
     status = dbmate(url, "status").stdout
-    assert "Applied: 3" in status
+    assert f"Applied: {MIGRATIONS}" in status
     assert "Pending: 0" in status
 
 
@@ -148,7 +130,7 @@ def test_a_corrected_delivery_replaces_the_month_with_no_ghost(
     assert result.status == "replaced"
     assert _ids(db, "raw.listings", MARCH) == ["1", "3"]
     assert _one(db, "SELECT dti FROM raw.listings WHERE id = '1'") == "20.0"
-    build_clean(db, MARCH, "listings")
+    build_clean(db, MARCH, reports=tmp_path / "reports")
     assert _ids(db, "clean.listings", MARCH) == ["1", "3"]
     assert _one(db, "SELECT dti FROM clean.listings WHERE id = 1") == 20.0
 
@@ -243,7 +225,12 @@ def test_clean_holds_exactly_the_cleaned_delivery_with_postgres_types(
         _listing(3, term=" 60 months", emp_length="< 1 year", revol_util="0.0"),
     ]
     _write(tmp_path, MARCH, "listings", rows)
-    _write(tmp_path, MARCH, "outcomes", [_outcome(1, hardship_flag="Y", total_pymnt="1.1")])
+    _write(
+        tmp_path,
+        MARCH,
+        "outcomes",
+        [_outcome(1, hardship_flag="Y", total_pymnt="10501.1", total_rec_late_fee="1.1")],
+    )
     ingest(db, tmp_path, MARCH)
     for stream, columns, cleaner in (
         ("listings", LISTING_COLUMNS, clean_listings),
@@ -268,9 +255,11 @@ def test_clean_is_rebuilt_from_raw_without_the_delivery(db: PgConnection, tmp_pa
     before = _clean_from_db(db, "clean.listings", LISTING_COLUMNS)
     delivery_path(tmp_path, MARCH, "listings").unlink()
     db.execute("DELETE FROM clean.listings")
+    db.execute("DELETE FROM ops.column_profile WHERE stream = 'listings'")
+    db.execute("DELETE FROM ops.validation_warnings WHERE stream = 'listings'")
     db.execute("DELETE FROM ops.ingest_log WHERE layer = 'clean' AND stream = 'listings'")
-    result = build_clean(db, MARCH, "listings")
-    assert result.status == "loaded"
+    result = build_clean(db, MARCH, reports=tmp_path / "reports")
+    assert result["listings"].status == "loaded"
     assert _clean_from_db(db, "clean.listings", LISTING_COLUMNS).equals(before)
 
 

@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 authors = [{ name = "Juan Garrido García" }]
 dependencies = [
+    "pandera[polars]>=0.36",
     "polars>=2.1",
     "psycopg[binary]>=3.3",
     "pydantic-settings>=2.16",

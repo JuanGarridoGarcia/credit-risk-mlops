@@ -139,8 +139,8 @@ OUTCOME_RULES: Final[Mapping[str, Rule]] = {c: _rule_for(c) for c in OUTCOME_COL
 
 
 @dataclass(frozen=True)
-class CleaningError(ValueError):
-    """A delivered value does not fit the rule of its column."""
+class ColumnFailure:
+    """The values of one column that do not fit its rule."""
 
     column: str
     rule: Rule
@@ -155,6 +155,27 @@ class CleaningError(ValueError):
         )
 
 
+@dataclass(frozen=True)
+class CleaningError(ValueError):
+    """Delivered values do not fit the rules of their columns.
+
+    Every failing column of the frame is in ``failures`` (D-053: all failures at once);
+    the fields name the first one.
+    """
+
+    column: str
+    rule: Rule
+    loan_id: str | None
+    value: str
+    count: int
+    failures: tuple[ColumnFailure, ...] = ()
+
+    def __str__(self) -> str:
+        return "; ".join(str(f) for f in self.failures) or str(
+            ColumnFailure(self.column, self.rule, self.loan_id, self.value, self.count)
+        )
+
+
 def clean(frame: pl.DataFrame, rules: Mapping[str, Rule]) -> pl.DataFrame:
     """Apply one rule per column. Same rows, same order, same columns, typed."""
     if list(frame.columns) != list(rules):
@@ -162,11 +183,17 @@ def clean(frame: pl.DataFrame, rules: Mapping[str, Rule]) -> pl.DataFrame:
         extra = [c for c in frame.columns if c not in rules]
         raise ValueError(f"columns do not match the contract: missing {missing}, extra {extra}")
     out = frame.select(_convert(rule, col).alias(col) for col, rule in rules.items())
+    failures = []
     for col, rule in rules.items():
         broken = frame[col].is_not_null() & out[col].is_null()
         if broken.any():
             first = frame.filter(broken).row(0, named=True)
-            raise CleaningError(col, rule, first.get("id"), first[col], int(broken.sum()))
+            failures.append(
+                ColumnFailure(col, rule, first.get("id"), first[col], int(broken.sum()))
+            )
+    if failures:
+        f = failures[0]
+        raise CleaningError(f.column, f.rule, f.loan_id, f.value, f.count, tuple(failures))
     return out
 
 

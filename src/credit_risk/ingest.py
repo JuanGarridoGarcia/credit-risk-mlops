@@ -13,6 +13,7 @@ import csv
 import gzip
 import hashlib
 import io
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -26,9 +27,26 @@ import polars as pl
 import psycopg
 from psycopg import sql
 
-from credit_risk.cleaning import CLEANERS
-from credit_risk.contracts import LISTING_COLUMNS, OUTCOME_COLUMNS, STREAMS, delivery_path
+from credit_risk.cleaning import CLEANERS, CleaningError
+from credit_risk.contracts import LISTING_COLUMNS, LISTINGS, OUTCOME_COLUMNS, STREAMS, delivery_path
 from credit_risk.settings import Settings
+from credit_risk.validation.contract import (
+    BAD_STATUSES,
+    CHARGE_OFF_LAG_MONTHS,
+    SNAPSHOT,
+    Contract,
+    contract_at,
+)
+from credit_risk.validation.report import (
+    Report,
+    ValidationFailed,
+    cleaning_findings,
+    null_findings,
+    profile,
+    sql_findings,
+    volume_findings,
+)
+from credit_risk.validation.rules import Finding, validate_month
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +55,10 @@ Connection = psycopg.Connection[tuple[Any, ...]]
 LAYERS: Final = ("raw", "clean")
 COLUMNS: Final = {"listings": LISTING_COLUMNS, "outcomes": OUTCOME_COLUMNS}
 LOG_TABLE: Final = sql.Identifier("ops", "ingest_log")
+WARNINGS_TABLE: Final = sql.Identifier("ops", "validation_warnings")
+PROFILE_TABLE: Final = sql.Identifier("ops", "column_profile")
+#: Where each validation run writes its report (D-053).
+REPORTS: Final = Path("data/validation")
 _CHUNK: Final = 1 << 20
 
 
@@ -266,51 +288,265 @@ def _raw_frame(conn: Connection, stream: str, period: date) -> pl.DataFrame:
     return pl.read_csv(out.getvalue(), infer_schema=False)
 
 
-def build_clean(conn: Connection, period: date, stream: str) -> LoadResult:
-    """Rebuild one period of the clean layer from the raw layer (D-044), never from files."""
-    _require_autocommit(conn)
-    raw = _live(conn, stream, "raw", period)
-    if raw is None:
-        raise LookupError(f"raw.{stream} has no data for {period:%Y-%m}")
-    live = _live(conn, stream, "clean", period)
-    if live is not None and live.source_load_id == raw.load_id:
+def _stage(stream: str) -> sql.Identifier:
+    return sql.Identifier(f"stage_{stream}")
+
+
+def _copy_frame(
+    conn: Connection, table: sql.Composable, frame: pl.DataFrame, period: date, load_id: int
+) -> None:
+    body = io.BytesIO()
+    frame.select(
+        pl.lit(period).alias("period"), pl.lit(load_id).alias("load_id"), pl.all()
+    ).write_csv(body)
+    names = ("period", "load_id", *frame.columns)
+    copy_sql = _query("copy_in").format(table=table, columns=_columns(names))
+    with conn.cursor().copy(copy_sql) as copy:
+        copy.write(body.getvalue())
+
+
+Profiles = dict[str, dict[str, tuple[int, int]]]
+
+
+def _history_findings(
+    conn: Connection, period: date, frames: dict[str, pl.DataFrame], contract: Contract
+) -> tuple[list[Finding], list[str], Profiles]:
+    """R4.6 and R5: the rules that compare the month with the months before it."""
+    findings: list[Finding] = []
+    notes: list[str] = []
+    profiles: Profiles = {}
+    for stream, frame in frames.items():
+        profiles[stream] = profile(frame)
+        rows = conn.execute(_query("previous_profile"), {"stream": stream, "period": period})
+        previous = {str(c): (int(t), int(n)) for c, t, n in rows.fetchall()}
+        findings += null_findings(stream, profiles[stream], previous)
+        history = conn.execute(_query("volume_history"), {"stream": stream, "period": period})
+        volumes = [int(r[1]) for r in history.fetchall()]
+        expected = contract.listings_expected or stream != LISTINGS
+        found, note = volume_findings(stream, frame.height, volumes, expected=expected)
+        findings += found
+        notes += note
+    return findings, notes, profiles
+
+
+def _sql_rules(conn: Connection, period: date) -> list[Finding]:
+    params = {
+        "period": period,
+        "bad": sorted(BAD_STATUSES),
+        "lag": CHARGE_OFF_LAG_MONTHS,
+        "snapshot": SNAPSHOT,
+    }
+    return sql_findings(conn.execute(_query("validate_month"), params).fetchall())
+
+
+def _store_month(
+    conn: Connection, period: date, load_ids: dict[str, int], report: Report, profiles: Profiles
+) -> None:
+    """Replace the month's warnings and missing-value profile (inside the load transaction)."""
+    for stream, load_id in load_ids.items():
+        for table in (WARNINGS_TABLE, PROFILE_TABLE):
+            conn.execute(
+                _query("delete_period_stream").format(table=table),
+                {"period": period, "stream": stream},
+            )
+        for f in report.of_level("warning"):
+            if f.stream == stream:
+                conn.execute(
+                    _query("insert_warning"),
+                    {
+                        "period": period,
+                        "stream": stream,
+                        "rule": f.rule,
+                        "column": f.column,
+                        "rows": f.count,
+                        "load_id": load_id,
+                        "examples": json.dumps(f.examples),
+                    },
+                )
+        with conn.cursor() as cur:
+            cur.executemany(
+                _query("insert_profile"),
+                [
+                    {
+                        "period": period,
+                        "stream": stream,
+                        "column": column,
+                        "rows": total,
+                        "nulls": nulls,
+                        "load_id": load_id,
+                    }
+                    for column, (total, nulls) in profiles[stream].items()
+                ],
+            )
+
+
+class _Rollback(Exception):  # noqa: N818 - control flow, never leaves this module
+    """A critical SQL rule failed inside the load transaction."""
+
+
+def _write_month(
+    conn: Connection,
+    period: date,
+    frames: dict[str, pl.DataFrame],
+    raws: dict[str, LiveLoad],
+    lives: dict[str, LiveLoad | None],
+    report: Report,
+    profiles: Profiles,
+) -> dict[str, LoadResult]:
+    """Stage both streams, run the SQL rules, and replace the clean month if all pass.
+
+    Returns no results when a critical SQL rule failed: the transaction was rolled back.
+    """
+    load_ids: dict[str, int] = {}
+    statuses = {s: "replaced" if lives[s] is not None else "loaded" for s in STREAMS}
+    try:
+        with conn.transaction():
+            for stream in STREAMS:
+                row = conn.execute(
+                    _query("start_load").format(log=LOG_TABLE),
+                    {
+                        "stream": stream,
+                        "layer": "clean",
+                        "period": period,
+                        "status": statuses[stream],
+                        "sha": raws[stream].sha,
+                        "source": raws[stream].load_id,
+                        "rows_in_file": frames[stream].height,
+                    },
+                ).fetchone()
+                assert row is not None  # noqa: S101 - INSERT ... RETURNING always returns a row
+                load_ids[stream] = int(row[0])
+                table = _table("clean", stream)
+                conn.execute(_query("create_stage").format(stage=_stage(stream), table=table))
+                _copy_frame(conn, _stage(stream), frames[stream], period, load_ids[stream])
+            report.findings += _sql_rules(conn, period)
+            if not report.passed:
+                raise _Rollback
+            _store_month(conn, period, load_ids, report, profiles)
+            for stream in STREAMS:
+                table = _table("clean", stream)
+                conn.execute(_query("delete_period").format(table=table), {"period": period})
+                conn.execute(_query("publish_stage").format(table=table, stage=_stage(stream)))
+                loaded = _count(conn, table, period)
+                if loaded != frames[stream].height:
+                    raise RuntimeError(
+                        f"clean.{stream} {period}: {loaded} rows loaded, "
+                        f"{frames[stream].height} cleaned"
+                    )
+                conn.execute(
+                    _query("finish_load").format(log=LOG_TABLE),
+                    {"rows_loaded": loaded, "load_id": load_ids[stream]},
+                )
+    except _Rollback:
+        return {}
+    results = {}
+    for stream in STREAMS:
+        rows = frames[stream].height
+        log.info("clean.%s %s: %s, %d rows", stream, period, statuses[stream], rows)
+        results[stream] = LoadResult(load_ids[stream], statuses[stream], rows)
+    return results
+
+
+def _validate(
+    conn: Connection, period: date, contract: Contract, report: Report
+) -> tuple[dict[str, pl.DataFrame], Profiles]:
+    """Clean both streams and run every rule that does not need the load transaction."""
+    frames: dict[str, pl.DataFrame] = {}
+    for stream in STREAMS:
+        raw_frame = _raw_frame(conn, stream, period)
+        report.rows[stream] = raw_frame.height
+        try:
+            frames[stream] = CLEANERS[stream](raw_frame)
+        except CleaningError as exc:
+            report.findings += cleaning_findings(stream, exc)
+    if not report.passed:
+        return frames, {}
+    for stream, frame in frames.items():
+        report.findings += validate_month(frame, stream, period, contract)
+    found, notes, profiles = _history_findings(conn, period, frames, contract)
+    report.findings += found
+    report.notes += notes
+    return frames, profiles
+
+
+def _log_failed(conn: Connection, period: date, raws: dict[str, LiveLoad], error: str) -> None:
+    for stream in STREAMS:
         _log_event(
             conn,
             stream=stream,
             layer="clean",
             period=period,
-            status="unchanged",
-            sha=raw.sha,
-            source=raw.load_id,
-        )
-        log.info("clean.%s %s: unchanged", stream, period)
-        return LoadResult(None, "unchanged", 0)
-
-    def run() -> LoadResult:
-        cleaned = CLEANERS[stream](_raw_frame(conn, stream, period))
-        return _replace_period(
-            conn,
-            stream=stream,
-            layer="clean",
-            period=period,
-            frame=cleaned,
-            sha=raw.sha,
-            source=raw.load_id,
-            replacing=live is not None,
+            status="failed",
+            sha=raws[stream].sha,
+            error=error,
         )
 
-    return _guarded(conn, stream, "clean", period, raw.sha, run)
 
+def build_clean(
+    conn: Connection, period: date, *, reports: Path = REPORTS
+) -> dict[str, LoadResult]:
+    """Validate a month and rebuild it in the clean layer from raw (D-044), never from files.
 
-def ingest(conn: Connection, landing: Path, period: date) -> dict[str, list[LoadResult]]:
-    """Load both streams of a month into raw, then build clean."""
-    results: dict[str, list[LoadResult]] = {}
+    The month is the unit (D-055): both streams are cleaned, validated and written in one
+    transaction. A critical failure writes nothing of the month, records the failure in
+    ``ops.ingest_log`` and raises ``ValidationFailed``; the report names every finding.
+    """
+    _require_autocommit(conn)
+    raws: dict[str, LiveLoad] = {}
     for stream in STREAMS:
-        results[stream] = [
-            load_raw(conn, landing, period, stream),
-            build_clean(conn, period, stream),
-        ]
+        raw = _live(conn, stream, "raw", period)
+        if raw is None:
+            raise LookupError(f"raw.{stream} has no data for {period:%Y-%m}")
+        raws[stream] = raw
+    lives = {stream: _live(conn, stream, "clean", period) for stream in STREAMS}
+    if all((live := lives[s]) and live.source_load_id == raws[s].load_id for s in STREAMS):
+        for stream in STREAMS:
+            _log_event(
+                conn,
+                stream=stream,
+                layer="clean",
+                period=period,
+                status="unchanged",
+                sha=raws[stream].sha,
+                source=raws[stream].load_id,
+            )
+            log.info("clean.%s %s: unchanged", stream, period)
+        return {stream: LoadResult(None, "unchanged", 0) for stream in STREAMS}
+
+    contract = contract_at(period)
+    report = Report(period, contract.changes, {})
+    try:
+        frames, profiles = _validate(conn, period, contract, report)
+        results = (
+            _write_month(conn, period, frames, raws, lives, report, profiles)
+            if report.passed
+            else {}
+        )
+    except Exception as exc:
+        _log_failed(conn, period, raws, repr(exc))
+        raise
+    path = report.write(reports)
+    if not report.passed:
+        failure = ValidationFailed(report, path)
+        _log_failed(conn, period, raws, str(failure))
+        log.error("%s", failure)
+        raise failure
+    warnings = len(report.of_level("warning"))
+    log.info("validation %s: passed, %d warning(s), report %s", period, warnings, path)
     return results
+
+
+def ingest(
+    conn: Connection, landing: Path, period: date, *, reports: Path | None = None
+) -> dict[str, list[LoadResult]]:
+    """Load both streams of a month into raw, then validate and build the clean month.
+
+    Reports go to ``reports``, by default ``validation`` next to the landing folder
+    (``data/validation`` for ``data/landing``).
+    """
+    raw = {stream: load_raw(conn, landing, period, stream) for stream in STREAMS}
+    clean = build_clean(conn, period, reports=reports or landing.parent / "validation")
+    return {stream: [raw[stream], clean[stream]] for stream in STREAMS}
 
 
 def delete_period(conn: Connection, period: date, streams: tuple[str, ...] = STREAMS) -> None:
@@ -318,6 +554,11 @@ def delete_period(conn: Connection, period: date, streams: tuple[str, ...] = STR
     _require_autocommit(conn)
     for stream in streams:
         with conn.transaction():
+            for table in (WARNINGS_TABLE, PROFILE_TABLE):
+                conn.execute(
+                    _query("delete_period_stream").format(table=table),
+                    {"period": period, "stream": stream},
+                )
             for layer in ("clean", "raw"):
                 conn.execute(
                     _query("delete_period").format(table=_table(layer, stream)), {"period": period}

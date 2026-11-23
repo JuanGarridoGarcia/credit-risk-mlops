@@ -67,6 +67,10 @@ DBMATE_IMAGE = (
 )
 
 
+#: Number of schema migrations in the repository.
+MIGRATIONS = len(list((REPO_ROOT / "db" / "migrations").glob("*.sql")))
+
+
 def database_url(settings: Settings, dbname: str) -> str:
     """URL for dbmate, pointing at a given database of the compose Postgres."""
     password = settings.postgres_password.get_secret_value()
@@ -127,6 +131,6 @@ def db(settings: Settings, migrated_database: str) -> Iterator[PgConnection]:
     with psycopg.connect(conninfo, autocommit=True) as conn:
         conn.execute(
             "TRUNCATE raw.listings, raw.outcomes, clean.listings, clean.outcomes, "
-            "ops.ingest_log RESTART IDENTITY"
+            "ops.validation_warnings, ops.column_profile, ops.ingest_log RESTART IDENTITY"
         )
         yield conn

@@ -52,6 +52,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY tests ./tests
 COPY reports/data_audit/data_dictionary.csv ./reports/data_audit/data_dictionary.csv
+COPY docs/validation_rules.md ./docs/validation_rules.md
 ENV PATH="/opt/venv/bin:${PATH}"
 RUN rm -rf /app/src
 USER nobody

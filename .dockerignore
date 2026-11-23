@@ -7,5 +7,7 @@
 !tests/
 # Read by a unit test (T1.3) in the test stage only.
 !reports/data_audit/data_dictionary.csv
+# Read by a unit test (T4.9) in the test stage only.
+!docs/validation_rules.md
 **/__pycache__
 **/*.py[cod]

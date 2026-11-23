@@ -76,9 +76,12 @@ Allowed values and product limits come from a contract that only knows the past 
 | C5 | 2016-03 | `loan_amnt` up to 40,000 | Maximum loan raised |
 | C6 | 2017-06 | Hardship program in outcomes: `hardship_type` (INTEREST ONLY-3 MONTHS DEFERRAL), `hardship_reason` (9 values), `hardship_status` (BROKEN, COMPLETED), `hardship_loan_status` (5 values) | Hardship program launched |
 | C7 | 2019-03 | `loan_status = Default` | Loans in default and not yet charged off at the snapshot (data_audit.md 4.2) |
+| C9 | 2014-08 | `last_credit_pull_d` (outcomes) may be empty | Sporadic gaps, one or two a month until 2019 (53 rows); an outcome column that is never a feature |
 | C8 | 2019-01 | The listings stream carries no loans | The source file ends in 2018-12 for listings; outcomes go on to 2019-03. Approved with group 5 |
 
-Known simplification: each change enters into force in the month the novelty first appears, as if the team reacted within the month. A data test checks that the base contract alone stops the replay exactly at the months of C1 to C8 and nowhere else.
+Known simplification: each change enters into force in the month the novelty first appears, as if the team reacted within the month. A data test checks that the base contract alone stops the replay exactly at the months of C1 to C9 and nowhere else.
+
+Known limitation: the thresholds of R4.6 and group 5 were chosen looking at 2014 to 2018. They are round values (10 points, half, twice) and on the history up to 2013 they fire in reasonable months (2012-08 to 2012-10), but they were not chosen blind.
 
 ## 4. Reviewed exceptions
 
@@ -87,6 +90,9 @@ Rows that fail a critical rule in real data that can never be delivered again. T
 | Rule | Loan ids | Month | Reason |
 |---|---|---|---|
 | R3.5 | 124624, 127213 | 2007-09 | `open_acc` greater than `total_acc` (4 of 3, 14 of 8). Impossible, but in the 2007 history the provider will not send again |
+| R4.2 | 63407533 | 2015-10 | `num_rev_accts` empty in one row of a required column |
+| R4.2 | 69266577 | 2016-01 | `inq_last_6mths` empty in one row of a required column |
+| R4.1 | 96387212 | 2017-01 | `zip_code` empty in one row of a required column |
 
 ## 5. Rules
 
@@ -108,7 +114,7 @@ Engine: **P** pandera on the month, **S** SQL against the history, **C** cleanin
 
 | Id | Rule | Level | Engine | Why | Failing rows |
 |---|---|---|---|---|---|
-| R2.1 | Categories and `zip_code` follow the contract in force (section 3) | Critical | P | A new category is a product change that needs a decision | 0 with C1 to C8 |
+| R2.1 | Categories and `zip_code` follow the contract in force (section 3) | Critical | P | A new category is a product change that needs a decision | 0 with C1 to C9 |
 | R2.2 | `loan_amnt` within the product limits in force | Critical | P | Same, for the product limits | 0 with C5 |
 | R2.3 | Money amounts are at least -0.01 | Critical | P | A negative amount is impossible; the cent of tolerance absorbs rounding noise (4 rows of `total_rec_late_fee` around -0.000000005) | 0 |
 | R2.4 | Counts and months are whole numbers, at least 0 | Critical | P | By definition | 0 |
@@ -120,7 +126,7 @@ Engine: **P** pandera on the month, **S** SQL against the history, **C** cleanin
 | R2.10 | `dti` negative or above 100 | Warning | P | Possible with very low income or high debt; includes the 135 values of 999 (E-014) | 2 + 2,561 |
 | R2.11 | `annual_inc` above 10 million | Warning | P | Possible but rare | 3 |
 | R2.12 | 999 in account age columns, 9,999,999 in credit limit columns | Warning | P | Look like cap codes | 3 + 17 |
-| R2.13 | `int_rate` above the highest rate seen in clean so far | Warning | S | A pricing change the model never saw | Fires in 2015 (28.99%) and 2016 (30.99%) |
+| R2.13 | `int_rate` above the highest rate seen in clean so far | Warning | S | A pricing change the model never saw | In 2014 to 2018: 2015-05 (26.77%), 2016-04 (29.96%) and 2016-05 (30.99%); 18 months of the history up to 2013, as rates rose |
 
 ### Group 3: consistency between columns
 
@@ -146,14 +152,14 @@ Finding for F3: `installment` is computed on the funded amount, not the requeste
 
 ### Group 4: missing values
 
-Missing values are information and are never filled (D-051). These rules watch that they do not appear where they never were, and that their share does not change suddenly.
+Missing values are information and are never filled (D-051). These rules watch that they do not appear where they never were, and that their share does not change suddenly. Required columns come only from the history up to 2013-12 (D-056): a column is required if it was complete through 2013, from the month after its last empty value. A first version took the lists from the whole file and was corrected before implementation.
 
 | Id | Rule | Level | Engine | Why | Failing rows |
 |---|---|---|---|---|---|
-| R4.1 | The 19 listing columns that were never empty stay filled | Critical | P | `id`, amount, term, rate, instalment, grade, FICO, state and others | 0 |
-| R4.2 | 36 more listing columns are required from the month after their last empty value (2007-09 to 2013-01) | Critical | P | Complete ever since; all dates are within the base contract | 0 |
+| R4.1 | The 20 listing columns never empty up to 2013-12 stay filled | Critical | P | `id`, amount, term, rate, instalment, grade, FICO, zip code, state and others | 1 (reviewed exception) |
+| R4.2 | 38 more listing columns, complete through 2013, are required from the month after their last empty value (2007-09 to 2013-01) | Critical | P | Known at 2013-12 | 2 (reviewed exceptions) |
 | R4.3 | `dti` filled in individual applications | Critical | P | In joint ones it may be missing: with individual income 0 the ratio does not exist | 0 |
-| R4.4 | The 20 outcome columns that were never empty stay filled; `last_pymnt_d` filled in paid loans | Critical | P | A paid loan has a last payment | 0 |
+| R4.4 | The 20 outcome columns never empty up to 2013-12 stay filled, plus `last_credit_pull_d` until C9; `last_pymnt_d` filled in paid loans | Critical | P | A paid loan has a last payment | 0 with C9 |
 | R4.5 | `member_id` stays empty | Critical | P | A personal identifier Lending Club stopped publishing; it must not spread | 0 |
 | R4.6 | The share of missing values of a column moves more than 10 points from the previous month, either way | Warning | P + S | Compared with the previous month because missing values have no seasonality | 4 months of 60 in 2014 to 2018: 2014-03 and 2014-04 (`desc` dropped), 2015-12 and 2016-01 (14 new bureau fields) |
 

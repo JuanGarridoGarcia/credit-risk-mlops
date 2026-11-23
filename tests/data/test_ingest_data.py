@@ -1,9 +1,12 @@
-"""T3.13: loading every real delivery into Postgres reproduces the audit's counts.
+"""T3.13 and T4.15: loading every real delivery into Postgres, with validation.
 
 Needs the deliveries in ``data/landing`` (``make publish PERIOD=2019-03``) and the
-compose Postgres (``make up``). Also measures COPY against row-by-row INSERT (D-047).
+compose Postgres (``make up``). T3.13 reproduces the audit's counts; T4.15 checks that
+no critical rule fails and that warnings fire exactly where docs/validation_rules.md
+says. Also measures COPY against row-by-row INSERT (D-047).
 """
 
+import json
 import time
 from collections.abc import Iterator
 from datetime import date
@@ -48,22 +51,87 @@ def _count(conn: psycopg.Connection[tuple[object, ...]], table: str) -> int:
     return int(str(row[0]))
 
 
-def test_every_delivery_loads_with_the_audit_counts(
-    conn: psycopg.Connection[tuple[object, ...]],
-) -> None:
+@pytest.fixture(scope="module")
+def full_load(
+    conn: psycopg.Connection[tuple[object, ...]], tmp_path_factory: pytest.TempPathFactory
+) -> Path:
+    """Load every delivery in month order; return the folder of the validation reports."""
+    reports = tmp_path_factory.mktemp("validation")
     periods = sorted(date.fromisoformat(f"{p.name}-01") for p in LANDING.iterdir())
     assert len(periods) == 142
     start = time.perf_counter()
     for period in periods:
-        ingest(conn, LANDING, period)
-    elapsed = time.perf_counter() - start
-    print(f"\nfull load of {len(periods)} months: {elapsed:.0f} s")
+        ingest(conn, LANDING, period, reports=reports)
+    print(
+        f"\nfull load of {len(periods)} months with validation: {time.perf_counter() - start:.0f} s"
+    )
+    return reports
+
+
+# T3.13
+def test_every_delivery_loads_with_the_audit_counts(
+    conn: psycopg.Connection[tuple[object, ...]], full_load: Path
+) -> None:
     assert _count(conn, "raw.listings") == 2_260_668
     assert _count(conn, "clean.listings") == 2_260_668
     assert _count(conn, "raw.outcomes") == 1_348_099
     assert _count(conn, "clean.outcomes") == 1_348_099
     failed = _count(conn, "ops.ingest_log WHERE status = 'failed'")
     assert failed == 0
+
+
+def _months(
+    conn: psycopg.Connection[tuple[object, ...]], rule: str, since: str = "2007-01"
+) -> set[str]:
+    rows = conn.execute(
+        "SELECT DISTINCT to_char(period, 'YYYY-MM') FROM ops.validation_warnings "
+        "WHERE rule = %s AND to_char(period, 'YYYY-MM') BETWEEN %s AND '2018-12'",
+        (rule, since),
+    ).fetchall()
+    return {str(r[0]) for r in rows}
+
+
+def _rows(conn: psycopg.Connection[tuple[object, ...]], rule: str) -> int:
+    row = conn.execute(
+        "SELECT coalesce(sum(rows_affected), 0) FROM ops.validation_warnings WHERE rule = %s",
+        (rule,),
+    ).fetchone()
+    assert row is not None
+    return int(str(row[0]))
+
+
+# T4.15
+def test_the_real_file_passes_and_warns_where_the_catalogue_says(
+    conn: psycopg.Connection[tuple[object, ...]], full_load: Path
+) -> None:
+    findings = [
+        f
+        for path in sorted(full_load.glob("*/*.json"))
+        for f in json.loads(path.read_text())["findings"]
+    ]
+    assert [f for f in findings if f["level"] == "critical"] == []
+    exceptions = {
+        (f["rule"], e[0]) for f in findings if f["level"] == "exception" for e in f["examples"]
+    }
+    assert exceptions == {
+        ("R3.5", 124624),
+        ("R3.5", 127213),
+        ("R4.2", 63407533),
+        ("R4.2", 69266577),
+        ("R4.1", 96387212),
+    }
+    rules = conn.execute("SELECT DISTINCT rule FROM ops.validation_warnings").fetchall()
+    assert {str(r[0]) for r in rules} == {
+        "R2.10", "R2.11", "R2.12", "R2.13", "R3.14", "R3.15", "R4.6", "R5.2",
+    }  # fmt: skip
+    assert _rows(conn, "R2.10") == 2 + 2_561
+    assert _rows(conn, "R2.11") == 3
+    assert _rows(conn, "R2.12") == 3 + 17
+    assert _rows(conn, "R3.14") == 4
+    assert _rows(conn, "R3.15") == 433
+    assert _months(conn, "R2.13", "2014-01") == {"2015-05", "2016-04", "2016-05"}
+    assert _months(conn, "R4.6", "2014-01") == {"2014-03", "2014-04", "2015-12", "2016-01"}
+    assert _months(conn, "R5.2") == {"2012-08", "2012-09", "2012-10", "2014-10"}
 
 
 def test_copy_is_faster_than_row_by_row_insert(
