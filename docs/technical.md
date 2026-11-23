@@ -27,7 +27,7 @@ Status of every step of the playbook. Updated in every pull request.
 | | 1.4 Documentation skeleton | Done | #2 | D-033 to D-036 |
 | F2 Data | 2.1 Idempotent ingestion | In review | | D-039 to D-052; E-013 to E-019 |
 | | 2.2 Data validation | In review | | D-053 to D-057; E-020, E-021; rules in validation_rules.md; tests in tests.md |
-| | 2.3 Data versioning | In design | | D-058 to D-061 |
+| | 2.3 Data versioning | In review | | D-058 to D-061; E-022 |
 | | 2.4 Features | Pending | | |
 | F3 Model | 3.1 Baseline | Pending | | |
 | | 3.2 Tracking and experiments | Pending | | |
@@ -348,3 +348,59 @@ Tests T3 were kept as approved; their fixtures now start from rows that pass val
 | Each failure says what, where and why | T4.2, T4.14 |
 | Warnings are kept for monitoring | T4.12 |
 | The rules hold on the real data | T4.15, T4.16 |
+
+### Step 2.3 Data versioning
+
+A model must be reproducible months later, but `clean` changes when a corrected delivery replaces a month (D-049). So the training set at a cutoff month T is built once and kept as an immutable version. Decisions D-058 to D-061; error E-022.
+
+**Flow**
+
+```
+clean (every month up to T, checked) ──SQL──> loans of the set at T ──COPY──> two frames
+                                               matured, labelled, split        features / evaluation
+                                                                                     │
+                       content hash of the data (the name of the version) <──────────┘
+                                     │
+           new: write both Parquet files to training_sets/<hash>/, then the manifest
+           known: write nothing, check the stored files against their checksums
+```
+
+- **The set at T** (`sql/training_ids.sql`). Matured cohorts: listed at least `term + 5` months before T (D-040). The label comes only from outcomes delivered by T: Fully Paid 0, Charged Off and Default 1 (D-013); old-policy loans and matured loans with no outcome yet are left out and counted. The last 6 listing months are validation (D-042).
+- **Before anything**, every month and stream from 2007-06 to T must have a live clean load whose last attempt did not fail; otherwise the build stops and names the months.
+- **Two files** (D-060). `features.parquet`: every column of `clean.listings`, `label` and `split`, with the types of the cleaning rules. `evaluation.parquet`: the outcome columns of the same loans and the month each was resolved. Training reads only the first.
+- **Two hashes** (D-061, `snapshot.content_hash`). The content hash is SHA-256 over the data in one fixed text form (rows sorted by `id`, column names and types, floats with 17 significant digits, text always quoted, missing values marked apart), so it changes only when the data change. The checksum of each file goes in the manifest and is checked on every read and rebuild.
+- **Store** (D-059, `storage.py`). A version is the folder `data/training_sets/<hash>/`, filled under a temporary name and renamed in one step; it is never overwritten. The S3 store comes with the AWS phase behind the same interface.
+- **Manifest** (D-058). `ops.training_sets`: version, cutoff, git commit (`-dirty` if the tree has changes; `CREDIT_RISK_COMMIT` in an image), path, counts, exclusions, checksums. `ops.training_set_loads`: the clean load of every month and stream used. `python -m credit_risk.snapshot stale` lists the versions built on a load that has since been replaced.
+- **One consistent view**: the build runs in one `REPEATABLE READ` transaction, so clean cannot change halfway.
+
+**Postgres**: new migration `20261123150000_create_training_sets.sql` with `ops.training_sets` and `ops.training_set_loads` (foreign keys to `ops.ingest_log`).
+
+**Commands**: `make snapshot T=YYYY-MM` builds the version at T and prints its hash.
+
+**Tests**
+
+| Group | File | Tests |
+|---|---|---|
+| T5 Training set versions (14) | `tests/unit/test_snapshot.py`, `tests/integration/test_snapshot.py`, `tests/data/test_snapshot_data.py` | 1 maturity at 41 and 65 months; 2 label and old policy; 3 outcome unknown at T left out; 4 last 6 months are validation; 5 no outcome column in the training file; 6 a missing or failed month stops the build; 7 manifest; 8 content hash follows the data, not the file; 9 a rebuild writes nothing; 10 a corrected month gives a new version and flags the old; 11 a changed file is refused; 12 SQL equals an independent polars version on 2,000 random loans; 13 and 14 real data at T0 |
+
+Every test, with its functions, is in [tests.md](tests.md). The SQL was also checked by mutation: moving the maturity by one month, reading outcomes after T, a 7-month validation window or another label mapping each make T5 tests fail.
+
+**Measurements** (2026-11-23, cloud machine, 4 CPUs; all 142 months in clean)
+
+| Cutoff | Train (defaults) | Validation (defaults) | Old policy left out | No outcome yet | Build | Size |
+|---|---|---|---|---|---|---|
+| 2014-01 (T0) | 7,733 (1,019) | 4,324 (429) | 2,226 | 25 | 1.3 s | 2.6 MB |
+| 2016-01 | 34,613 (4,089) | 19,060 (2,700) | 2,587 | 9 | 2.6 s | 8.2 MB |
+| 2018-12 | 394,952 (56,404) | 127,952 (19,208) | 2,749 | 80 | 13.2 s | 67 MB |
+
+The version at T0 built from a database loaded only up to 2014-01 (data test) and from one loaded with all 142 months has the same hash: the build never reads past T. A rebuild at 2018-12 with no change takes 13.0 s and writes nothing. The audit's 12,078 loans at T0 included 21 resolved after T0 (E-022).
+
+**Checks of the step**
+
+| Playbook criterion | Result |
+|---|---|
+| Any training set can be rebuilt exactly | T5.8, T5.9; same hash from two independent loads |
+| A version records where it came from | T5.7 |
+| Changes in the data are detected, not silently absorbed | T5.10, T5.11 |
+| No information from after T, no leakage into training | T5.3, T5.5, T5.12 |
+

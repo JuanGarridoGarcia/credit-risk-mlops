@@ -29,6 +29,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-019](#e-019) | 2026-11-23 | 2.1 | Column `desc` is a reserved word in SQL | Minor |
 | [E-020](#e-020) | 2026-11-23 | 2.2 | Required columns taken from the whole file, not from the past | Major |
 | [E-021](#e-021) | 2026-11-23 | 2.2 | Catalogue months of R2.13 written from a guess, not measured | Minor |
+| [E-022](#e-022) | 2026-11-23 | 2.3 | First training set counted with outcomes known only after T0 | Minor |
 
 ## Errors
 
@@ -241,4 +242,13 @@ Date: 2026-11-23 · Step: 2.2 · Severity: minor
 - **Cause**: the months were inferred from the yearly maximum rates instead of being measured with the rule itself.
 - **Fix**: catalogue corrected with the measured months.
 - **Prevention**: test T4.15 checks every number of the catalogue against the full real load, so a number written from a guess fails.
+
+### E-022 First training set counted with outcomes known only after T0
+
+Date: 2026-11-23 · Step: 2.3 · Severity: minor
+
+- **Symptom**: test T5.13 expected the counts of the audit and of D-041/D-042 at T0 = 2014-01: 12,078 matured loans, train 7,745, validation 4,333 with 432 defaults, 2,230 old-policy loans. The version built from clean at T0 has 12,057: train 7,733 (1,019 defaults), validation 4,324 (429 defaults), 2,226 old-policy loans and 25 matured loans with no outcome yet.
+- **Cause**: the audit counted matured loans with their final status in the 2019-03 snapshot. 25 of them were resolved after T0, between 2014-02 and 2016-01 (21 of the current policy, 9 of them defaults; 4 of the old policy), so at T0 nobody could know their label. The same mistake as E-020: a figure computed with knowledge of the file's future.
+- **Fix**: T5.13 checks the counts known at T0 and reconciles them with the audit: the 21 and 4 loans are found in the later deliveries and added back give 12,078 and 2,230. The decisions keep their text; the numbers of the first model are those of technical.md, step 2.3. The difference does not change D-041 (still enough defaults for the first model).
+- **Prevention**: every count of a training set comes from a version built at its cutoff (T5.13, T5.14), never from the whole file.
 

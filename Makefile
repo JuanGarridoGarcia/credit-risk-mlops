@@ -12,7 +12,7 @@ DOCKER_BUILD_FLAGS ?=
 # Loads .env into the environment of a recipe line (the Python settings read it from there).
 LOAD_ENV := set -a && . ./.env && set +a
 
-.PHONY: help install lint format test build test-image up down test-integration clean audit check data publish test-data migrate ingest
+.PHONY: help install lint format test build test-image up down test-integration clean audit check data publish test-data migrate ingest snapshot
 
 help: ## List the available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -55,6 +55,10 @@ migrate: up ## Apply the pending schema migrations (db/migrations) to the databa
 ingest: migrate ## Load the deliveries of PERIOD (YYYY-MM) into raw and clean (run 'make publish' first)
 	@test -n "$(PERIOD)" || { echo "usage: make ingest PERIOD=YYYY-MM"; exit 1; }
 	$(LOAD_ENV) && $(UV) python -m credit_risk.ingest load $(PERIOD)
+
+snapshot: migrate ## Build the training set version at T (YYYY-MM) from clean (D-058); prints its hash
+	@test -n "$(T)" || { echo "usage: make snapshot T=YYYY-MM"; exit 1; }
+	$(LOAD_ENV) && $(UV) python -m credit_risk.snapshot build $(T)
 
 test-data: data ## Run the tests that need the real data file (not in CI)
 	$(UV) pytest -m data

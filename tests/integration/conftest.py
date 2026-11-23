@@ -131,6 +131,7 @@ def db(settings: Settings, migrated_database: str) -> Iterator[PgConnection]:
     with psycopg.connect(conninfo, autocommit=True) as conn:
         conn.execute(
             "TRUNCATE raw.listings, raw.outcomes, clean.listings, clean.outcomes, "
-            "ops.validation_warnings, ops.column_profile, ops.ingest_log RESTART IDENTITY"
+            "ops.validation_warnings, ops.column_profile, ops.training_set_loads, "
+            "ops.training_sets, ops.ingest_log RESTART IDENTITY"
         )
         yield conn

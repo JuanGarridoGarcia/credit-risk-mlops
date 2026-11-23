@@ -676,7 +676,7 @@ Date: 2026-11-23 · Step: 2.3 · Status: Active
 
 Date: 2026-11-23 · Step: 2.3 · Status: Active
 
-- **Context**: every training produces a new snapshot (D-058); the one at 2018-12 holds over a million rows, a few hundred MB. Snapshots are produced by the pipeline on its own, not by a person working in git.
+- **Context**: every training produces a new snapshot (D-058); the one at 2018-12 was estimated at over a million rows and a few hundred MB (measured later: 522,904 rows, 67 MB, technical.md step 2.3). Snapshots are produced by the pipeline on its own, not by a person working in git.
 - **Decision**: each snapshot is a Parquet file at `training_sets/<hash>.parquet` in object storage: a local folder for now, an S3 bucket with versioning in AWS. Its manifest is a row of `ops.training_sets` (T, git commit, rows, hash, path) with the `load_id` of every month used as foreign keys to `ops.ingest_log`. Finding the sets built on a load that was later replaced is a SQL query. From F3, MLflow stores the hash with each model.
 - **Alternatives considered**: (A) DVC, the best known tool, which keeps a `.dvc` pointer in git and the file in remote storage: it fits a person versioning data with the code, but here the pipeline would have to commit to git at every training; (C) everything in Postgres, one table per version: simple and all SQL, but the database grows with large copies and training reads from it.
 - **Why**: each piece goes where it is handled best: large immutable files to object storage, metadata that must be queried to the database. It maps directly to S3 in AWS.

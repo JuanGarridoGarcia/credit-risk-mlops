@@ -12,6 +12,7 @@ Every test of the project, what it checks, where it lives and where it runs. Jua
 - [T2 Cleaning](#t2-cleaning)
 - [T3 Loading](#t3-loading)
 - [T4 Validation](#t4-validation)
+- [T5 Training set versions](#t5-training-set-versions)
 - [Change history](#change-history)
 
 ## How tests are organised
@@ -22,7 +23,7 @@ Tests are grouped by the piece they check. Group B holds the foundations of F1 (
 |---|---|---|---|---|---|
 | Unit | `tests/unit/` | none | Nothing | `make test`, `make test-image` | CI (job `tests`), and inside the image (job `integration`) |
 | Integration | `tests/integration/` | `integration` (`destructive` for B4) | Docker: compose Postgres or the built image | `make test-integration` | CI (job `integration`) |
-| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
+| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15, T5.13, T5.14) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
 
 Integration and data tests never skip: if what they need is missing, they fail.
 
@@ -44,7 +45,8 @@ Changing what an approved test checks needs Juan's approval again. B6 fails if a
 | T2 Cleaning | F2, step 2.1 | 11 | 2026-11-23 | [technical.md, step 2.1](technical.md#step-21-idempotent-ingestion) |
 | T3 Loading | F2, step 2.1 | 15 | 2026-11-23 (T3.14 and T3.15 on approval in step 2.2) | [technical.md, step 2.1](technical.md#step-21-idempotent-ingestion) |
 | T4 Validation | F2, step 2.2 | 16 | 2026-11-23 | [validation_rules.md](validation_rules.md), [technical.md, step 2.2](technical.md#step-22-data-validation) |
-| **Total** | | **60** | | |
+| T5 Training set versions | F2, step 2.3 | 14 | 2026-11-23 | [technical.md, step 2.3](technical.md#step-23-data-versioning) |
+| **Total** | | **74** | | |
 
 ## B Foundations
 
@@ -141,6 +143,27 @@ F2, step 2.2.
 | T4.15 | Real data: no critical failure, the 5 reviewed exceptions, and every warning count and month of the catalogue | `tests/data/test_ingest_data.py::test_the_real_file_passes_and_warns_where_the_catalogue_says` | Data | Local |
 | T4.16 | Real data: the base contract alone stops exactly at the months of C1 to C9 | `tests/data/test_validation_data.py::test_the_base_contract_alone_stops_exactly_at_the_recorded_changes` | Data | Local |
 
+## T5 Training set versions
+
+F2, step 2.3.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T5.1 | A loan enters once term + 5 months have passed: 36 months at 41 yes and 40 no; 60 months at 65 yes and 64 no (D-040) | `tests/integration/test_snapshot.py::test_a_loan_enters_once_term_plus_five_months_have_passed` | Integration | CI |
+| T5.2 | Label: Fully Paid 0; Charged Off and Default 1; both old-policy statuses left out and counted (D-013) | `tests/integration/test_snapshot.py::test_the_label_follows_d013_and_leaves_the_old_policy_out` | Integration | CI |
+| T5.3 | A matured loan whose outcome is not known at T (delivered later, or not yet) is left out and counted; no outcome after T is ever used | `tests/integration/test_snapshot.py::test_an_outcome_unknown_at_t_leaves_the_loan_out` | Integration | CI |
+| T5.4 | The last 6 listing months of the matured loans are validation, the rest train; no loan in both (D-042) | `tests/integration/test_snapshot.py::test_the_last_six_listing_months_are_validation` | Integration | CI |
+| T5.5 | `features.parquet` holds exactly the listing columns, the label and the split, and no outcome column; `evaluation.parquet` holds the outcome columns of the same loans (D-060) | `tests/integration/test_snapshot.py::test_training_sees_no_outcome_column` | Integration | CI |
+| T5.6 | The build refuses when a month up to T is missing from clean or its last load failed, and names the month | `tests/integration/test_snapshot.py::test_a_month_missing_from_clean_stops_the_build` | Integration | CI |
+| T5.7 | The manifest records T, commit, counts, content hash, file checksums and the live clean load of every month and stream used (D-058) | `tests/integration/test_snapshot.py::test_the_manifest_records_where_the_version_came_from` | Integration | CI |
+| T5.8 | The same data in another row order or compression give the same content hash and other bytes; one changed value, type or name changes it (D-061) | `tests/unit/test_snapshot.py::test_content_hash_follows_the_data_not_the_file`<br>`tests/unit/test_snapshot.py::test_one_changed_value_changes_the_content_hash` | Unit | CI, image |
+| T5.9 | A rebuild with no change in clean gives the same version and writes nothing | `tests/integration/test_snapshot.py::test_a_rebuild_with_no_change_writes_nothing` | Integration | CI |
+| T5.10 | After a corrected month: a new version, the old one untouched, and the query of stale versions finds the old one | `tests/integration/test_snapshot.py::test_a_corrected_month_gives_a_new_version_and_flags_the_old` | Integration | CI |
+| T5.11 | A stored file that changed is refused by its checksum, on read and on rebuild | `tests/integration/test_snapshot.py::test_a_stored_file_that_changed_is_refused` | Integration | CI |
+| T5.12 | The SQL build equals the rule written again in polars, on 2,000 random loans with every case | `tests/integration/test_snapshot.py::test_the_sql_build_matches_an_independent_polars_version` | Integration | CI |
+| T5.13 | Real data at T0 = 2014-01: the counts of the first training set | `tests/data/test_snapshot_data.py::test_the_first_training_set_has_the_audit_counts` | Data | Local |
+| T5.14 | Real data at T0: matured loans with no outcome known at T are measured and recorded in the manifest | `tests/data/test_snapshot_data.py::test_loans_without_a_known_outcome_are_measured` | Data | Local |
+
 ## Change history
 
 | Date | Test | Change | Why |
@@ -154,3 +177,4 @@ F2, step 2.2.
 | 2026-11-23 | B6 | Written; markers `# B1` to `# B5`, `# T1.12`, `# T2.11` and `# T4.16` added to the code | Approved by Juan: tests documented like decisions and errors, kept in step mechanically |
 | 2026-11-23 | T3.14, T3.15 | Numbered: two functions written in step 2.1 without being presented as tests (the autocommit guard and the `COPY` measurement of D-047) | Found while writing this catalogue; approved by Juan |
 | 2026-11-23 | B6 | Also fails if a test function in `tests/` is in no row | Approved by Juan with T3.14 and T3.15: no test enters without being catalogued |
+| 2026-11-23 | T5.1 to T5.14 | Written (step 2.3) | Approved by Juan |
