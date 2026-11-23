@@ -48,6 +48,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-038](#d-038) | 2026-11-22 | 1.3 | Base image patch not yet published upstream: wait for the official image | Active |
 | [D-039](#d-039) | 2026-11-23 | 2.1 | Simulated arrival: listings and outcomes as two separate streams | Active |
 | [D-040](#d-040) | 2026-11-23 | 2.3 (audit 9.4) | Training labels: matured cohorts only | Active |
+| [D-041](#d-041) | 2026-11-23 | 2.1 (audit 9.5) | Simulation window: first training 2014-01, replay 2014-01 to 2018-12 | Active |
 
 ## Decisions
 
@@ -454,3 +455,14 @@ Date: 2026-11-23 · Step: 2.3 (audit decision 9.4, decided before 9.5 because th
 - **Alternatives considered**: every loan resolved by T ("known by T"); a survival model from the start.
 - **Why**: "known by T" shows a bad rate of 17% to 18% against 11% to 13% for complete cohorts (audit, section 6.2). The PD feeds expected loss (D-002), so a systematically inflated PD would distort EL and the buy decision. A survival model is more correct in theory but harder to calibrate and explain, and does not match the logistic baseline (D-004).
 - **Consequences**: training data is older and smaller (the model reacts slower to market changes, which F6 monitoring must catch). Updates `problem.md` section 7. The LGD rule stays D-017.
+
+<a id="d-041"></a>
+### D-041 Simulation window: first training 2014-01, replay 2014-01 to 2018-12
+
+Date: 2026-11-23 · Step: 2.1 (audit decision 9.5) · Status: Active
+
+- **Context**: an earlier first training gives a weaker first model but a longer life of the system; a later one gives a better first model but little to replay and nothing measurable at the end.
+- **Decision**: first training at **T0 = 2014-01**; monthly replay from 2014-01 to 2018-12. Loans listed before T0 are loaded as history before the replay starts.
+- **Alternatives considered**: T0 = 2015-01 (23,358 matured loans, final business metric only for 2015); T0 = 2016-01 (53,682 matured loans, no purchase with a final outcome).
+- **Why**: 2.03 million loans replayed and five years of monitoring and retraining. The business metric (D-007) is final for 36-month loans listed in 2014 and 2015 (outcomes in the 2019 snapshot). The first model has 12,078 matured loans with 1,457 defaults (checked on the raw file on 2026-11-23), enough for a logistic regression with about 70 parameters (10 to 20 defaults per parameter).
+- **Consequences**: the first model learns from 36-month loans listed 2007-06 to 2010-08 (post-crisis), so it is weak and the system must visibly improve through retraining and new fields (D-016). Bureau fields reported from 2012 cannot enter the first model.
