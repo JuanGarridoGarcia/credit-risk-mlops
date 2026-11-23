@@ -76,7 +76,7 @@ Allowed values and product limits come from a contract that only knows the past 
 | C5 | 2016-03 | `loan_amnt` up to 40,000 | Maximum loan raised |
 | C6 | 2017-06 | Hardship program in outcomes: `hardship_type` (INTEREST ONLY-3 MONTHS DEFERRAL), `hardship_reason` (9 values), `hardship_status` (BROKEN, COMPLETED), `hardship_loan_status` (5 values) | Hardship program launched |
 | C7 | 2019-03 | `loan_status = Default` | Loans in default and not yet charged off at the snapshot (data_audit.md 4.2) |
-| C8 | 2019-01 | The listings stream carries no loans | The source file ends in 2018-12 for listings; outcomes go on to 2019-03. Proposed with group 5, pending approval |
+| C8 | 2019-01 | The listings stream carries no loans | The source file ends in 2018-12 for listings; outcomes go on to 2019-03. Approved with group 5 |
 
 Known simplification: each change enters into force in the month the novelty first appears, as if the team reacted within the month. A data test checks that the base contract alone stops the replay exactly at the months of C1 to C8 and nowhere else.
 
@@ -157,7 +157,7 @@ Missing values are information and are never filled (D-051). These rules watch t
 | R4.5 | `member_id` stays empty | Critical | P | A personal identifier Lending Club stopped publishing; it must not spread | 0 |
 | R4.6 | The share of missing values of a column moves more than 10 points from the previous month, either way | Warning | P + S | Compared with the previous month because missing values have no seasonality | 4 months of 60 in 2014 to 2018: 2014-03 and 2014-04 (`desc` dropped), 2015-12 and 2016-01 (14 new bureau fields) |
 
-### Group 5: volume of the month (proposed, pending approval)
+### Group 5: volume of the month
 
 Compared with the median of the previous 12 months: the previous month fails because of seasonality, the same month of the previous year because one weak month (2014-12) makes the next year look 4.3 times larger. The median ignores a single peak such as 2016-03.
 
