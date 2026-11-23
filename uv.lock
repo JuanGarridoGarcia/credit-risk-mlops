@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.12.*"
 resolution-markers = [
     "sys_platform == 'win32'",
@@ -439,7 +439,7 @@ notebooks = [
 requires-dist = [
     { name = "pandera", extras = ["polars"], specifier = ">=0.36" },
     { name = "polars", specifier = ">=2.1" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.3" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.3.9" },
     { name = "pydantic-settings", specifier = ">=2.16" },
 ]
 
