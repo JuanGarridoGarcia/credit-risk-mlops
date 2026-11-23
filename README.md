@@ -76,8 +76,8 @@ make down               # stop; data stays in the volume
 | Phase | Content | Status |
 |---|---|---|
 | F0 Framing | Problem, metrics, baselines, data audit | Done |
-| F1 Foundations | Environment, code quality, Docker, CI, documentation | In review |
-| F2 Data | Ingestion, validation, versioning, features | Pending |
+| F1 Foundations | Environment, code quality, Docker, CI, documentation | Done |
+| F2 Data | Ingestion, validation, versioning, features | In review |
 | F3 Model | Baselines, experiments, model tests, registry, explainability | Pending |
 | F4 Automation | Orchestrated training | Pending |
 | F5 Deployment | API, published image, continuous delivery | Pending |
