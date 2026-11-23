@@ -62,6 +62,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-052](#d-052) | 2026-11-23 | 2.1 | Image size budget raised from 300 to 500 MB | Active |
 | [D-053](#d-053) | 2026-11-23 | 2.2 | Validation rules written with pandera on polars | Active |
 | [D-054](#d-054) | 2026-11-23 | 2.2 | Two severity levels: a critical rule stops the run, a warning is reported and stored | Active |
+| [D-055](#d-055) | 2026-11-23 | 2.2 | A critical failure stops the whole month; no row quarantine | Active |
 
 ## Decisions
 
@@ -622,3 +623,14 @@ Date: 2026-11-23 · Step: 2.2 · Status: Active
 - **Alternatives considered**: every rule critical (safe, but the pipeline would stop for normal market swings and people learn to ignore or bypass it); every rule a warning (never stops, so broken data could reach training unseen, against the rigor standard).
 - **Why**: a critical rule says "this is impossible, do not go on"; a warning says "this is strange, a person should look". Mixing them up either blocks the pipeline for no reason or lets real errors through. Monthly volume in this data swings from -41% to +240% month over month, so volume rules compare against the same month of the previous year or a rolling median and are warnings; only an empty or absurd month is critical.
 - **Consequences**: each rule needs a stated severity and reason. Warnings need a table and a place in the report. What happens to the rows of a month that fails a critical rule (stop the month or quarantine rows) is the next decision.
+
+<a id="d-055"></a>
+### D-055 A critical failure stops the whole month; no row quarantine
+
+Date: 2026-11-23 · Step: 2.2 · Status: Active
+
+- **Context**: D-054 says a critical failure stops the run. It does not say how much stops: the whole month, or only the rows that failed.
+- **Decision**: if any row of a month fails a critical rule, nothing of that month reaches the clean layer, neither listings nor outcomes. The raw layer keeps the delivery as it arrived, so the failure can be inspected. The run report lists every failed row with its rule and value. After the fix, the month is run again; the idempotent load (D-049) makes the rerun safe. Values are never changed to make a row pass (D-051): an unseen value is either a provider error (ask for a new delivery) or a contract change (new cleaning rule with its test, in a reviewed pull request).
+- **Alternatives considered**: quarantine of rows (good rows go to clean, bad rows to a quarantine table, the run goes on); a hybrid that quarantines below a threshold of failed rows and stops above it.
+- **Why**: failed rows are rarely random, they share a cause (a new format in one segment), so removing them biases training without anyone noticing. Listings and outcomes go together: a quarantined outcome makes its loan look still running and loses its label, the censoring bias D-040 avoids. Stopping costs little with monthly retraining. Quarantine fits high-volume streaming systems where stopping costs money; here the equivalent is the F5 API, which rejects one bad request without stopping the service.
+- **Consequences**: in step 2.3 the training set builder refuses to build at T if any month up to T is missing from clean, so a stopped month never becomes a silent gap. The report must be detailed enough to replace a quarantine table.
