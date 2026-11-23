@@ -54,6 +54,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-044](#d-044) | 2026-11-23 | 2.1 | Two table layers: raw (text as delivered) and clean (typed) | Active |
 | [D-045](#d-045) | 2026-11-23 | 2.1 | Cleaning in one Python module; batch-only logic in SQL | Active |
 | [D-046](#d-046) | 2026-11-23 | 2.1 | polars in system code; conversion only at the model boundary | Active |
+| [D-047](#d-047) | 2026-11-23 | 2.1 | Database access: psycopg 3 with SQL in `.sql` files, `COPY` for bulk loads | Active |
 
 ## Decisions
 
@@ -526,3 +527,14 @@ Date: 2026-11-23 · Step: 2.1 (open question from D-024) · Status: Active
 - **Alternatives considered**: pandas.
 - **Why**: polars is strict with types: a value that cannot be converted fails instead of silently becoming missing (fail fast), so every conversion follows a rule written by us and tested both ways. It is faster in batch (the simulator reads 2.26 million rows) and the F0 audit is already in polars. Measured on 2026-11-23 for a sample cleaning of one row (the API case): polars 0.3 ms, pandas 1.4 ms, both far below the 200 ms budget, so speed online does not decide. scikit-learn 1.9.1 accepts polars input directly (checked).
 - **Consequences**: SHAP, tree libraries or MLflow signatures may need a conversion; checked library by library in F3. Lenient options (`strict=False`) are not used in cleaning.
+
+<a id="d-047"></a>
+### D-047 Database access: psycopg 3 with SQL in `.sql` files, `COPY` for bulk loads
+
+Date: 2026-11-23 · Step: 2.1 (open question from D-021/B3) · Status: Active
+
+- **Context**: psycopg 3 is already used since F1. The question was whether to add SQLAlchemy on top.
+- **Decision**: Python talks to Postgres with **psycopg 3** directly. SQL lives in `.sql` files, written as it runs. Bulk loads use `COPY`. Values always travel as **parameters** (`%s`), never pasted into the SQL text; table and column names are composed with `psycopg.sql.Identifier`. A connection pool (`psycopg-pool`) is added for the API in F5.
+- **Alternatives considered**: SQLAlchemy Core (builds SQL from Python, manages connections, portable across databases); SQLAlchemy ORM (tables as classes, rows as objects).
+- **Why**: full transparency of the SQL (Juan wants to show SQL, D-045) and the fastest load path, with a dependency already in use. Portability brings almost nothing: the database is Postgres from start to end (local and RDS, D-027). The ORM suits web apps working with single objects, not month-sized tables.
+- **Consequences**: some things SQLAlchemy gives for free are written by hand or added explicitly (connection pool). Parameters prevent SQL injection, a real risk here because `emp_title`, `title` and `desc` are free text written by applicants and the API will receive outside data; ruff rule `S608` flags SQL built from strings. The speed gain of `COPY` over row-by-row `INSERT` is measured during implementation.
