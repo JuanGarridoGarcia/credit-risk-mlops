@@ -75,6 +75,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-065](#d-065) | 2026-11-23 | F2 (cross-cutting) | The audit notebook runs in CI every week and on pull requests that touch it, and must reproduce its outputs | Active |
 | [D-066](#d-066) | 2026-11-23 | F3 (cross-cutting) | uv, the uv_build backend and the uv Docker image move together, to 0.13.9 | Active |
 | [D-067](#d-067) | 2026-11-23 | 3.1 | F3 fixes a training procedure, not a model, using only data available at T0 | Active |
+| [D-068](#d-068) | 2026-11-23 | 3.2 | PD candidates: logistic regression and one gradient boosting model; within the noise, the simpler wins | Active |
 
 ## Decisions
 
@@ -769,3 +770,14 @@ Date: 2026-11-23 · Step: 3.1 · Status: Active
 - **Alternatives considered**: (A) fix concrete values at T0 (for example depth 2 and 150 trees) and only refit them later: honest, but the values never adapt to more data; (B) design with snapshots of later dates (backtesting): the validation of a 2018 snapshot holds loans of 2015, inside the replay used as test (D-041), so the design would carry information from the future and the final business metric would be optimistic (data snooping).
 - **Why**: in a real system nobody at T0 knows the future, and nobody freezes hyperparameters forever: they automate how they are chosen. Each choice uses only what was known at its date, as already required by D-056.
 - **Consequences**: a retraining takes longer, because it includes the search; F3 must fix the search budget and the candidate list. Nothing in F3 reads a snapshot later than 2014-01.
+
+<a id="d-068"></a>
+### D-068 PD candidates: logistic regression and one gradient boosting model; within the noise, the simpler wins
+
+Date: 2026-11-23 · Step: 3.2 · Status: Active
+
+- **Context**: D-067 makes the candidate list part of the training procedure, so every candidate is searched again at every retraining. In the research phase, logistic regression (AUC 0.685) tied with three other models within the sampling error (about 0.003). At T0 the validation set has 429 defaults, so the error of the AUC is about ten times larger (roughly 0.015, to be measured by bootstrap in step 3.2).
+- **Decision**: two candidates for the PD: a **regularised logistic regression** on the 30 v1 features (with learned imputation, encoding and scaling inside its pipeline, D-062) and **one gradient boosting model** (library decided separately). If their difference on validation is within the metric noise, the logistic regression wins.
+- **Alternatives considered**: (A) logistic regression only: simplest, but it can never use interactions even when data grow; (C) six models as in the research phase: the search at every retraining costs about six times more, for models that did not win there.
+- **Why**: the two archetypes of tabular modelling. The logistic regression is stable with little data, transparent and the regulatory standard in scoring; gradient boosting finds interactions and non-linear effects and handles missing values natively, which pays off with more data. Under D-067 the data of each date decide between them. The tie rule prefers what is easier to explain, check and maintain when the data cannot tell them apart.
+- **Consequences**: two preparation pipelines to maintain and test. The exact form of "within the noise" is fixed with the promotion rules (step 3.3).
