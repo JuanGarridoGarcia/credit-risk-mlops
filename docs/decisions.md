@@ -69,6 +69,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-059](#d-059) | 2026-11-23 | 2.3 | Snapshots in object storage by content hash; manifests in Postgres | Active |
 | [D-060](#d-060) | 2026-11-23 | 2.3 | A snapshot is two files: what training may see, and what only evaluation may see | Active |
 | [D-061](#d-061) | 2026-11-23 | 2.3 | Two hashes: the content hash names a version, the file checksum guards the stored file | Active |
+| [D-062](#d-062) | 2026-11-23 | 2.4 | Two layers of preparation: fixed transformations in the package, learned ones inside the model | Active |
 
 ## Decisions
 
@@ -701,4 +702,14 @@ Date: 2026-11-23 · Step: 2.3 · Status: Active
 - **Alternatives considered**: (A) the hash of the file bytes only: simple, but updating polars changes the bytes and the rebuild check raises false alarms, which teaches people to ignore it; (B) the content hash only: no way to tell that a stored file was corrupted or altered. polars `hash_rows` was rejected: its documentation warns that its result may change between versions.
 - **Why**: "are these the same data?" and "is this the file I stored?" are two different questions, each with its own hash.
 - **Consequences**: if a version is rebuilt and its path already exists, nothing is written: the content hash proves the data are the same, and the stored file is verified against its checksum; a failed checksum stops with an error instead of overwriting.
+
+### D-062 Two layers of preparation: fixed transformations in the package, learned ones inside the model
+
+Date: 2026-11-23 · Step: 2.4 · Status: Active
+
+- **Context**: features are computed at prediction time too, so they are written once, in Python (D-045). Preparation is of two kinds. Fixed transformations learn nothing from the data (length of credit history from `issue_d` and `earliest_cr_line`, FICO midpoint, logarithm of income) and give the same result with any training set. Learned transformations are fitted on data (median to fill a gap, known categories of `purpose`, mean and spread to scale); fitted on validation rows, they leak.
+- **Decision**: fixed transformations live in `features.py`: pure polars functions with no state, the same in training, in the API and in monitoring, versioned with the package. Learned transformations live inside the model pipeline (F3), fitted on the training split only and saved with the model.
+- **Alternatives considered**: (A) everything in one scikit-learn pipeline saved with the model: a single artifact, but the fixed transformations are tied to it and harder to test and to reuse in monitoring; (C) a feature store such as Feast: built to share features across many teams and models, far too much for one model.
+- **Why**: each kind lives where it makes sense. Fixed transformations are tested as plain functions and monitoring can watch them; learned ones cannot see validation because they exist only inside the fitted model.
+- **Consequences**: a learned value (such as the median of `dti`) never appears in `features.py`: it depends on the training set, so it must be fitted on train only and travel with the model; in `features.py` it would be either a constant from nowhere or a value computed on whatever arrives (one row in the API).
 
