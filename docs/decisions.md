@@ -46,6 +46,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-036](#d-036) | 2026-11-22 | 1.4 | Repository documents in English | Active |
 | [D-037](#d-037) | 2026-11-22 | 1.1 | Work branch named by the system | Active |
 | [D-038](#d-038) | 2026-11-22 | 1.3 | Base image patch not yet published upstream: wait for the official image | Active |
+| [D-039](#d-039) | 2026-11-23 | 2.1 | Simulated arrival: listings and outcomes as two separate streams | Active |
 
 ## Decisions
 
@@ -430,3 +431,14 @@ Date: 2026-11-22 · Step: 1.3 · Status: Active
 - **Alternatives considered**: upgrade the affected packages in the Dockerfile (`apt-get install --only-upgrade`), which patches immediately but makes the build depend on the state of the Debian mirrors on the day it runs, so two builds of the same commit can differ.
 - **Why**: keeps the build reproducible (D-025), and nothing is deployed until F7, so the exposure is nil.
 - **Consequences**: if this happened with the API in production, the balance would change and the package would be patched in the Dockerfile at once.
+
+<a id="d-039"></a>
+### D-039 Simulated arrival: listings and outcomes as two separate streams
+
+Date: 2026-11-23 · Step: 2.1 · Status: Active
+
+- **Context**: the source is a single 2019 snapshot in which every row already holds its final outcome. The system must behave as if it lived at a simulated date T and knew only what was known at T.
+- **Decision**: each loan produces two facts at two dates. Ingesting a period loads (1) the **listings** published in that month, with only the columns visible at listing, and (2) the **outcomes** of loans resolved in that month (resolution month as estimated in the audit, section 4.2), into separate tables. At date T the database holds exactly what was known at T. Loans still running at the snapshot never produce an outcome. The original file is kept untouched with its SHA-256.
+- **Alternatives considered**: one table with the full row (151 columns) loaded by issue month, and every query filtering "resolved before T".
+- **Why**: with separate streams, future information is not in the database, so leakage is impossible by construction instead of depending on every query being written correctly. It also mirrors how the data arrives in reality.
+- **Consequences**: two tables and two loads per period; the split of columns between the streams follows D-014. Recovery amounts are as of 2019 (limitation already accepted in D-017).
