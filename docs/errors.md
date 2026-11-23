@@ -24,6 +24,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-014](#e-014) | 2026-11-23 | 2.1 | `dti = 999` proposed as "unknown" without looking at the income of those rows | Minor |
 | [E-015](#e-015) | 2026-11-23 | 2.1 | Publishing every delivery took almost 6 minutes | Minor |
 | [E-016](#e-016) | 2026-11-23 | 2.1 | Splitting the whole snapshot by month at once ran out of memory | Minor |
+| [E-017](#e-017) | 2026-11-23 | 2.1 | The data tests folder was ignored by git | Minor |
 
 ## Errors
 
@@ -186,3 +187,13 @@ Date: 2026-11-23 · Step: 2.1 · Severity: minor
 - **Cause**: it held the full table (2.26 million rows, 151 text columns) plus a copy split into 284 pieces.
 - **Fix**: the prepared snapshot is cached as Parquet and read lazily; each delivery reads only its month.
 - **Prevention**: the data test (T1.12) publishes the full file on every run of `make test-data`, so a change that brings the problem back is seen at once.
+
+<a id="e-017"></a>
+### E-017 The data tests folder was ignored by git
+
+Date: 2026-11-23 · Step: 2.1 · Severity: minor (caught before pushing)
+
+- **Symptom**: after committing the simulator, `tests/data/` was missing from the commit.
+- **Cause**: `.gitignore` had `data/`, which matches a folder called `data` at any depth, not only the top-level data folder.
+- **Fix**: `/data/` (anchored to the repository root).
+- **Prevention**: `git status` is checked after every commit for files that should be there; the anchored pattern makes the intent explicit.
