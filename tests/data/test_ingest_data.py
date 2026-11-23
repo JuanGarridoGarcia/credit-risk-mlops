@@ -1,4 +1,4 @@
-"""T3.13 and T4.15: loading every real delivery into Postgres, with validation.
+"""T3.13, T3.15 and T4.15: loading every real delivery into Postgres, with validation.
 
 Needs the deliveries in ``data/landing`` (``make publish PERIOD=2019-03``) and the
 compose Postgres (``make up``). T3.13 reproduces the audit's counts; T4.15 checks that
@@ -134,6 +134,7 @@ def test_the_real_file_passes_and_warns_where_the_catalogue_says(
     assert _months(conn, "R5.2") == {"2012-08", "2012-09", "2012-10", "2014-10"}
 
 
+# T3.15
 def test_copy_is_faster_than_row_by_row_insert(
     conn: psycopg.Connection[tuple[object, ...]],
 ) -> None:

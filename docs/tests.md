@@ -12,7 +12,6 @@ Every test of the project, what it checks, where it lives and where it runs. Jua
 - [T2 Cleaning](#t2-cleaning)
 - [T3 Loading](#t3-loading)
 - [T4 Validation](#t4-validation)
-- [Test functions without a number](#test-functions-without-a-number)
 - [Change history](#change-history)
 
 ## How tests are organised
@@ -23,7 +22,7 @@ Tests are grouped by the piece they check. Group B holds the foundations of F1 (
 |---|---|---|---|---|---|
 | Unit | `tests/unit/` | none | Nothing | `make test`, `make test-image` | CI (job `tests`), and inside the image (job `integration`) |
 | Integration | `tests/integration/` | `integration` (`destructive` for B4) | Docker: compose Postgres or the built image | `make test-integration` | CI (job `integration`) |
-| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T4.15) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
+| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
 
 Integration and data tests never skip: if what they need is missing, they fail.
 
@@ -34,7 +33,7 @@ Integration and data tests never skip: if what they need is missing, they fail.
 3. Add its row to this catalogue with every function as `file::function`.
 4. Add a line to the [change history](#change-history): date, ID, change and why.
 
-Changing what an approved test checks needs Juan's approval again. B6 fails if a marker has no row here, a row has no marker, a marker sits in a file its row does not name, or a row names a function that does not exist.
+Changing what an approved test checks needs Juan's approval again. B6 fails if a marker has no row here, a row has no marker, a marker sits in a file its row does not name, a row names a function that does not exist, or a test function in `tests/` is in no row.
 
 ## Summary
 
@@ -43,9 +42,9 @@ Changing what an approved test checks needs Juan's approval again. B6 fails if a
 | B Foundations | F1, steps 1.1 and 1.2 | 6 | 2026-11-22 (B1 to B5), 2026-11-23 (B6) | [technical.md, F1](technical.md#3-f1-foundations) |
 | T1 Simulator | F2, step 2.1 | 12 | 2026-11-23 | [technical.md, step 2.1](technical.md#step-21-idempotent-ingestion) |
 | T2 Cleaning | F2, step 2.1 | 11 | 2026-11-23 | [technical.md, step 2.1](technical.md#step-21-idempotent-ingestion) |
-| T3 Loading | F2, step 2.1 | 13 | 2026-11-23 | [technical.md, step 2.1](technical.md#step-21-idempotent-ingestion) |
+| T3 Loading | F2, step 2.1 | 15 | 2026-11-23 (T3.14 and T3.15 on approval in step 2.2) | [technical.md, step 2.1](technical.md#step-21-idempotent-ingestion) |
 | T4 Validation | F2, step 2.2 | 16 | 2026-11-23 | [validation_rules.md](validation_rules.md), [technical.md, step 2.2](technical.md#step-22-data-validation) |
-| **Total** | | **58** | | |
+| **Total** | | **60** | | |
 
 ## B Foundations
 
@@ -58,7 +57,7 @@ F1, steps 1.1 and 1.2.
 | B3 | Our settings connect to the compose Postgres and `SELECT 1` returns 1; the server's major version is 18 | `tests/integration/test_postgres.py::test_postgres_accepts_connection`<br>`tests/integration/test_postgres.py::test_postgres_major_version_is_18` | Integration | CI |
 | B4 | A random value in a table with a random name survives `docker compose down` + `up` (a new container); the table is dropped afterwards. Marked `destructive`: runs last and alone | `tests/integration/test_persistence.py::test_postgres_data_survives_container_recreation` | Integration | CI |
 | B5 | The image runs as non-root, has no `.env*` file, no secret in its configuration or build history, prints the right version, and is at most 500 MB | `tests/integration/test_image.py::test_image_runs_as_non_root`<br>`tests/integration/test_image.py::test_image_has_no_env_file`<br>`tests/integration/test_image.py::test_image_has_no_secrets_in_config`<br>`tests/integration/test_image.py::test_image_default_command_works`<br>`tests/integration/test_image.py::test_image_size_within_budget` | Integration | CI |
-| B6 | Every test marker in `tests/` is in this catalogue and the other way round, in the same file, and every function named here exists | `tests/unit/test_catalogue.py::test_markers_and_catalogue_agree` | Unit | CI, image |
+| B6 | Every test marker in `tests/` is in this catalogue and the other way round, in the same file; every function named here exists; every test function in `tests/` is named here | `tests/unit/test_catalogue.py::test_markers_and_catalogue_agree` | Unit | CI, image |
 
 ## T1 Simulator
 
@@ -116,6 +115,8 @@ F2, step 2.1.
 | T3.11 | A missing delivery names the expected file | `tests/integration/test_ingest.py::test_a_missing_delivery_names_the_expected_file` | Integration | CI |
 | T3.12 | A loan in two months is rejected by the primary key | `tests/integration/test_ingest.py::test_a_loan_in_two_months_is_rejected_by_the_primary_key` | Integration | CI |
 | T3.13 | Real data: all 142 months load with the audit counts | `tests/data/test_ingest_data.py::test_every_delivery_loads_with_the_audit_counts` | Data | Local |
+| T3.14 | Ingestion refuses a connection without autocommit, so that a failure record is never rolled back with the failed load | `tests/integration/test_ingest.py::test_ingestion_refuses_a_connection_without_autocommit` | Integration | CI |
+| T3.15 | Real data: `COPY` is faster than row-by-row `INSERT` on 10,000 rows of the largest month, as D-047 promised (times recorded in technical.md, step 2.1) | `tests/data/test_ingest_data.py::test_copy_is_faster_than_row_by_row_insert` | Data | Local |
 
 ## T4 Validation
 
@@ -140,15 +141,6 @@ F2, step 2.2.
 | T4.15 | Real data: no critical failure, the 5 reviewed exceptions, and every warning count and month of the catalogue | `tests/data/test_ingest_data.py::test_the_real_file_passes_and_warns_where_the_catalogue_says` | Data | Local |
 | T4.16 | Real data: the base contract alone stops exactly at the months of C1 to C9 | `tests/data/test_validation_data.py::test_the_base_contract_alone_stops_exactly_at_the_recorded_changes` | Data | Local |
 
-## Test functions without a number
-
-Two functions were written while implementing step 2.1 and were never presented as numbered tests. They are listed here so that nothing in `tests/` is undocumented; whether they become numbered tests is Juan's decision.
-
-| Function | What it checks | Kind | Runs in |
-|---|---|---|---|
-| `tests/integration/test_ingest.py::test_ingestion_refuses_a_connection_without_autocommit` | Ingestion refuses a connection without autocommit, so that a failure record is never rolled back with the failed load | Integration | CI |
-| `tests/data/test_ingest_data.py::test_copy_is_faster_than_row_by_row_insert` | Measures `COPY` against row-by-row `INSERT` on 10,000 rows of the largest month, as D-047 promised (result in technical.md, step 2.1) | Data | Local |
-
 ## Change history
 
 | Date | Test | Change | Why |
@@ -160,3 +152,5 @@ Two functions were written while implementing step 2.1 and were never presented 
 | 2026-11-23 | T4.1 to T4.16 | Written (step 2.2) | Approved by Juan |
 | 2026-11-23 | T3.2 to T3.12 | Fixtures start from rows that pass validation (`tests/valid_rows.py`); `build_clean` builds a month; T3.9's outcome now has a late fee that matches its payments; T3.10 deletes the validation rows of the month first. What each test checks is unchanged | Validation runs inside every load and the month is the unit ([D-055](decisions.md#d-055)) |
 | 2026-11-23 | B6 | Written; markers `# B1` to `# B5`, `# T1.12`, `# T2.11` and `# T4.16` added to the code | Approved by Juan: tests documented like decisions and errors, kept in step mechanically |
+| 2026-11-23 | T3.14, T3.15 | Numbered: two functions written in step 2.1 without being presented as tests (the autocommit guard and the `COPY` measurement of D-047) | Found while writing this catalogue; approved by Juan |
+| 2026-11-23 | B6 | Also fails if a test function in `tests/` is in no row | Approved by Juan with T3.14 and T3.15: no test enters without being catalogued |

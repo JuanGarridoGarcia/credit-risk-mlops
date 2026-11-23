@@ -2,7 +2,7 @@
 
 A test is marked in the code by a comment ``# <ID>`` just before its first function; the
 functions that follow belong to it until the next marker. Each row of the catalogue names
-its functions as ``file::function``.
+its functions as ``file::function``, and every test function of ``tests/`` is in a row.
 """
 
 import ast
@@ -52,3 +52,9 @@ def test_markers_and_catalogue_agree() -> None:
     for file, function in REF.findall(doc):
         assert (ROOT / file).is_file(), f"docs/tests.md names {file}, which does not exist"
         assert function in _functions(file), f"docs/tests.md names {file}::{function}"
+    named = {f"{file}::{function}" for file, function in REF.findall(doc)}
+    for path in sorted((ROOT / "tests").rglob("test_*.py")):
+        file = path.relative_to(ROOT).as_posix()
+        for function in sorted(_functions(file)):
+            if function.startswith("test_"):
+                assert f"{file}::{function}" in named, f"{file}::{function} is not in docs/tests.md"

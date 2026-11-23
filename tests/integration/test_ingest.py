@@ -281,6 +281,7 @@ def test_a_loan_in_two_months_is_rejected_by_the_primary_key(
     assert _ids(db, "raw.listings", APRIL) == []
 
 
+# T3.14
 def test_ingestion_refuses_a_connection_without_autocommit(
     settings: Settings, migrated_database: str, tmp_path: Path
 ) -> None:
