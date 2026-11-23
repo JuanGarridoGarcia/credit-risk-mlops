@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 env:
-  UV_VERSION: "0.11.32"
+  UV_VERSION: "0.13.9"
 
 jobs:
   audit:
@@ -34,7 +34,7 @@ jobs:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: |
           if [ -z "$KAGGLE_API_TOKEN" ]; then
-            echo "::error::Repository secret KAGGLE_API_TOKEN is not set. Add it in Settings > Secrets and variables > Actions."
+            echo "::error::Secret KAGGLE_API_TOKEN is not set. It must exist twice: Settings > Secrets and variables > Actions, and > Dependabot (Dependabot PRs only see Dependabot secrets, E-026)."
             exit 1
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

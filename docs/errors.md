@@ -33,6 +33,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-023](#e-023) | 2026-11-23 | 2.4 | Notebooks workflow failed deep in the notebook when the Kaggle secret was missing | Minor |
 | [E-024](#e-024) | 2026-11-23 | 2.4 | The audit figure came out different on GitHub | Minor |
 | [E-025](#e-025) | 2026-11-23 | 2.4 | PR blocked: a required CI check was renamed | Minor |
+| [E-026](#e-026) | 2026-11-23 | 2.4 | Notebooks check failed on a Dependabot PR: the Kaggle secret was empty | Minor |
 
 ## Errors
 
@@ -262,7 +263,7 @@ Date: 2026-11-23 · Step: 2.4 · Severity: minor
 - **Symptom**: the first run of the Notebooks workflow (D-065), on PR #5, failed in cell 3 of the audit notebook with `CalledProcessError` from `kaggle datasets metadata`. The log does not say why.
 - **Cause**: the repository secret `KAGGLE_API_TOKEN` was not created yet, so the job ran with an empty token. Nothing checked it before the notebook started.
 - **Fix**: a first step in the workflow stops the job with a clear error when the secret is empty. The secret is added by the repository owner in the GitHub settings.
-- **Prevention**: the same check stops every later run at the first step with the message, so a missing or deleted secret is seen at once.
+- **Prevention**: the same check stops every later run at the first step with the message, so a missing or deleted secret is seen at once. Since E-026 the message names both places where the secret must exist.
 
 ### E-024 The audit figure came out different on GitHub
 
@@ -281,3 +282,13 @@ Date: 2026-11-23 · Step: 2.4 · Severity: minor
 - **Cause**: the `protect-main` ruleset (D-037) requires checks by their job name. D-064 renamed the job `integration (image + Postgres)` to `integration (image + Postgres, coverage)`, so the required check never reported and GitHub waited for it.
 - **Fix**: the job keeps its original name; the coverage steps stay inside it.
 - **Prevention**: a comment above each required job in `ci.yml` says that its name is required by the ruleset and must not change without changing the ruleset too.
+
+<a id="e-026"></a>
+### E-026 Notebooks check failed on a Dependabot PR: the Kaggle secret was empty
+
+Date: 2026-11-23 · Step: 2.4 · Severity: minor
+
+- **Symptom**: on Dependabot PR #4 (`psycopg` floor), the `Notebooks` workflow stopped at the E-023 guard: `KAGGLE_API_TOKEN` was empty, although the repository secret existed.
+- **Cause**: GitHub gives workflows started by Dependabot only the secrets stored as **Dependabot secrets**, never the Actions secrets, so a malicious dependency update cannot read them.
+- **Fix**: Juan added `KAGGLE_API_TOKEN` also as a Dependabot secret (Settings > Secrets and variables > Dependabot). PR #4 was then green and merged.
+- **Prevention**: the guard message, `docs/technical.md` and D-065 say that the secret must exist in both places.

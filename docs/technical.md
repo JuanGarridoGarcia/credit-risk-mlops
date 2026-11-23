@@ -130,7 +130,7 @@ Python 3.12 is fixed in `.python-version`, `requires-python` and the base image.
 **Image** (D-025, D-026). `Dockerfile` with four stages:
 
 ```
-  uv        astral/uv:0.11.32 (by digest)      only to copy the uv binary
+  uv        astral/uv:0.13.9 (by digest)       only to copy the uv binary
   builder   python:3.12.16-slim-trixie         uv sync --frozen --no-dev
               1) dependencies only  -> cached layer while the lock does not change
               2) the project, non-editable
@@ -445,5 +445,5 @@ D-064 closes D-031. `make test-integration` runs the unit tests and the non-dest
 
 ### F2 cross-cutting: the audit notebook in CI
 
-D-065 closes the open point of D-021. `make notebooks` runs `notebooks/00_data_audit.ipynb` top to bottom with nbconvert and fails if any file of `reports/data_audit` differs from the committed one: byte for byte with `git diff --exit-code`, except the PNG figures (E-024): a figure only draws a table that is compared, such as `loans_per_month.csv`. The notebook resets matplotlib to its built-in defaults, so a figure does not depend on the machine's settings. A failed run keeps its outputs as a workflow artifact for 14 days. The `Notebooks` workflow runs it every Monday at 05:00 UTC, by hand, and on pull requests that touch the notebook, its outputs, `uv.lock` or the workflow, with the repository secret `KAGGLE_API_TOKEN`. Run here on 2026-11-23: 1 min 53 s, every output byte-identical.
+D-065 closes the open point of D-021. `make notebooks` runs `notebooks/00_data_audit.ipynb` top to bottom with nbconvert and fails if any file of `reports/data_audit` differs from the committed one: byte for byte with `git diff --exit-code`, except the PNG figures (E-024): a figure only draws a table that is compared, such as `loans_per_month.csv`. The notebook resets matplotlib to its built-in defaults, so a figure does not depend on the machine's settings. A failed run keeps its outputs as a workflow artifact for 14 days. The `Notebooks` workflow runs it every Monday at 05:00 UTC, by hand, and on pull requests that touch the notebook, its outputs, `uv.lock` or the workflow, with the secret `KAGGLE_API_TOKEN`, which must exist twice: as an Actions secret and as a Dependabot secret, because workflows started by Dependabot only see Dependabot secrets (E-026). Run here on 2026-11-23: 1 min 53 s, every output byte-identical.
 
