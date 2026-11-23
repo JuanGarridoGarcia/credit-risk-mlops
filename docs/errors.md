@@ -30,6 +30,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-020](#e-020) | 2026-11-23 | 2.2 | Required columns taken from the whole file, not from the past | Major |
 | [E-021](#e-021) | 2026-11-23 | 2.2 | Catalogue months of R2.13 written from a guess, not measured | Minor |
 | [E-022](#e-022) | 2026-11-23 | 2.3 | First training set counted with outcomes known only after T0 | Minor |
+| [E-023](#e-023) | 2026-11-23 | 2.4 | Notebooks workflow failed deep in the notebook when the Kaggle secret was missing | Minor |
 
 ## Errors
 
@@ -252,3 +253,11 @@ Date: 2026-11-23 · Step: 2.3 · Severity: minor
 - **Fix**: T5.13 (approved by Juan) checks the counts known at T0 and reconciles them with the audit: the 21 and 4 loans are found in the later deliveries and added back give 12,078 and 2,230. The decisions keep their text; the numbers of the first model are those of technical.md, step 2.3. The difference does not change D-041 (still enough defaults for the first model).
 - **Prevention**: every count of a training set comes from a version built at its cutoff (T5.13, T5.14), never from the whole file.
 
+### E-023 Notebooks workflow failed deep in the notebook when the Kaggle secret was missing
+
+Date: 2026-11-23 · Step: 2.4 · Severity: minor
+
+- **Symptom**: the first run of the Notebooks workflow (D-065), on PR #5, failed in cell 3 of the audit notebook with `CalledProcessError` from `kaggle datasets metadata`. The log does not say why.
+- **Cause**: the repository secret `KAGGLE_API_TOKEN` was not created yet, so the job ran with an empty token. Nothing checked it before the notebook started.
+- **Fix**: a first step in the workflow stops the job with a clear error when the secret is empty. The secret is added by the repository owner in the GitHub settings.
+- **Prevention**: the same check stops every later run at the first step with the message, so a missing or deleted secret is seen at once.
