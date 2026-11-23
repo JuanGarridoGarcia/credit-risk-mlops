@@ -69,7 +69,7 @@ def _month(landing: Path, period: date, ids: list[int], **listing: str | None) -
 
 
 def _one(conn: PgConnection, query: str, *params: object) -> Any:
-    row = conn.execute(query, params).fetchone()  # type: ignore[arg-type]
+    row = conn.execute(query, params).fetchone()
     assert row is not None
     return row[0]
 
@@ -79,7 +79,7 @@ def _ids(conn: PgConnection, table: str, period: date) -> list[str]:
         f"SELECT id::text FROM {table} WHERE period = %s ORDER BY id::bigint",  # noqa: S608
         (period,),
     ).fetchall()
-    return [r[0] for r in rows]
+    return [str(r[0]) for r in rows]
 
 
 def _log(conn: PgConnection) -> list[tuple[Any, ...]]:
@@ -224,6 +224,15 @@ def _clean_from_db(conn: PgConnection, table: str, columns: tuple[str, ...]) -> 
     return pl.DataFrame(rows, schema=list(columns), orient="row", infer_schema_length=None)
 
 
+def _types(conn: PgConnection, table: str) -> dict[str, str]:
+    rows = conn.execute(
+        "SELECT column_name, data_type FROM information_schema.columns "
+        "WHERE table_schema = 'clean' AND table_name = %s",
+        (table,),
+    ).fetchall()
+    return {str(name): str(kind) for name, kind in rows}
+
+
 # T3.9
 def test_clean_holds_exactly_the_cleaned_delivery_with_postgres_types(
     db: PgConnection, tmp_path: Path
@@ -243,22 +252,12 @@ def test_clean_holds_exactly_the_cleaned_delivery_with_postgres_types(
         expected = cleaner(pl.read_csv(delivery_path(tmp_path, MARCH, stream), infer_schema=False))
         got = _clean_from_db(db, f"clean.{stream}", columns)
         assert got.to_dicts() == expected.to_dicts()
-    types = dict(
-        db.execute(
-            "SELECT column_name, data_type FROM information_schema.columns "
-            "WHERE table_schema = 'clean' AND table_name = 'listings'"
-        ).fetchall()
-    )
+    types = _types(db, "listings")
     assert types["loan_amnt"] == "double precision"
     assert types["issue_d"] == "date"
     assert types["term"] == "smallint"
     assert types["id"] == "bigint"
-    out_types = dict(
-        db.execute(
-            "SELECT column_name, data_type FROM information_schema.columns "
-            "WHERE table_schema = 'clean' AND table_name = 'outcomes'"
-        ).fetchall()
-    )
+    out_types = _types(db, "outcomes")
     assert out_types["hardship_flag"] == "boolean"
 
 
