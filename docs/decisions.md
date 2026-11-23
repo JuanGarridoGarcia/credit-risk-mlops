@@ -87,6 +87,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-077](#d-077) | 2026-11-23 | 3.2 | No refit on training plus validation: the deployed model is exactly the one measured | Active |
 | [D-078](#d-078) | 2026-11-23 | 3.2 | Two images from one Dockerfile: `serve` (budget 800 MB) and `train` (budget 1.5 GB) | Active |
 | [D-079](#d-079) | 2026-11-23 | 3.2 | Tracking: an MLflow server in docker compose, metadata in its own Postgres database, artefacts in object storage | Active |
+| [D-080](#d-080) | 2026-11-23 | 3.3 | Monotone constraints on nine features with an undisputed direction; sign test for the logistic regression | Active |
 
 ## Decisions
 
@@ -913,3 +914,14 @@ Date: 2026-11-23 · Step: 3.2 · Status: Active
 - **Alternatives considered**: (A) MLflow without a server, in a local `mlruns/` folder: no infrastructure, but no reliable concurrent access, the model registry needs a database, and it looks nothing like production; (C) a managed service (Weights & Biases, Databricks): polished, nothing to run, but an external account, cost, data leaving the system, and the chosen cloud is AWS.
 - **Why**: the same split as D-059: large immutable files to object storage, queryable metadata to the database. Moving to AWS changes only the artefact address. Large binaries in Postgres would bloat its backups and pay for a database without using what makes it useful.
 - **Consequences**: one more service in compose and in the integration tests. The MLflow server image is pinned by version and digest like the others (D-030), and Dependabot watches it.
+
+<a id="d-080"></a>
+### D-080 Monotone constraints on nine features with an undisputed direction; sign test for the logistic regression
+
+Date: 2026-11-23 · Step: 3.3 · Status: Active
+
+- **Context**: some features have a clear direction of effect on risk. A flexible model such as LightGBM can learn stretches the wrong way through noise, above all with 7,733 training loans, which would give explanations such as "refused for having a higher FICO". A monotone constraint, applied with every other feature held equal, lets the prediction move in one direction only along that feature. LightGBM supports it; a logistic regression cannot enforce it, but the sign of its coefficients can be checked.
+- **Decision**: LightGBM is constrained on nine features. **Risk does not fall when these rise**: `int_rate`, `dti`, `revol_util`, `inq_last_6mths`, `delinq_2yrs`, `pub_rec`. **Risk does not rise when these rise**: the FICO midpoint, `annual_inc`, the length of credit history. For the logistic regression, a model test fails if any of these nine coefficients has the opposite sign. `grade` and `sub_grade` are categorical in v1 and are not constrained.
+- **Alternatives considered**: (A) no constraints, with a directional test that rejects the model if it fails: most flexible, but with little data it fails through noise and there is no fix short of changing the model; (C) constraints on every numeric feature: most interpretable, but it forces a made-up direction where none is clear (`total_acc`, `revol_bal`).
+- **Why**: consistent explanations, more robustness to changes in the data, and standard practice in regulated scoring, limited to where the direction is beyond dispute. The constraint holds everything else equal, so a borrower who earns more but borrows much more is still riskier, through `dti`. Before relaxing a constraint, an apparent reversal is checked against the number of loans in that range (bootstrap interval) and against `verification_status`, since high unverified incomes may be inflated.
+- **Consequences**: a small loss of AUC is possible if a real effect is not monotone; a constraint is removed only by a new decision with that evidence. The list is fixed in code and logged with every run.
