@@ -59,6 +59,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-049](#d-049) | 2026-11-23 | 2.1 | Idempotent loads: replace the whole period in one transaction, plus a load log | Active |
 | [D-050](#d-050) | 2026-11-23 | 2.1 | Deliveries written as gzip-compressed CSV, all text | Active |
 | [D-051](#d-051) | 2026-11-23 | 2.1 | Cleaning is minimal and has no opinions | Active |
+| [D-052](#d-052) | 2026-11-23 | 2.1 | Image size budget raised from 300 to 500 MB | Active |
 
 ## Decisions
 
@@ -586,3 +587,14 @@ Date: 2026-11-23 · Step: 2.1 · Status: Active
 - **Alternatives considered**: broad cleaning that also merges rare categories, caps extremes and fills simple gaps, so the clean layer is ready to model.
 - **Why**: the clean layer stays "the data as it should have arrived", useful for every purpose and easy to audit; every modelling decision is visible where it is taken.
 - **Consequences**: more work in step 2.4. Applying the rule already changed a proposal of the audit: `dti = 999` is not documented as unknown and turned out to be a cap caused by implausible incomes (E-014), so it stays as it is; `annual_inc = 0` is a real value of joint applications. Both become validation rules.
+
+<a id="d-052"></a>
+### D-052 Image size budget raised from 300 to 500 MB
+
+Date: 2026-11-23 · Step: 2.1 (changes the threshold of test B5, D-025/D-026) · Status: Active
+
+- **Context**: with polars in the package (D-046), the image grew from 211 MB to 456 MB and test B5 (at most 300 MB) failed. polars' compiled runtime alone takes 170 MB. The API needs polars to clean with the same code as the monthly load (D-045).
+- **Decision**: the budget of B5 becomes **500 MB**.
+- **Alternatives considered**: keep 300 MB and clean with pandas in the API (two implementations, against D-045); keep 300 MB with two images, one for loading with polars and one for the API without it (same two implementations, plus another image).
+- **Why**: the size follows from a decision already taken; breaking the single-implementation rule to save 150 MB does not pay. 456 MB is a normal size for an ML service, and scikit-learn and model libraries will enter in F3 and F5.
+- **Consequences**: B5 still catches anything that should not be in the image. The budget is reviewed when the model libraries enter.

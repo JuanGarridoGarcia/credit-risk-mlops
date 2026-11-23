@@ -25,7 +25,7 @@ Status of every step of the playbook. Updated in every pull request.
 | | 1.2 Docker and docker compose | Done | #2 | D-025 to D-027 |
 | | 1.3 Minimal CI | Done | #2 | D-028 to D-032, D-038. Lint-failure check done; branch protection set by Juan on 2026-11-22 |
 | | 1.4 Documentation skeleton | Done | #2 | D-033 to D-036 |
-| F2 Data | 2.1 Idempotent ingestion | In review | | D-039 to D-051; E-013 to E-019 |
+| F2 Data | 2.1 Idempotent ingestion | In review | | D-039 to D-052; E-013 to E-019 |
 | | 2.2 Data validation | Pending | | |
 | | 2.3 Data versioning | Pending | | |
 | | 2.4 Features | Pending | | |
@@ -148,7 +148,7 @@ The build context is limited by `.dockerignore` to `pyproject.toml`, `uv.lock`, 
 |---|---|---|
 | B3 | `tests/integration/test_postgres.py` | Our settings connect and `SELECT 1` returns 1; the server's major version is 18 |
 | B4 | `tests/integration/test_persistence.py` | A random value in a table with a random name survives `docker compose down` + `up` (a new container, checked by its id); the table is dropped afterwards, pass or fail. Marked `destructive`, it runs last and alone |
-| B5 | `tests/integration/test_image.py` | The image runs as non-root; no `.env*` file anywhere in it; no password, secret, token, Kaggle or AWS variable in its configuration or build history; the default command prints the right version; size at most 300 MB (measured 211 MB) |
+| B5 | `tests/integration/test_image.py` | The image runs as non-root; no `.env*` file anywhere in it; no password, secret, token, Kaggle or AWS variable in its configuration or build history; the default command prints the right version; size at most 300 MB (measured 211 MB); raised to 500 MB in F2 (D-052, 456 MB with polars) |
 
 Each integration test opens its own database connection, so B4 cannot break another test's connection. Integration tests never skip: if Docker or Postgres is missing they fail.
 
