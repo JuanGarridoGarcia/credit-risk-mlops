@@ -66,6 +66,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-056](#d-056) | 2026-11-23 | 2.2 | Allowed values come from a dated contract: the 2013-12 base plus dated changes | Active |
 | [D-057](#d-057) | 2026-11-23 | 2.2 | Every test is listed in a catalogue kept in step with the code by a test | Active |
 | [D-058](#d-058) | 2026-11-23 | 2.3 | A training set version is an immutable snapshot plus a manifest of where it came from | Active |
+| [D-059](#d-059) | 2026-11-23 | 2.3 | Snapshots in object storage by content hash; manifests in Postgres | Active |
 
 ## Decisions
 
@@ -668,4 +669,14 @@ Date: 2026-11-23 · Step: 2.3 · Status: Active
 - **Alternatives considered**: (A) the version is the cutoff date T and the set is rebuilt on demand (no storage, but not reproducible after a correction); (B) a saved copy identified by its hash only (reproducible, but nothing records which loads it came from).
 - **Why**: the copy makes training reproducible whatever happens to `clean` later; the manifest explains it and lets a check find every set, and so every model, built on a load that has since been replaced. This is what tools such as DVC, lakeFS or Delta time travel give: a fixed copy plus a record of its origin.
 - **Consequences**: storage grows with every training; where copies and manifests live is the next decision. A correction never changes an old set: the old set stays as the record of what the model saw, and the set is flagged as built on a replaced load.
+
+### D-059 Snapshots in object storage by content hash; manifests in Postgres
+
+Date: 2026-11-23 · Step: 2.3 · Status: Active
+
+- **Context**: every training produces a new snapshot (D-058); the one at 2018-12 holds over a million rows, a few hundred MB. Snapshots are produced by the pipeline on its own, not by a person working in git.
+- **Decision**: each snapshot is a Parquet file at `training_sets/<hash>.parquet` in object storage: a local folder for now, an S3 bucket with versioning in AWS. Its manifest is a row of `ops.training_sets` (T, git commit, rows, hash, path) with the `load_id` of every month used as foreign keys to `ops.ingest_log`. Finding the sets built on a load that was later replaced is a SQL query. From F3, MLflow stores the hash with each model.
+- **Alternatives considered**: (A) DVC, the best known tool, which keeps a `.dvc` pointer in git and the file in remote storage: it fits a person versioning data with the code, but here the pipeline would have to commit to git at every training; (C) everything in Postgres, one table per version: simple and all SQL, but the database grows with large copies and training reads from it.
+- **Why**: each piece goes where it is handled best: large immutable files to object storage, metadata that must be queried to the database. It maps directly to S3 in AWS.
+- **Consequences**: the path is the content hash, so a path can never point to different content, the same content is stored once and a file is never overwritten. A storage layer with a local and an S3 implementation; the local folder stays out of git.
 
