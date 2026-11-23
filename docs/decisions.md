@@ -78,6 +78,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-068](#d-068) | 2026-11-23 | 3.2 | PD candidates: logistic regression and one gradient boosting model; within the noise, the simpler wins | Active |
 | [D-069](#d-069) | 2026-11-23 | 3.1 | Validation split per term: the last 6 matured listing months of each term | Active |
 | [D-070](#d-070) | 2026-11-23 | 3.1 | Coverage rule: a term is scored only with at least 200 defaults in its training and 200 in its validation | Active |
+| [D-071](#d-071) | 2026-11-23 | 3.2 | `installment` never enters; a recomputed instalment and its ratio to income are F3 experiments | Active |
 
 ## Decisions
 
@@ -805,3 +806,14 @@ Date: 2026-11-23 · Step: 3.1 · Status: Active
 - **Alternatives considered**: (A) score every loan anyway: a 36-month risk for a 60-month loan, almost surely too low, and the error flows into expected loss and the buy decision; (C) adjust 60-month risk with partial outcomes observed by T0: scores everything from the start, but uses incomplete outcomes, the bias D-040 ruled out, and is hard to validate.
 - **Why**: an investor buys only what their model can assess. With fewer than about 200 defaults the error of the AUC and of the calibration of a term is too large to rely on (at T0, with 429 validation defaults in all, the AUC error is about 0.015).
 - **Consequences**: until 60-month loans are covered, about a quarter of the listed loans is not bought. The API, the stored predictions and the buy rule must handle "out of coverage". The business metric (D-007) compares our portfolio and the baseline portfolio on the same eligible loans with the same budget, and the share of loans out of coverage is reported apart. The covered terms are stored with each model.
+
+<a id="d-071"></a>
+### D-071 `installment` never enters; a recomputed instalment and its ratio to income are F3 experiments
+
+Date: 2026-11-23 · Step: 3.2 (closes the open point of D-063) · Status: Active
+
+- **Context**: `installment` looks like listing data, but Lending Club computes it on the funded amount, not on the requested one (data audit, section 3): in the 2,062 resolved loans that were not fully funded (0.15%) it reveals something known only after listing. It is also an exact function of `loan_amnt`, `int_rate` and `term` (the amortisation formula), so a recomputed value adds no new information, only a combination of the three.
+- **Decision**: the `installment` column never enters a model. The instalment recomputed from `loan_amnt`, `int_rate` and `term`, and its ratio to monthly income (`instalment / (annual_inc / 12)`), are tested as engineered-feature experiments in F3, and enter only if they improve the metric by more than its noise (D-063).
+- **Alternatives considered**: (A) drop it for good, including any recomputed version: simplest, but it gives up the payment burden, a classic of credit scoring; (B) recompute it and add it to the base features now: no leak, but it is feature engineering without evidence, which D-063 left to experiments.
+- **Why**: the original column leaks; the recomputed one is engineering, and must earn its place like any other engineered feature. A logistic regression adds the effects of its inputs, so it cannot build the amortisation formula or a ratio to income by itself; the experiment tells whether giving it that combination helps.
+- **Consequences**: the recomputation is a fixed transformation, so if it enters it lives in `features.py` (D-062), with tests against the amortisation formula. The experiment runs on the T0 snapshot only (D-067).
