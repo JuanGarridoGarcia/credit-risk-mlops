@@ -80,6 +80,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-070](#d-070) | 2026-11-23 | 3.1 | Coverage rule: a term is scored only with at least 200 defaults in its training and 200 in its validation | Active |
 | [D-071](#d-071) | 2026-11-23 | 3.2 | `installment` never enters; a recomputed instalment and its ratio to income are F3 experiments | Active |
 | [D-072](#d-072) | 2026-11-23 | 3.2 | The gradient boosting candidate is LightGBM | Active |
+| [D-073](#d-073) | 2026-11-23 | 3.2 | Hyperparameters are tuned on an inner time split of the training set; validation stays clean | Active |
 
 ## Decisions
 
@@ -829,3 +830,14 @@ Date: 2026-11-23 · Step: 3.2 · Status: Active
 - **Alternatives considered**: XGBoost (as complete and mature, but brings GPU libraries we do not use, hundreds of MB); CatBoost (best with categories, used for the LGD in the research phase, but heavy and slower to train); HistGradientBoosting (no new dependency, but fewer options and more limited exact SHAP support).
 - **Why**: the standard for tabular credit scoring and the lightest option. It handles missing values natively (it learns which branch they go to, so "never delinquent" in `mths_since_last_delinq` is not turned into an invented value), supports monotone constraints, and computes exact SHAP contributions itself (step 3.5).
 - **Consequences**: the image needs the system library `libgomp1`. scikit-learn, scipy and numpy (needed by the logistic regression) will push the image past 500 MB: a separate decision.
+
+<a id="d-073"></a>
+### D-073 Hyperparameters are tuned on an inner time split of the training set; validation stays clean
+
+Date: 2026-11-23 · Step: 3.2 (closes part of the open point of D-042) · Status: Active
+
+- **Context**: tuning tries many settings and keeps the one that scores best on some set. The winner always looks better on that set than it is, because part of its lead is luck (the winner's curse), and the more settings tried and the smaller the set, the larger the bias. If the same set is then used to compare with the baseline, measure the metric noise and calibrate, all of these come out optimistic.
+- **Decision**: inside the training set, the last 6 listing months of each term (as in D-069) form an **inner validation set**; the earlier months form the inner training set. Each candidate's hyperparameters are tuned on this inner split; the candidate is then refitted on the whole training set with the chosen values. The validation set (D-069) is used only after tuning: comparison of candidates, comparison with the baseline and the champion, metric noise, calibration.
+- **Alternatives considered**: (A) tune on the validation set directly: simple, but it is then spent and every later comparison is optimistic; (C) time-series cross-validation inside training (several expanding windows): the most robust, but several times dearer at every retraining, and at T0 its first windows (2007 and 2008) hold very few defaults.
+- **Why**: the same time logic as the outer split, at little cost, and the validation set stays honest for the decisions that matter most.
+- **Consequences**: at T0 tuning works with little data: about 4,700 inner training and 3,000 inner validation loans (estimated from listing counts); it grows by itself at later retrainings. A term with no loans in the inner window is tuned on the other term only. Whether calibration needs its own part of validation, and whether to refit on training plus validation, are still open.
