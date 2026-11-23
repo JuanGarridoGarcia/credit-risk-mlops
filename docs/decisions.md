@@ -56,6 +56,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-046](#d-046) | 2026-11-23 | 2.1 | polars in system code; conversion only at the model boundary | Active |
 | [D-047](#d-047) | 2026-11-23 | 2.1 | Database access: psycopg 3 with SQL in `.sql` files, `COPY` for bulk loads | Active |
 | [D-048](#d-048) | 2026-11-23 | 2.1 | Schema migrations with dbmate, plain SQL, never edited once merged | Active |
+| [D-049](#d-049) | 2026-11-23 | 2.1 | Idempotent loads: replace the whole period in one transaction, plus a load log | Active |
 
 ## Decisions
 
@@ -550,3 +551,14 @@ Date: 2026-11-23 · Step: 2.1 · Status: Active
 - **Alternatives considered**: Alembic (Python standard, but built around SQLAlchemy and its main advantage, autogenerating from ORM models, does not apply without an ORM, D-047); a small in-house runner (no dependency, but our own code to test and maintain); no migrations, a `schema.sql` dropped and recreated (stops working once data must be kept).
 - **Why**: plain SQL in view, consistent with D-047; a proven, widely used tool; reproducible across environments. Checked on 2026-11-23 that dbmate 2.38.2 runs on the work machine.
 - **Consequences**: one more tool run through Docker. Editing an applied migration would leave databases with the same recorded history and different schemas, which is why the rule exists. `down` parts are for development; in production the schema is fixed forward.
+
+<a id="d-049"></a>
+### D-049 Idempotent loads: replace the whole period in one transaction, plus a load log
+
+Date: 2026-11-23 · Step: 2.1 · Status: Active
+
+- **Context**: loads are repeated in practice (network failure halfway, a relaunched command, a corrected delivery). If a repetition duplicates rows, the model learns from loans counted twice without anyone noticing.
+- **Decision**: loading a period of a stream **deletes that period and loads the delivery with `COPY` inside one transaction**: either the whole month is replaced or nothing changes. A table `ingest_log` records each load: period, stream, SHA-256 of the delivery file, rows in the file, rows loaded, time and result. The same file (same hash) already loaded is a no-op recorded as "unchanged"; a different file replaces the period and the change is recorded. Rows loaded must equal rows in the file. Same mechanism for the raw and clean layers.
+- **Alternatives considered**: upsert row by row (`INSERT ... ON CONFLICT DO UPDATE`), which leaves behind rows removed from a corrected delivery and is slower; skip a period already loaded, which never applies a corrected delivery unless forced by hand.
+- **Why**: atomic, fast with `COPY`, and correct with corrected deliveries. The log gives traceability and the row count check the playbook asks for. The largest month (2016-03) has 61,992 loans, so rewriting a whole month costs nothing.
+- **Consequences**: readers never see a half-loaded month: until the commit they see the old version, after it the new one (Postgres MVCC).
