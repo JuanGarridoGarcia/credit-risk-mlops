@@ -161,7 +161,7 @@ F2, step 2.3.
 | T5.10 | After a corrected month: a new version, the old one untouched, and the query of stale versions finds the old one | `tests/integration/test_snapshot.py::test_a_corrected_month_gives_a_new_version_and_flags_the_old` | Integration | CI |
 | T5.11 | A stored file that changed is refused by its checksum, on read and on rebuild | `tests/integration/test_snapshot.py::test_a_stored_file_that_changed_is_refused` | Integration | CI |
 | T5.12 | The SQL build equals the rule written again in polars, on 2,000 random loans with every case | `tests/integration/test_snapshot.py::test_the_sql_build_matches_an_independent_polars_version` | Integration | CI |
-| T5.13 | Real data at T0 = 2014-01: the counts of the first training set | `tests/data/test_snapshot_data.py::test_the_first_training_set_has_the_audit_counts` | Data | Local |
+| T5.13 | Real data at T0 = 2014-01: the counts known at T0 (train 7,733 with 1,019 defaults, validation 4,324 with 429), reconciled with the audit: the 21 and 4 loans resolved after T0, found in the later deliveries, give back 12,078 and 2,230 (E-022) | `tests/data/test_snapshot_data.py::test_the_first_training_set_has_the_audit_counts` | Data | Local |
 | T5.14 | Real data at T0: matured loans with no outcome known at T are measured and recorded in the manifest | `tests/data/test_snapshot_data.py::test_loans_without_a_known_outcome_are_measured` | Data | Local |
 
 ## Change history
@@ -178,3 +178,4 @@ F2, step 2.3.
 | 2026-11-23 | T3.14, T3.15 | Numbered: two functions written in step 2.1 without being presented as tests (the autocommit guard and the `COPY` measurement of D-047) | Found while writing this catalogue; approved by Juan |
 | 2026-11-23 | B6 | Also fails if a test function in `tests/` is in no row | Approved by Juan with T3.14 and T3.15: no test enters without being catalogued |
 | 2026-11-23 | T5.1 to T5.14 | Written (step 2.3) | Approved by Juan |
+| 2026-11-23 | T5.13 | Expected counts changed from the audit's (12,078; train 7,745; validation 4,333 with 432 defaults) to those known at T0, plus a reconciliation with the audit | The audit used outcomes resolved after T0 ([E-022](errors.md#e-022)); approved by Juan |
