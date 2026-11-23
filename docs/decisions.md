@@ -65,6 +65,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-055](#d-055) | 2026-11-23 | 2.2 | A critical failure stops the whole month; no row quarantine | Active |
 | [D-056](#d-056) | 2026-11-23 | 2.2 | Allowed values come from a dated contract: the 2013-12 base plus dated changes | Active |
 | [D-057](#d-057) | 2026-11-23 | 2.2 | Every test is listed in a catalogue kept in step with the code by a test | Active |
+| [D-058](#d-058) | 2026-11-23 | 2.3 | A training set version is an immutable snapshot plus a manifest of where it came from | Active |
 
 ## Decisions
 
@@ -657,4 +658,14 @@ Date: 2026-11-23 · Step: 2.2 (cross-cutting) · Status: Active
 - **Alternatives considered**: keep the tables in technical.md only (no history, drifts silently); generate the catalogue from docstrings (the code becomes the only source, but the approval record and the history need a place of their own); pytest markers such as `@pytest.mark.test_id("T3.4")` (machine-readable, but noisier than a comment and still needs the catalogue).
 - **Why**: Juan approves every test, so the catalogue is the record of what he approved; a test that checks it keeps the record true without relying on memory.
 - **Consequences**: adding or changing a test means a row and a history line in the same pull request, or B6 fails in CI. The tables of technical.md stay as the summary of each step and link to the catalogue.
+
+### D-058 A training set version is an immutable snapshot plus a manifest of where it came from
+
+Date: 2026-11-23 · Step: 2.3 · Status: Active
+
+- **Context**: a model must be reproducible months later, so the exact rows it was trained on must be known. The training set at date T is built from `clean` (matured cohorts, D-040; last 6 months as validation, D-042), but `clean` changes: a corrected delivery replaces its month (D-049), so the same query at the same T can return different rows later.
+- **Decision**: a SQL query builds the training set at T; the result is saved once as an immutable Parquet file with a manifest: T, the git commit of the code, the `load_id` of every month used, the number of rows and the hash of the content. Training reads the saved copy, never the live query. Rebuilding with the same manifest must give the same hash; a different hash means a month changed since.
+- **Alternatives considered**: (A) the version is the cutoff date T and the set is rebuilt on demand (no storage, but not reproducible after a correction); (B) a saved copy identified by its hash only (reproducible, but nothing records which loads it came from).
+- **Why**: the copy makes training reproducible whatever happens to `clean` later; the manifest explains it and lets a check find every set, and so every model, built on a load that has since been replaced. This is what tools such as DVC, lakeFS or Delta time travel give: a fixed copy plus a record of its origin.
+- **Consequences**: storage grows with every training; where copies and manifests live is the next decision. A correction never changes an old set: the old set stays as the record of what the model saw, and the set is flagged as built on a replaced load.
 
