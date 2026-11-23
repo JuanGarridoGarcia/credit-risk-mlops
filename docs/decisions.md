@@ -79,6 +79,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-069](#d-069) | 2026-11-23 | 3.1 | Validation split per term: the last 6 matured listing months of each term | Active |
 | [D-070](#d-070) | 2026-11-23 | 3.1 | Coverage rule: a term is scored only with at least 200 defaults in its training and 200 in its validation | Active |
 | [D-071](#d-071) | 2026-11-23 | 3.2 | `installment` never enters; a recomputed instalment and its ratio to income are F3 experiments | Active |
+| [D-072](#d-072) | 2026-11-23 | 3.2 | The gradient boosting candidate is LightGBM | Active |
 
 ## Decisions
 
@@ -817,3 +818,14 @@ Date: 2026-11-23 · Step: 3.2 (closes the open point of D-063) · Status: Active
 - **Alternatives considered**: (A) drop it for good, including any recomputed version: simplest, but it gives up the payment burden, a classic of credit scoring; (B) recompute it and add it to the base features now: no leak, but it is feature engineering without evidence, which D-063 left to experiments.
 - **Why**: the original column leaks; the recomputed one is engineering, and must earn its place like any other engineered feature. A logistic regression adds the effects of its inputs, so it cannot build the amortisation formula or a ratio to income by itself; the experiment tells whether giving it that combination helps.
 - **Consequences**: the recomputation is a fixed transformation, so if it enters it lives in `features.py` (D-062), with tests against the amortisation formula. The experiment runs on the T0 snapshot only (D-067).
+
+<a id="d-072"></a>
+### D-072 The gradient boosting candidate is LightGBM
+
+Date: 2026-11-23 · Step: 3.2 · Status: Active
+
+- **Context**: D-068 adds one gradient boosting candidate. The libraries differ in speed, handling of categories and missing values, SHAP support and weight; the image is at 466 MB of a 500 MB budget (D-052). Download sizes of the Linux wheels, measured on 2026-11-23: LightGBM 4.7.0 3.4 MB; XGBoost 3.4.1 55 MB plus NVIDIA NCCL on Linux; CatBoost 1.2.10 93 MB; scikit-learn's HistGradientBoosting nothing extra.
+- **Decision**: **LightGBM**.
+- **Alternatives considered**: XGBoost (as complete and mature, but brings GPU libraries we do not use, hundreds of MB); CatBoost (best with categories, used for the LGD in the research phase, but heavy and slower to train); HistGradientBoosting (no new dependency, but fewer options and more limited exact SHAP support).
+- **Why**: the standard for tabular credit scoring and the lightest option. It handles missing values natively (it learns which branch they go to, so "never delinquent" in `mths_since_last_delinq` is not turned into an invented value), supports monotone constraints, and computes exact SHAP contributions itself (step 3.5).
+- **Consequences**: the image needs the system library `libgomp1`. scikit-learn, scipy and numpy (needed by the logistic regression) will push the image past 500 MB: a separate decision.
