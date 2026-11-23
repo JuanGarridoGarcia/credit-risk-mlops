@@ -52,6 +52,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-042](#d-042) | 2026-11-23 | 2.3 (audit 9.6) | Validation split: out-of-time, last 6 listing months | Active |
 | [D-043](#d-043) | 2026-11-23 | 2.1 | A separate simulator is the only code that reads the 2019 file | Active |
 | [D-044](#d-044) | 2026-11-23 | 2.1 | Two table layers: raw (text as delivered) and clean (typed) | Active |
+| [D-045](#d-045) | 2026-11-23 | 2.1 | Cleaning in one Python module; batch-only logic in SQL | Active |
 
 ## Decisions
 
@@ -502,3 +503,14 @@ Date: 2026-11-23 · Step: 2.1 · Status: Active
 - **Alternatives considered**: clean layer only (convert at load, discard the text); raw layer only (convert in Python on every read).
 - **Why**: if a cleaning rule turns out to be wrong, the rule is fixed and the clean layer is rebuilt from raw without reloading anything, and "what exactly arrived?" can always be answered. Standard pattern (often called bronze and silver).
 - **Consequences**: about twice the storage. The API must clean each incoming listing with the same code as the clean layer, which constrains where cleaning is written (next decision).
+
+<a id="d-045"></a>
+### D-045 Cleaning in one Python module; batch-only logic in SQL
+
+Date: 2026-11-23 · Step: 2.1 · Status: Active
+
+- **Context**: cleaning runs in two places: in batch (each month, raw to clean) and online (the API cleans each incoming listing before predicting, within the 200 ms budget of D-009). Two implementations of the same rule drift apart and cause training-serving skew, a silent failure (the model receives in production data it never saw in training).
+- **Decision**: cleaning is written **once, in Python**, as functions that work the same on a month of rows and on a single row. The monthly load and the API call the same functions. General line for the project: what also happens at prediction time (cleaning, features) is in Python, with a single implementation; what exists only in batch is in SQL: the schema and its constraints, idempotent loads, part of the validation, labels and the training set at date T (step 2.3), and monitoring aggregates (F6).
+- **Alternatives considered**: SQL or dbt inside Postgres (fast in batch, but the API would need a second implementation in Python); hybrid dbt for batch plus Python for the API with a test that both agree.
+- **Why**: it meets the playbook rule "no second implementation of anything" without workarounds. Juan wants to show SQL; the batch-only pieces give real SQL work with no risk of two versions.
+- **Consequences**: data leaves Postgres and comes back on each clean load (2 million rows in total, acceptable). dbt is not used for cleaning; it may be considered for F6 monitoring.
