@@ -1,5 +1,5 @@
 # Raw and intermediate data are downloaded per machine, never committed
-data/
+/data/
 
 # Secrets: only .env.example (no real values) is versioned
 .env

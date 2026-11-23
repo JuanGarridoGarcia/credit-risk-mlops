@@ -5,5 +5,11 @@
 !README.md
 !src/
 !tests/
+# Read by a unit test (T1.3) in the test stage only.
+!reports/data_audit/data_dictionary.csv
+# Read by a unit test (T4.9) in the test stage only.
+!docs/validation_rules.md
+# Read by a unit test (B6) in the test stage only.
+!docs/tests.md
 **/__pycache__
 **/*.py[cod]

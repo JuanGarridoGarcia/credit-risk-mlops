@@ -2,13 +2,14 @@
 
 The full detail of the project, one section per step of the playbook: what was built, how, which numbers came out, which decisions and errors happened, and how it was checked. The README is the short version; this is the manual. Format decided in D-035.
 
-Related documents: [problem definition](problem.md), [data audit](data_audit.md), [decision log](decisions.md), [error log](errors.md).
+Related documents: [problem definition](problem.md), [data audit](data_audit.md), [decision log](decisions.md), [error log](errors.md), [validation rules](validation_rules.md), [test catalogue](tests.md).
 
 ## Contents
 
 1. Tracking sheet
 2. F0 Framing (steps 0.1, 0.2)
 3. F1 Foundations (steps 1.1 to 1.4)
+4. F2 Data (steps 2.1 to 2.4)
 
 ---
 
@@ -19,15 +20,15 @@ Status of every step of the playbook. Updated in every pull request.
 | Phase | Step | Status | PR | Notes |
 |---|---|---|---|---|
 | F0 Framing | 0.1 Problem, metric, baseline and constraints | Done | #1 | D-001 to D-011 |
-| | 0.2 Data audit | Done | #1 | D-012 to D-018; 9.4 to 9.6 deferred to the simulation design |
+| | 0.2 Data audit | Done | #1 | D-012 to D-018; 9.4 to 9.6 decided in F2 (D-040 to D-042) |
 | F1 Foundations | 1.1 Repository, environment and code quality | Done | #2 | D-019 to D-024, D-037 |
 | | 1.2 Docker and docker compose | Done | #2 | D-025 to D-027 |
-| | 1.3 Minimal CI | In review | #2 | D-028 to D-032, D-038. Lint-failure check done; branch protection set by Juan on 2026-11-22 |
-| | 1.4 Documentation skeleton | In review | #2 | D-033 to D-036 |
-| F2 Data | 2.1 Idempotent ingestion | Pending | | |
-| | 2.2 Data validation | Pending | | |
-| | 2.3 Data versioning | Pending | | |
-| | 2.4 Features | Pending | | |
+| | 1.3 Minimal CI | Done | #2 | D-028 to D-032, D-038. Lint-failure check done; branch protection set by Juan on 2026-11-22 |
+| | 1.4 Documentation skeleton | Done | #2 | D-033 to D-036 |
+| F2 Data | 2.1 Idempotent ingestion | In review | | D-039 to D-052; E-013 to E-019 |
+| | 2.2 Data validation | In review | | D-053 to D-057; E-020, E-021; rules in validation_rules.md; tests in tests.md |
+| | 2.3 Data versioning | In review | | D-058 to D-061; E-022 |
+| | 2.4 Features | In review | | D-062, D-063; cross-cutting: coverage minimum D-064, audit notebook in CI D-065 |
 | F3 Model | 3.1 Baseline | Pending | | |
 | | 3.2 Tracking and experiments | Pending | | |
 | | 3.3 Model tests and promotion rules | Pending | | |
@@ -147,7 +148,7 @@ The build context is limited by `.dockerignore` to `pyproject.toml`, `uv.lock`, 
 |---|---|---|
 | B3 | `tests/integration/test_postgres.py` | Our settings connect and `SELECT 1` returns 1; the server's major version is 18 |
 | B4 | `tests/integration/test_persistence.py` | A random value in a table with a random name survives `docker compose down` + `up` (a new container, checked by its id); the table is dropped afterwards, pass or fail. Marked `destructive`, it runs last and alone |
-| B5 | `tests/integration/test_image.py` | The image runs as non-root; no `.env*` file anywhere in it; no password, secret, token, Kaggle or AWS variable in its configuration or build history; the default command prints the right version; size at most 300 MB (measured 211 MB) |
+| B5 | `tests/integration/test_image.py` | The image runs as non-root; no `.env*` file anywhere in it; no password, secret, token, Kaggle or AWS variable in its configuration or build history; the default command prints the right version; size at most 300 MB (measured 211 MB); raised to 500 MB in F2 (D-052, 456 MB with polars) |
 
 Each integration test opens its own database connection, so B4 cannot break another test's connection. Integration tests never skip: if Docker or Postgres is missing they fail.
 
@@ -197,6 +198,7 @@ Each integration test opens its own database connection, so B4 cannot break anot
 - `docs/technical.md`: this document.
 - `docs/decisions.md`: index and one card per decision (D-033); D-001 to D-018 converted with their text unchanged (checked automatically: every cell of the old table appears in the new file).
 - `docs/errors.md`: index and one card per error (D-034).
+- `docs/tests.md` (added in step 2.2, D-057): every test with its functions, where it runs and its change history; test B6 keeps it in step with the code.
 
 **Check of the step**: Juan's review of this pull request.
 
@@ -213,3 +215,235 @@ make build
 make test-image
 make test-integration
 ```
+
+---
+
+## 4. F2 Data
+
+As in F1, every decision of F2 was explained to Juan and taken by him one at a time (2026-11-23), and every test was approved before it was written. The three decisions of the audit deferred to the simulation design were taken first: training labels from matured cohorts (D-040), first training in 2014-01 with replay to 2018-12 (D-041) and an out-of-time validation of the last 6 listing months (D-042).
+
+### Step 2.1 Idempotent ingestion
+
+**Flow**
+
+```
+ data/raw/accepted_2007_to_2018Q4.csv.gz         the 2019 snapshot (D-012)
+        │  only the simulator reads it (D-043)
+        v
+ credit_risk.simulator                           plays Lending Club
+        │  make publish PERIOD=YYYY-MM
+        v
+ data/landing/YYYY-MM/listings.csv.gz           loans listed that month (D-039)
+ data/landing/YYYY-MM/outcomes.csv.gz           loans resolved that month
+        │  make ingest PERIOD=YYYY-MM
+        v
+ raw.listings, raw.outcomes                      text as delivered (D-044)
+        │  credit_risk.cleaning (D-045, D-051); validation goes here in step 2.2
+        v
+ clean.listings, clean.outcomes                  typed
+ ops.ingest_log                                  one row per load (D-049)
+```
+
+**Delivery contract** (`credit_risk.contracts`). `listings`: the 107 columns visible at listing (audit dictionary, D-014) plus `issue_d` and `mths_since_recent_bc_dlq`, 109 in total. `outcomes`: `id` plus the 42 post-listing columns. Deliveries are gzip CSV, all text (D-050). The system depends on the contract, never on the simulator.
+
+**Simulator** (`credit_risk.simulator`). Checks the SHA-256 of the source and its columns; drops the 33 summary rows, which sit between the 16 concatenated Lending Club files (two totals after each plus one section title), and stops on any other row that is not a loan; places each loan in its listing month and, if resolved, in its resolution month: the last payment month for good loans, last payment + 5 months for bad ones (issue + 5 if they never paid), capped at the snapshot 2019-03 (data_audit 4.2, E-013); loans still running produce no outcome; an unknown `loan_status` stops it. Rows are written in numeric id order, gzip level 6 with no timestamp, so the same input gives the same bytes. The prepared snapshot is cached as Parquet keyed by the source hash and read lazily, one month at a time (E-016). Publishing everything (2007-06 to 2019-03, 142 months, 284 files, 350 MB) takes 60 s (E-015).
+
+**Cleaning** (`credit_risk.cleaning`, D-051). One rule per column, six kinds; the API will call the same functions on a single listing.
+
+| Rule | Conversion | Columns |
+|---|---|---|
+| Integer | digits to a 64-bit integer | `id` |
+| Number | text to a float; odd values such as -1, 999 or 0 stay as they are | 87 in listings, 25 in outcomes |
+| Month | `Dec-2015` to 2015-12-01 | 3 in listings, 8 in outcomes |
+| Term | `" 36 months"` to 36, `" 60 months"` to 60 | `term` |
+| Employment length | `"< 1 year"` to 0 ... `"10+ years"` to 10 | `emp_length` |
+| Flag | `Y`/`y` to true, `N`/`n` to false | `pymnt_plan`, `hardship_flag`, `debt_settlement_flag` |
+| Text | unchanged, spaces included | categories, free text, statuses (16 in listings, 6 in outcomes) |
+
+A value that does not fit stops the load with the column, the loan id and the value; a missing value stays missing. No column is removed, not even `member_id` (always empty) or `url`. Checking `annual_inc = 0` and `dti = 999` against related columns before writing the rules changed the audit's proposal (E-014): both stay as they are and go to validation.
+
+**Postgres** (migrations in `db/migrations`, applied by dbmate from its image pinned by digest, D-048). Schemas `raw`, `clean` and `ops`. Raw and clean tables hold `period`, `load_id` and the contract columns, with `id` as primary key (a loan in two months is rejected). Deliveries are read strictly with the standard `csv` module (exact header, exact number of fields per record, E-018), then loaded with `COPY`. Each load of a period runs in one transaction: open a row in `ops.ingest_log`, delete the period, `COPY`, check rows loaded = rows in file, close the row (D-049). The same file again is logged as `unchanged`; a different one as `replaced`; a failure is rolled back and logged as `failed` with the error. Clean is always rebuilt from raw, never from the files. Ingestion requires an autocommit connection, so that each load is its own transaction and a failure record is never rolled back with it. SQL lives in `src/credit_risk/sql/`; names are composed with `psycopg.sql.Identifier`, values are always parameters (D-047).
+
+**Commands**: `make data` (download), `make publish PERIOD=YYYY-MM`, `make migrate`, `make ingest PERIOD=YYYY-MM`, `make test-data` (tests on the real file, not in CI).
+
+**Tests**
+
+| Group | File | Tests |
+|---|---|---|
+| T1 Simulator (12) | `tests/unit/simulator/test_simulator.py`, `tests/data/test_simulator_data.py` | 1 wrong hash rejected; 2 each loan listed once, in its month; 3 listing columns exactly the dictionary's, none of the outcome; 4 outcome columns; 5 resolution month by hand (paid, bad, never paid, capped, Default, old policy); 6 running loans produce no outcome (and an unknown status stops it); 7 text unchanged; 8 identical bytes twice, no gzip timestamp; 9 summary rows dropped wherever they are, no loan lost, count reported, any other odd row stops it; 10 no outcome before its listing, nothing after the simulated date; 11 system code never imports the simulator or names the source file; 12 real file: 2,260,668 listings, 1,348,099 outcomes, 33 summary rows, snapshot 2019-03 |
+| T2 Cleaning (11) | `tests/unit/test_cleaning.py`, `tests/data/test_cleaning_data.py` | 1 to 6 each rule with values that fit and values that must fail; 7 every contract column has exactly one rule; 8 the error names column, loan and value; 9 rows and order kept; 10 one row at a time equals a whole month (D-045); 11 the 284 real deliveries clean with no error and the same missing values per column |
+| T3 Loading (15) | `tests/integration/test_ingest.py`, `tests/data/test_ingest_data.py` | 1 migrations up, down, up on an empty database; 2 rows and log of a load; 3 same file twice changes nothing; 4 corrected delivery replaces the month with no ghost row; 5 a failure (truncated record at the end; a primary key violation during `COPY`) leaves the month as it was and is logged; 6 deleting a month leaves the others; 7 text survives Postgres; 8 SQL injection stored as text; 9 clean equals the cleaned delivery, with Postgres types; 10 clean rebuilt from raw without the delivery file; 11 missing delivery names the file; 12 a loan in two months rejected; 13 real data: all 142 months load with the audit counts; 14 ingestion refuses a connection without autocommit; 15 real data: `COPY` faster than row-by-row `INSERT` (14 and 15 numbered in step 2.2, D-057) |
+
+**Measurements** (2026-11-23, cloud machine, 4 CPUs)
+
+| What | Result |
+|---|---|
+| Publish all deliveries | 60 s (5 min 40 s with gzip level 9, E-015) |
+| Clean the 284 real deliveries | 7 s |
+| Load all 142 months into raw and clean | 194 s |
+| 10,000 rows of the largest month into a table | `INSERT` row by row 2.83 s, `COPY` 0.05 s (57 times faster, D-047) |
+| Largest month (2016-03) | 61,992 listings |
+
+**Checks of the step**
+
+| Playbook criterion | Result |
+|---|---|
+| Any period can be loaded, reloaded or deleted with no side effects | T3.2 to T3.6, T3.12 |
+| The raw data is stored as it is | T1.7, T3.7, T3.10 |
+| Loading a period twice does not duplicate rows | T3.3 |
+| Rows loaded equal the source | T3.2 (per load, also enforced by a check in `ops.ingest_log`), T3.13 |
+
+### Step 2.2 Data validation
+
+Every month is validated before it enters the clean layer. The full catalogue of rules, with the reason and the failing rows of each, is in [validation_rules.md](validation_rules.md); this section explains how it is built. Decisions D-053 to D-057; errors E-020 and E-021. Every test of the project, with its functions and its history, is in [tests.md](tests.md) (D-057).
+
+**Flow**
+
+```
+raw (both streams) ──> strict cleaning ──> pandera rules on the typed month (in memory)
+                         (formats)          + rules against history: missing values, volume
+                                                     │
+                                                     v
+          one transaction: stage tables ──> SQL rules ──> replace the clean month
+                                               │          + warnings + missing-value profile
+                                               └─ a critical failure: rollback, nothing enters
+```
+
+- **The month is the unit** (D-055). `build_clean(conn, period)` cleans and validates both streams, then writes both in one transaction. A critical failure in either stream leaves the clean month as it was (or empty), records `failed` for both streams in `ops.ingest_log` with the failing rule ids, and raises `ValidationFailed` with the path of the report. Raw keeps the delivery as it arrived.
+- **Levels** (D-054). Critical stops the month; a warning is reported and stored in `ops.validation_warnings` (one row per month, stream, rule and column, with up to 20 examples), replaced together with the month.
+- **Dated contract** (D-056, `validation/contract.py`). The base is what was known up to 2013-12; changes C1 to C9 enter into force on their month; `contract_at(period)` builds the contract of a month. Reviewed exceptions (5 rows) pass only their rule, loan and month and are listed in every report.
+- **pandera** (D-053, `validation/rules.py`). Two schemas per stream and month, critical and warning, built from the contract in force, validated in lazy mode. Every check is named by its rule id. Missing values pass every check except the required-column ones.
+- **SQL** (`sql/validate_month.sql`). Both streams are copied with `COPY` into temporary stage tables (`CREATE TEMP TABLE ... (LIKE clean.x) ON COMMIT DROP`) inside the load transaction; one query returns every failing value of R1.3, R1.5, R1.6, R2.13, R3.11, R3.12 and R3.15 against the clean history plus the stage. Only if nothing critical fails is the month moved from the stage into clean.
+- **History rules** (`validation/report.py`). R4.6 compares the missing-value share of each column with the previous month's profile, stored in `ops.column_profile` on every load. R5 compares the volume with the median of the 12 previous live clean loads in `ops.ingest_log`; it is not applied with fewer than 12 months or a median below 1,000 (R5.3), and the report says so.
+- **Cleaning** now reports every failing column of a month at once (`CleaningError.failures`), as pandera does.
+- **Report** (D-053). Every run writes `validation/<YYYY-MM>/validation_<timestamp>.json` and a `.md` summary next to the landing folder (`data/validation`): status, rows per stream, contract changes in force, every finding with rule, level, stream, column, count and examples, and notes on rules not applied.
+
+**Postgres**: new migration `20261123130000_create_validation_tables.sql` with `ops.validation_warnings` and `ops.column_profile` (both with checks on period, stream and counts, and a foreign key to the load). `delete_period` also removes them.
+
+**Commands**: unchanged. `make ingest PERIOD=YYYY-MM` now validates; a failure exits with the report path.
+
+**Tests**
+
+| Group | File | Tests |
+|---|---|---|
+| T4 Validation (16) | `tests/unit/test_validation.py`, `tests/integration/test_validation.py`, `tests/data/test_ingest_data.py`, `tests/data/test_validation_data.py` | 1 a valid month passes every rule; 2 each critical pandera rule fails on a valid row with one change and names itself, the loan and the value (36 cases, and a check that every rule has one); 3 each warning lets the month pass and is counted (7 cases); 4 three broken rules reported at once; 5 limits inclusive (amount, rate, money tolerance, FICO, `dti`, volume ratios and the 1,000 minimum, missing-share 10 points); 6 each dated change fails the month before and passes from its month (C1 to C9); 7 reviewed exceptions pass only their rule, loan and month; 8 cleaning reports every failing column; 9 every rule in the code is in the catalogue and back; 10 each SQL and history rule has a failing case in Postgres; 11 a critical failure stops the whole month and rolls back a failing SQL rule; 12 warnings stored once per month; 13 a failed month enters once fixed; 14 every run writes its JSON and summary report; 15 real data: no critical failure, the 5 exceptions, and every warning count and month of the catalogue; 16 real data: the base contract alone stops exactly at the months of C1 to C9 |
+
+Tests T3 were kept as approved; their fixtures now start from rows that pass validation (`tests/valid_rows.py`) and `build_clean` builds a month instead of one stream, because the month became the unit.
+
+**Measurements** (2026-11-23, cloud machine, 4 CPUs)
+
+| What | Result |
+|---|---|
+| pandera rules over the 284 real deliveries | 28 s listings, 10 s outcomes |
+| Load all 142 months into raw and clean, with validation | 383 s (194 s without validation in step 2.1) |
+| Full real load | 0 critical failures; 5 reviewed exceptions; warnings: R2.10 2,563 rows, R2.11 3, R2.12 20, R2.13 21 months, R3.14 4, R3.15 433, R4.6 153 column-months (4 months in 2014 to 2018), R5.2 4 months |
+| Application image | 466 MB (pandera adds 10 MB; budget 500 MB, D-052) |
+
+**Checks of the step**
+
+| Playbook criterion | Result |
+|---|---|
+| Every run validates the data and a critical failure stops the pipeline | T4.2, T4.10, T4.11 |
+| Rules are explicit, with level and reason | `docs/validation_rules.md`; T4.9 keeps code and catalogue equal |
+| Each failure says what, where and why | T4.2, T4.14 |
+| Warnings are kept for monitoring | T4.12 |
+| The rules hold on the real data | T4.15, T4.16 |
+
+### Step 2.3 Data versioning
+
+A model must be reproducible months later, but `clean` changes when a corrected delivery replaces a month (D-049). So the training set at a cutoff month T is built once and kept as an immutable version. Decisions D-058 to D-061; error E-022.
+
+**Flow**
+
+```
+clean (every month up to T, checked) ──SQL──> loans of the set at T ──COPY──> two frames
+                                               matured, labelled, split        features / evaluation
+                                                                                     │
+                       content hash of the data (the name of the version) <──────────┘
+                                     │
+           new: write both Parquet files to training_sets/<hash>/, then the manifest
+           known: write nothing, check the stored files against their checksums
+```
+
+- **The set at T** (`sql/training_ids.sql`). Matured cohorts: listed at least `term + 5` months before T (D-040). The label comes only from outcomes delivered by T: Fully Paid 0, Charged Off and Default 1 (D-013); old-policy loans and matured loans with no outcome yet are left out and counted. The last 6 listing months are validation (D-042).
+- **Before anything**, every month and stream from 2007-06 to T must have a live clean load whose last attempt did not fail; otherwise the build stops and names the months.
+- **Two files** (D-060). `features.parquet`: every column of `clean.listings`, `label` and `split`, with the types of the cleaning rules. `evaluation.parquet`: the outcome columns of the same loans and the month each was resolved. Training reads only the first.
+- **Two hashes** (D-061, `snapshot.content_hash`). The content hash is SHA-256 over the data in one fixed text form (rows sorted by `id`, column names and types, floats with 17 significant digits, text always quoted, missing values marked apart), so it changes only when the data change. The checksum of each file goes in the manifest and is checked on every read and rebuild.
+- **Store** (D-059, `storage.py`). A version is the folder `data/training_sets/<hash>/`, filled under a temporary name and renamed in one step; it is never overwritten. The S3 store comes with the AWS phase behind the same interface.
+- **Manifest** (D-058). `ops.training_sets`: version, cutoff, git commit (`-dirty` if the tree has changes; `CREDIT_RISK_COMMIT` in an image), path, counts, exclusions, checksums. `ops.training_set_loads`: the clean load of every month and stream used. `python -m credit_risk.snapshot stale` lists the versions built on a load that has since been replaced.
+- **One consistent view**: the build runs in one `REPEATABLE READ` transaction, so clean cannot change halfway.
+
+**Postgres**: new migration `20261123150000_create_training_sets.sql` with `ops.training_sets` and `ops.training_set_loads` (foreign keys to `ops.ingest_log`).
+
+**Commands**: `make snapshot T=YYYY-MM` builds the version at T and prints its hash.
+
+**Tests**
+
+| Group | File | Tests |
+|---|---|---|
+| T5 Training set versions (14) | `tests/unit/test_snapshot.py`, `tests/integration/test_snapshot.py`, `tests/data/test_snapshot_data.py` | 1 maturity at 41 and 65 months; 2 label and old policy; 3 outcome unknown at T left out; 4 last 6 months are validation; 5 no outcome column in the training file; 6 a missing or failed month stops the build; 7 manifest; 8 content hash follows the data, not the file; 9 a rebuild writes nothing; 10 a corrected month gives a new version and flags the old; 11 a changed file is refused; 12 SQL equals an independent polars version on 2,000 random loans; 13 and 14 real data at T0 |
+
+Every test, with its functions, is in [tests.md](tests.md). The SQL was also checked by mutation: moving the maturity by one month, reading outcomes after T, a 7-month validation window or another label mapping each make T5 tests fail.
+
+**Measurements** (2026-11-23, cloud machine, 4 CPUs; all 142 months in clean)
+
+| Cutoff | Train (defaults) | Validation (defaults) | Old policy left out | No outcome yet | Build | Size |
+|---|---|---|---|---|---|---|
+| 2014-01 (T0) | 7,733 (1,019) | 4,324 (429) | 2,226 | 25 | 1.3 s | 2.6 MB |
+| 2016-01 | 34,613 (4,089) | 19,060 (2,700) | 2,587 | 9 | 2.6 s | 8.2 MB |
+| 2018-12 | 394,952 (56,404) | 127,952 (19,208) | 2,749 | 80 | 13.2 s | 67 MB |
+
+The version at T0 built from a database loaded only up to 2014-01 (data test) and from one loaded with all 142 months has the same hash: the build never reads past T. A rebuild at 2018-12 with no change takes 13.0 s and writes nothing. The audit's 12,078 loans at T0 included 21 resolved after T0 (E-022).
+
+**Checks of the step**
+
+| Playbook criterion | Result |
+|---|---|
+| Any training set can be rebuilt exactly | T5.8, T5.9; same hash from two independent loads |
+| A version records where it came from | T5.7 |
+| Changes in the data are detected, not silently absorbed | T5.10, T5.11 |
+| No information from after T, no leakage into training | T5.3, T5.5, T5.12 |
+
+### Step 2.4 Features
+
+The model receives 30 features computed by `credit_risk.features.build_features`, the same function in training, in the API (F5) and in monitoring (F6). Decisions D-062 and D-063.
+
+**Two layers** (D-062)
+
+```
+cleaned listing(s) ──> build_features (fixed, no state) ──> model pipeline (F3)
+                       id + 30 features, gaps kept          learned: fill gaps, encode,
+                                                            scale; fitted on train only
+```
+
+- **Fixed layer** (`features.py`): pure polars expressions on each row; nothing depends on other rows, so one listing and a whole month give the same values (T6.6).
+- **Learned layer** (F3): inside the model pipeline, fitted on the training split of a version (step 2.3) and saved with the model.
+
+**v1 features** (D-063). 20 listing columns used as they are, the FICO midpoint, the credit history in months, and 8 categorical columns. Left out: `installment` (funded-amount leak, decided in F3), `pub_rec_bankruptcies` (filled only from 2009, D-016), free text (D-015), state and zip code (D-018), the bureau fields reported from 2012 and 2015 and the second-applicant fields (D-016). Engineered features (ratios, logarithms, `sub_grade` as a number) are F3 experiments, each kept only if it beats the metric noise.
+
+Checked on the real deliveries before writing the code: the credit history goes from 6 to 999 months and is never negative; `fico_range_high` is `fico_range_low` + 4 in 2,260,227 loans and + 5 in 441.
+
+**Tests**
+
+| Group | File | Tests |
+|---|---|---|
+| T6 Features (8) | `tests/unit/test_features.py`, `tests/data/test_features_data.py` | 1 credit history by hand; 2 FICO midpoint by hand; 3 `id` and the 30 features with their types; 4 no forbidden column reaches the output; 5 every source visible at listing and reported since 2007; 6 one row equals a whole month in any order; 7 no gap filled; 8 real data: the version at 2018-12 in range |
+
+The full real load of the data tests now runs once per session (`tests/data/conftest.py`) and is shared by T3.13, T3.15, T4.15 and T6.8.
+
+**Checks of the step**
+
+| Playbook criterion | Result |
+|---|---|
+| Features are computed the same way in training and serving | One function for both; T6.6 |
+| No feature uses information from after the listing | T6.4, T6.5; outcomes live in another file of the version (D-060, T5.5) |
+| What is learned is fitted on training data only | By design (D-062): nothing learned in `features.py`; T6.7 |
+
+### F2 cross-cutting: coverage minimum
+
+D-064 closes D-031. `make test-integration` runs the unit tests and the non-destructive integration tests under one coverage measurement and fails below 85% of branches; `make diff-cover` fails when less than 90% of the lines changed against `origin/main` are covered. Both run in the CI integration job, which also writes the two reports to the run summary. Measured on 2026-11-23: unit tests alone 58%, unit and integration 89%.
+
+### F2 cross-cutting: the audit notebook in CI
+
+D-065 closes the open point of D-021. `make notebooks` runs `notebooks/00_data_audit.ipynb` top to bottom with nbconvert and fails if any file of `reports/data_audit` differs from the committed one: byte for byte with `git diff --exit-code`, except the PNG figures (E-024): a figure only draws a table that is compared, such as `loans_per_month.csv`. The notebook resets matplotlib to its built-in defaults, so a figure does not depend on the machine's settings. A failed run keeps its outputs as a workflow artifact for 14 days. The `Notebooks` workflow runs it every Monday at 05:00 UTC, by hand, and on pull requests that touch the notebook, its outputs, `uv.lock` or the workflow, with the repository secret `KAGGLE_API_TOKEN`. Run here on 2026-11-23: 1 min 53 s, every output byte-identical.
+

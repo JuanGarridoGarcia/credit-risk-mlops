@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 authors = [{ name = "Juan Garrido García" }]
 dependencies = [
+    "pandera[polars]>=0.36",
+    "polars>=2.1",
     "psycopg[binary]>=3.3",
     "pydantic-settings>=2.16",
 ]
@@ -15,6 +17,7 @@ credit-risk = "credit_risk.__main__:main"
 
 [dependency-groups]
 dev = [
+    "diff-cover>=11.0",
     "mypy>=2.4",
     "pip-audit>=2.9",
     "pre-commit>=4.7",
@@ -105,6 +108,7 @@ addopts = ["-ra", "--strict-markers", "--strict-config"]
 markers = [
     "integration: needs Docker (Postgres via docker compose, or the built image)",
     "destructive: recreates containers; runs last and on its own",
+    "data: needs the real Lending Club file in data/raw (not in CI)",
 ]
 xfail_strict = true
 filterwarnings = ["error"]
@@ -117,4 +121,7 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
-# No fail_under until F2 (decision A13).
+# D-064: at least 85% of branches over unit + integration tests (checked by
+# `make test-integration`), and 90% of the lines each pull request changes (`make diff-cover`).
+fail_under = 85
+exclude_also = ['if __name__ == "__main__":']

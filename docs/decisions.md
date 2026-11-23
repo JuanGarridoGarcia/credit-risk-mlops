@@ -46,6 +46,33 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-036](#d-036) | 2026-11-22 | 1.4 | Repository documents in English | Active |
 | [D-037](#d-037) | 2026-11-22 | 1.1 | Work branch named by the system | Active |
 | [D-038](#d-038) | 2026-11-22 | 1.3 | Base image patch not yet published upstream: wait for the official image | Active |
+| [D-039](#d-039) | 2026-11-23 | 2.1 | Simulated arrival: listings and outcomes as two separate streams | Active |
+| [D-040](#d-040) | 2026-11-23 | 2.3 (audit 9.4) | Training labels: matured cohorts only | Active |
+| [D-041](#d-041) | 2026-11-23 | 2.1 (audit 9.5) | Simulation window: first training 2014-01, replay 2014-01 to 2018-12 | Active |
+| [D-042](#d-042) | 2026-11-23 | 2.3 (audit 9.6) | Validation split: out-of-time, last 6 listing months | Active |
+| [D-043](#d-043) | 2026-11-23 | 2.1 | A separate simulator is the only code that reads the 2019 file | Active |
+| [D-044](#d-044) | 2026-11-23 | 2.1 | Two table layers: raw (text as delivered) and clean (typed) | Active |
+| [D-045](#d-045) | 2026-11-23 | 2.1 | Cleaning in one Python module; batch-only logic in SQL | Active |
+| [D-046](#d-046) | 2026-11-23 | 2.1 | polars in system code; conversion only at the model boundary | Active |
+| [D-047](#d-047) | 2026-11-23 | 2.1 | Database access: psycopg 3 with SQL in `.sql` files, `COPY` for bulk loads | Active |
+| [D-048](#d-048) | 2026-11-23 | 2.1 | Schema migrations with dbmate, plain SQL, never edited once merged | Active |
+| [D-049](#d-049) | 2026-11-23 | 2.1 | Idempotent loads: replace the whole period in one transaction, plus a load log | Active |
+| [D-050](#d-050) | 2026-11-23 | 2.1 | Deliveries written as gzip-compressed CSV, all text | Active |
+| [D-051](#d-051) | 2026-11-23 | 2.1 | Cleaning is minimal and has no opinions | Active |
+| [D-052](#d-052) | 2026-11-23 | 2.1 | Image size budget raised from 300 to 500 MB | Active |
+| [D-053](#d-053) | 2026-11-23 | 2.2 | Validation rules written with pandera on polars | Active |
+| [D-054](#d-054) | 2026-11-23 | 2.2 | Two severity levels: a critical rule stops the run, a warning is reported and stored | Active |
+| [D-055](#d-055) | 2026-11-23 | 2.2 | A critical failure stops the whole month; no row quarantine | Active |
+| [D-056](#d-056) | 2026-11-23 | 2.2 | Allowed values come from a dated contract: the 2013-12 base plus dated changes | Active |
+| [D-057](#d-057) | 2026-11-23 | 2.2 | Every test is listed in a catalogue kept in step with the code by a test | Active |
+| [D-058](#d-058) | 2026-11-23 | 2.3 | A training set version is an immutable snapshot plus a manifest of where it came from | Active |
+| [D-059](#d-059) | 2026-11-23 | 2.3 | Snapshots in object storage by content hash; manifests in Postgres | Active |
+| [D-060](#d-060) | 2026-11-23 | 2.3 | A snapshot is two files: what training may see, and what only evaluation may see | Active |
+| [D-061](#d-061) | 2026-11-23 | 2.3 | Two hashes: the content hash names a version, the file checksum guards the stored file | Active |
+| [D-062](#d-062) | 2026-11-23 | 2.4 | Two layers of preparation: fixed transformations in the package, learned ones inside the model | Active |
+| [D-063](#d-063) | 2026-11-23 | 2.4 | v1 features: the columns filled since 2007 plus two required transformations; engineered features are F3 experiments | Active |
+| [D-064](#d-064) | 2026-11-23 | F2 (cross-cutting) | Coverage: 85% of branches over unit and integration tests, 90% of the lines each pull request changes | Active |
+| [D-065](#d-065) | 2026-11-23 | F2 (cross-cutting) | The audit notebook runs in CI every week and on pull requests that touch it, and must reproduce its outputs | Active |
 
 ## Decisions
 
@@ -430,3 +457,292 @@ Date: 2026-11-22 · Step: 1.3 · Status: Active
 - **Alternatives considered**: upgrade the affected packages in the Dockerfile (`apt-get install --only-upgrade`), which patches immediately but makes the build depend on the state of the Debian mirrors on the day it runs, so two builds of the same commit can differ.
 - **Why**: keeps the build reproducible (D-025), and nothing is deployed until F7, so the exposure is nil.
 - **Consequences**: if this happened with the API in production, the balance would change and the package would be patched in the Dockerfile at once.
+
+<a id="d-039"></a>
+### D-039 Simulated arrival: listings and outcomes as two separate streams
+
+Date: 2026-11-23 · Step: 2.1 · Status: Active
+
+- **Context**: the source is a single 2019 snapshot in which every row already holds its final outcome. The system must behave as if it lived at a simulated date T and knew only what was known at T.
+- **Decision**: each loan produces two facts at two dates. Ingesting a period loads (1) the **listings** published in that month, with only the columns visible at listing, and (2) the **outcomes** of loans resolved in that month (resolution month as estimated in the audit, section 4.2), into separate tables. At date T the database holds exactly what was known at T. Loans still running at the snapshot never produce an outcome. The original file is kept untouched with its SHA-256.
+- **Alternatives considered**: one table with the full row (151 columns) loaded by issue month, and every query filtering "resolved before T".
+- **Why**: with separate streams, future information is not in the database, so leakage is impossible by construction instead of depending on every query being written correctly. It also mirrors how the data arrives in reality.
+- **Consequences**: two tables and two loads per period; the split of columns between the streams follows D-014. Recovery amounts are as of 2019 (limitation already accepted in D-017).
+
+<a id="d-040"></a>
+### D-040 Training labels: matured cohorts only
+
+Date: 2026-11-23 · Step: 2.3 (audit decision 9.4, decided before 9.5 because the window depends on it) · Status: Active
+
+- **Context**: at a simulated date T, loans listed recently are only partly resolved, and the ones already resolved are mostly early defaults (censoring bias).
+- **Decision**: a PD training set at date T uses only **matured cohorts**: loans listed at least `term + 5` months before T (41 months for 36-month loans, 65 for 60-month loans), whose outcome is fully known. The 5 months cover the charge-off lag (audit, section 4.2). A survival model, which would also use running loans as partial information, is noted as a possible challenger in F3.
+- **Alternatives considered**: every loan resolved by T ("known by T"); a survival model from the start.
+- **Why**: "known by T" shows a bad rate of 17% to 18% against 11% to 13% for complete cohorts (audit, section 6.2). The PD feeds expected loss (D-002), so a systematically inflated PD would distort EL and the buy decision. A survival model is more correct in theory but harder to calibrate and explain, and does not match the logistic baseline (D-004).
+- **Consequences**: training data is older and smaller (the model reacts slower to market changes, which F6 monitoring must catch). Updates `problem.md` section 7. The LGD rule stays D-017.
+
+<a id="d-041"></a>
+### D-041 Simulation window: first training 2014-01, replay 2014-01 to 2018-12
+
+Date: 2026-11-23 · Step: 2.1 (audit decision 9.5) · Status: Active
+
+- **Context**: an earlier first training gives a weaker first model but a longer life of the system; a later one gives a better first model but little to replay and nothing measurable at the end.
+- **Decision**: first training at **T0 = 2014-01**; monthly replay from 2014-01 to 2018-12. Loans listed before T0 are loaded as history before the replay starts.
+- **Alternatives considered**: T0 = 2015-01 (23,358 matured loans, final business metric only for 2015); T0 = 2016-01 (53,682 matured loans, no purchase with a final outcome).
+- **Why**: 2.03 million loans replayed and five years of monitoring and retraining. The business metric (D-007) is final for 36-month loans listed in 2014 and 2015 (outcomes in the 2019 snapshot). The first model has 12,078 matured loans with 1,457 defaults (checked on the raw file on 2026-11-23), enough for a logistic regression with about 70 parameters (10 to 20 defaults per parameter).
+- **Consequences**: the first model learns from 36-month loans listed 2007-06 to 2010-08 (post-crisis), so it is weak and the system must visibly improve through retraining and new fields (D-016). Bureau fields reported from 2012 cannot enter the first model.
+
+<a id="d-042"></a>
+### D-042 Validation split: out-of-time, last 6 listing months
+
+Date: 2026-11-23 · Step: 2.3 (audit decision 9.6) · Status: Active
+
+- **Context**: the validation set is where everything the model does not learn by itself is chosen (hyperparameters, early stopping, candidate comparison, calibration, buy threshold, metric noise). The test is the forward replay (D-041), which does not exist yet at training time.
+- **Decision**: at every training, the **last 6 listing months** of the matured cohorts (D-040) are the validation set; the earlier months are the training set. First model: train 7,745 loans (2007-06 to 2010-02), validation 4,333 loans with 432 defaults (2010-03 to 2010-08). Metric noise is measured by bootstrap on the validation set.
+- **Alternatives considered**: random 20% split; rolling-origin validation (several time windows averaged).
+- **Why**: it mimics production (learn from the past, predict an unseen future). A random split mixes vintages while the bad rate falls from 18% (2007) to 10% (2010), so it would be optimistic and hide drift. Rolling-origin is more robust with little data, but its first windows have very few defaults (292 in 2007 and 2008) and later retrainings have hundreds of thousands of loans, so it does not pay for its complexity.
+- **Consequences**: nothing that learns or chooses anything (model, calibrator, threshold) may touch the test. Deferred to F3 with the calibration design: whether to refit on the full matured set after selection (the calibrator fitted on validation would no longer match the refitted model) and whether to split validation into a selection part and a calibration part once data is large.
+
+<a id="d-043"></a>
+### D-043 A separate simulator is the only code that reads the 2019 file
+
+Date: 2026-11-23 · Step: 2.1 · Status: Active
+
+- **Context**: D-039 keeps the future out of the database; it still has to be decided where the cut between "known" and "not yet known" is made.
+- **Decision**: a separate module, the **simulator**, plays the role of Lending Club. It is the only code that opens the 2019 file. For each month it writes two deliveries, `listings` and `outcomes`, into a landing folder, as an external provider would. The system (ingestion, validation, features, model) only reads deliveries of months that have already "arrived" and never opens the full file. A test checks that system code does not import the simulator or read the file's path.
+- **Alternatives considered**: ingestion opens the full file on every run and filters the month.
+- **Why**: it separates the simulated world, which would not exist in production, from the system, which would. The system cannot filter the future wrongly because it never receives it. If a real source replaced the file, only the simulator would be thrown away; ingestion would not change.
+- **Consequences**: one more module and disk space for the deliveries. Deliveries keep the text exactly as in the file.
+
+<a id="d-044"></a>
+### D-044 Two table layers: raw (text as delivered) and clean (typed)
+
+Date: 2026-11-23 · Step: 2.1 · Status: Active
+
+- **Context**: deliveries arrive as text with formats and codes that are not usable as they are (`" 36 months"`, `"10+ years"`, `dti = 999`). The playbook requires the raw data to be stored as it is.
+- **Decision**: each stream (`listings`, `outcomes`) has a **raw** table with the exact text of the delivery plus load metadata (period, delivery file, its hash, load time), never modified after loading, and a **clean** table with correct types and coded values fixed. Validation (step 2.2) runs between the two: if a critical rule fails, nothing reaches the clean layer. Cleaning only puts the data in the form it should have arrived in; feature engineering (step 2.4) starts from the clean layer. The unit of load is the month, because `issue_d` has monthly precision.
+- **Alternatives considered**: clean layer only (convert at load, discard the text); raw layer only (convert in Python on every read).
+- **Why**: if a cleaning rule turns out to be wrong, the rule is fixed and the clean layer is rebuilt from raw without reloading anything, and "what exactly arrived?" can always be answered. Standard pattern (often called bronze and silver).
+- **Consequences**: about twice the storage. The API must clean each incoming listing with the same code as the clean layer, which constrains where cleaning is written (next decision).
+
+<a id="d-045"></a>
+### D-045 Cleaning in one Python module; batch-only logic in SQL
+
+Date: 2026-11-23 · Step: 2.1 · Status: Active
+
+- **Context**: cleaning runs in two places: in batch (each month, raw to clean) and online (the API cleans each incoming listing before predicting, within the 200 ms budget of D-009). Two implementations of the same rule drift apart and cause training-serving skew, a silent failure (the model receives in production data it never saw in training).
+- **Decision**: cleaning is written **once, in Python**, as functions that work the same on a month of rows and on a single row. The monthly load and the API call the same functions. General line for the project: what also happens at prediction time (cleaning, features) is in Python, with a single implementation; what exists only in batch is in SQL: the schema and its constraints, idempotent loads, part of the validation, labels and the training set at date T (step 2.3), and monitoring aggregates (F6).
+- **Alternatives considered**: SQL or dbt inside Postgres (fast in batch, but the API would need a second implementation in Python); hybrid dbt for batch plus Python for the API with a test that both agree.
+- **Why**: it meets the playbook rule "no second implementation of anything" without workarounds. Juan wants to show SQL; the batch-only pieces give real SQL work with no risk of two versions.
+- **Consequences**: data leaves Postgres and comes back on each clean load (2 million rows in total, acceptable). dbt is not used for cleaning; it may be considered for F6 monitoring.
+
+<a id="d-046"></a>
+### D-046 polars in system code; conversion only at the model boundary
+
+Date: 2026-11-23 · Step: 2.1 (open question from D-024) · Status: Active
+
+- **Context**: the simulator, cleaning and features need a dataframe library. The same cleaning code serves a month in batch and a single row in the API (D-045).
+- **Decision**: **polars** in all system code. Where a modelling library needs pandas or numpy, the conversion happens in **one function at the model input** and nowhere else. pandas does not appear elsewhere in the code.
+- **Alternatives considered**: pandas.
+- **Why**: polars is strict with types: a value that cannot be converted fails instead of silently becoming missing (fail fast), so every conversion follows a rule written by us and tested both ways. It is faster in batch (the simulator reads 2.26 million rows) and the F0 audit is already in polars. Measured on 2026-11-23 for a sample cleaning of one row (the API case): polars 0.3 ms, pandas 1.4 ms, both far below the 200 ms budget, so speed online does not decide. scikit-learn 1.9.1 accepts polars input directly (checked).
+- **Consequences**: SHAP, tree libraries or MLflow signatures may need a conversion; checked library by library in F3. Lenient options (`strict=False`) are not used in cleaning.
+
+<a id="d-047"></a>
+### D-047 Database access: psycopg 3 with SQL in `.sql` files, `COPY` for bulk loads
+
+Date: 2026-11-23 · Step: 2.1 (open question from D-021/B3) · Status: Active
+
+- **Context**: psycopg 3 is already used since F1. The question was whether to add SQLAlchemy on top.
+- **Decision**: Python talks to Postgres with **psycopg 3** directly. SQL lives in `.sql` files, written as it runs. Bulk loads use `COPY`. Values always travel as **parameters** (`%s`), never pasted into the SQL text; table and column names are composed with `psycopg.sql.Identifier`. A connection pool (`psycopg-pool`) is added for the API in F5.
+- **Alternatives considered**: SQLAlchemy Core (builds SQL from Python, manages connections, portable across databases); SQLAlchemy ORM (tables as classes, rows as objects).
+- **Why**: full transparency of the SQL (Juan wants to show SQL, D-045) and the fastest load path, with a dependency already in use. Portability brings almost nothing: the database is Postgres from start to end (local and RDS, D-027). The ORM suits web apps working with single objects, not month-sized tables.
+- **Consequences**: some things SQLAlchemy gives for free are written by hand or added explicitly (connection pool). Parameters prevent SQL injection, a real risk here because `emp_title`, `title` and `desc` are free text written by applicants and the API will receive outside data; ruff rule `S608` flags SQL built from strings. The speed gain of `COPY` over row-by-row `INSERT` is measured during implementation.
+
+<a id="d-048"></a>
+### D-048 Schema migrations with dbmate, plain SQL, never edited once merged
+
+Date: 2026-11-23 · Step: 2.1 · Status: Active
+
+- **Context**: tables are created now and will change (prediction log in F5, monitoring in F6, late-starting fields from D-016). Once there is data that must not be lost (RDS in F7), the schema cannot be dropped and recreated.
+- **Decision**: schema changes are **numbered migrations in plain SQL** (`-- migrate:up` / `-- migrate:down`), applied with **dbmate** run from its Docker image (pinned by digest, as D-025). dbmate records applied versions in `schema_migrations`, so `dbmate up` brings any database (laptop, CI, RDS) to the same schema by applying only what is missing, in order. A migration merged into `main` is **never edited**; a fix is a new migration. A test applies every migration on an empty database, rolls them all back and applies them again.
+- **Alternatives considered**: Alembic (Python standard, but built around SQLAlchemy and its main advantage, autogenerating from ORM models, does not apply without an ORM, D-047); a small in-house runner (no dependency, but our own code to test and maintain); no migrations, a `schema.sql` dropped and recreated (stops working once data must be kept).
+- **Why**: plain SQL in view, consistent with D-047; a proven, widely used tool; reproducible across environments. Checked on 2026-11-23 that dbmate 2.38.2 runs on the work machine.
+- **Consequences**: one more tool run through Docker. Editing an applied migration would leave databases with the same recorded history and different schemas, which is why the rule exists. `down` parts are for development; in production the schema is fixed forward.
+
+<a id="d-049"></a>
+### D-049 Idempotent loads: replace the whole period in one transaction, plus a load log
+
+Date: 2026-11-23 · Step: 2.1 · Status: Active
+
+- **Context**: loads are repeated in practice (network failure halfway, a relaunched command, a corrected delivery). If a repetition duplicates rows, the model learns from loans counted twice without anyone noticing.
+- **Decision**: loading a period of a stream **deletes that period and loads the delivery with `COPY` inside one transaction**: either the whole month is replaced or nothing changes. A table `ingest_log` records each load: period, stream, SHA-256 of the delivery file, rows in the file, rows loaded, time and result. The same file (same hash) already loaded is a no-op recorded as "unchanged"; a different file replaces the period and the change is recorded. Rows loaded must equal rows in the file. Same mechanism for the raw and clean layers.
+- **Alternatives considered**: upsert row by row (`INSERT ... ON CONFLICT DO UPDATE`), which leaves behind rows removed from a corrected delivery and is slower; skip a period already loaded, which never applies a corrected delivery unless forced by hand.
+- **Why**: atomic, fast with `COPY`, and correct with corrected deliveries. The log gives traceability and the row count check the playbook asks for. The largest month (2016-03) has 61,992 loans, so rewriting a whole month costs nothing.
+- **Consequences**: readers never see a half-loaded month: until the commit they see the old version, after it the new one (Postgres MVCC).
+
+<a id="d-050"></a>
+### D-050 Deliveries written as gzip-compressed CSV, all text
+
+Date: 2026-11-23 · Step: 2.1 · Status: Active
+
+- **Context**: the simulator (D-043) writes one `listings` and one `outcomes` delivery per month.
+- **Decision**: deliveries are **gzip-compressed CSV** files with every value as text, exactly as in the source file.
+- **Alternatives considered**: Parquet (typed, columnar, smaller and faster).
+- **Why**: it is the format Lending Club published, so "store the raw data as it is" (D-044) is literal; Postgres `COPY` reads CSV natively; the files can be opened with any tool. With Parquet the simulator would either write types, which is cleaning and belongs to the system (D-045), or write everything as text and lose Parquet's main advantage.
+- **Consequences**: larger and slower to read than Parquet, irrelevant at the size of a month. A change of format in a column is caught by validation on the raw layer (step 2.2), with strict cleaning (D-046) as a second net.
+
+<a id="d-051"></a>
+### D-051 Cleaning is minimal and has no opinions
+
+Date: 2026-11-23 · Step: 2.1 · Status: Active
+
+- **Context**: without a boundary, cleaning grows and ends up taking hidden modelling decisions (for example, capping `dti` at 100 would hide 2,561 loans from anyone reading the model code). The clean layer serves the PD model, the LGD model and monitoring alike.
+- **Decision**: cleaning may only (1) **convert types** (text to number, `Dec-2015` to a date), (2) **normalise documented formats** (`" 36 months"` to 36, `"10+ years"` to 10, `"< 1 year"` to 0) and (3) **decode values that Lending Club documents as "unknown"**. It never removes rows, fills missing values, caps extremes, merges categories or creates features: that is modelling, done in step 2.4 with its own reasons. Impossible or suspicious values are not fixed by cleaning; validation (step 2.2) detects them and decides whether to stop or warn.
+- **Alternatives considered**: broad cleaning that also merges rare categories, caps extremes and fills simple gaps, so the clean layer is ready to model.
+- **Why**: the clean layer stays "the data as it should have arrived", useful for every purpose and easy to audit; every modelling decision is visible where it is taken.
+- **Consequences**: more work in step 2.4. Applying the rule already changed a proposal of the audit: `dti = 999` is not documented as unknown and turned out to be a cap caused by implausible incomes (E-014), so it stays as it is; `annual_inc = 0` is a real value of joint applications. Both become validation rules.
+
+<a id="d-052"></a>
+### D-052 Image size budget raised from 300 to 500 MB
+
+Date: 2026-11-23 · Step: 2.1 (changes the threshold of test B5, D-025/D-026) · Status: Active
+
+- **Context**: with polars in the package (D-046), the image grew from 211 MB to 456 MB and test B5 (at most 300 MB) failed. polars' compiled runtime alone takes 170 MB. The API needs polars to clean with the same code as the monthly load (D-045).
+- **Decision**: the budget of B5 becomes **500 MB**.
+- **Alternatives considered**: keep 300 MB and clean with pandas in the API (two implementations, against D-045); keep 300 MB with two images, one for loading with polars and one for the API without it (same two implementations, plus another image).
+- **Why**: the size follows from a decision already taken; breaking the single-implementation rule to save 150 MB does not pay. 456 MB is a normal size for an ML service, and scikit-learn and model libraries will enter in F3 and F5.
+- **Consequences**: B5 still catches anything that should not be in the image. The budget is reviewed when the model libraries enter.
+
+<a id="d-053"></a>
+### D-053 Validation rules written with pandera on polars
+
+Date: 2026-11-23 · Step: 2.2 · Status: Active
+
+- **Context**: step 2.2 needs rules that detect broken data before it reaches the model and stop the pipeline when a critical one fails.
+- **Decision**: rules are written as **pandera** schemas on polars frames, validated in "lazy" mode so that every failure of a run is collected at once, not only the first. Each run writes its own report (JSON plus a readable summary). Rules that cross tables (every outcome has its listing) are SQL (D-045). Pydantic validates single API requests in F5, a different job.
+- **Alternatives considered**: Great Expectations (best known, HTML reports, but heavy, complex and without polars support, so data would go through pandas against D-046); Pydantic row by row (slow for a month and blind to table rules such as volume or uniqueness); our own rules in polars and SQL (full control, but a tool of our own to test and maintain).
+- **Why**: native on polars, light, rules are code reviewed in the pull request. Collecting every failure at once means one fix-and-rerun cycle instead of one per failure, and failures seen together point to a common cause. Checked on 2026-11-23 that pandera 0.36 works with polars 2.1.
+- **Consequences**: the run report is ours to build. Great Expectations is not shown in this project.
+
+<a id="d-054"></a>
+### D-054 Two severity levels: a critical rule stops the run, a warning is reported and stored
+
+Date: 2026-11-23 · Step: 2.2 · Status: Active
+
+- **Context**: not every failed rule means broken data. Some values are impossible (a missing id, an unknown term), others are only unusual and can have a real-world cause (a month with 41% fewer loans after a peak, as in 2016-04 after 2016-03).
+- **Decision**: every rule has one of two severities. A **critical** failure stops the run for that month: nothing reaches the clean layer and the load is logged as failed. A **warning** failure lets the run continue, appears in the run report and is stored in a table, so F6 monitoring can follow it over time. The severity of each rule is written next to the rule and approved with it.
+- **Alternatives considered**: every rule critical (safe, but the pipeline would stop for normal market swings and people learn to ignore or bypass it); every rule a warning (never stops, so broken data could reach training unseen, against the rigor standard).
+- **Why**: a critical rule says "this is impossible, do not go on"; a warning says "this is strange, a person should look". Mixing them up either blocks the pipeline for no reason or lets real errors through. Monthly volume in this data swings from -41% to +240% month over month, so volume rules compare against the same month of the previous year or a rolling median and are warnings; only an empty or absurd month is critical.
+- **Consequences**: each rule needs a stated severity and reason. Warnings need a table and a place in the report. What happens to the rows of a month that fails a critical rule (stop the month or quarantine rows) is the next decision.
+
+<a id="d-055"></a>
+### D-055 A critical failure stops the whole month; no row quarantine
+
+Date: 2026-11-23 · Step: 2.2 · Status: Active
+
+- **Context**: D-054 says a critical failure stops the run. It does not say how much stops: the whole month, or only the rows that failed.
+- **Decision**: if any row of a month fails a critical rule, nothing of that month reaches the clean layer, neither listings nor outcomes. The raw layer keeps the delivery as it arrived, so the failure can be inspected. The run report lists every failed row with its rule and value. After the fix, the month is run again; the idempotent load (D-049) makes the rerun safe. Values are never changed to make a row pass (D-051): an unseen value is either a provider error (ask for a new delivery) or a contract change (new cleaning rule with its test, in a reviewed pull request).
+- **Alternatives considered**: quarantine of rows (good rows go to clean, bad rows to a quarantine table, the run goes on); a hybrid that quarantines below a threshold of failed rows and stops above it.
+- **Why**: failed rows are rarely random, they share a cause (a new format in one segment), so removing them biases training without anyone noticing. Listings and outcomes go together: a quarantined outcome makes its loan look still running and loses its label, the censoring bias D-040 avoids. Stopping costs little with monthly retraining. Quarantine fits high-volume streaming systems where stopping costs money; here the equivalent is the F5 API, which rejects one bad request without stopping the service.
+- **Consequences**: in step 2.3 the training set builder refuses to build at T if any month up to T is missing from clean, so a stopped month never becomes a silent gap. The report must be detailed enough to replace a quarantine table.
+
+<a id="d-056"></a>
+### D-056 Allowed values come from a dated contract: the 2013-12 base plus dated changes
+
+Date: 2026-11-23 · Step: 2.2 · Status: Active
+
+- **Context**: rules such as "`application_type` is `Individual`" need a list of allowed values and limits. Lending Club changed its product during the replay window: `home_ownership = ANY` from 2014-09, the first loans in North Dakota in 2015-07, joint applications in 2015-10, `DirectPay` disbursement in 2016-01, loans above 35,000 in 2016-03, the hardship program in the outcomes from 2017-06 (checked on the cleaned deliveries on 2026-11-23).
+- **Decision**: the contract starts from what was known up to 2013-12, the last month loaded as history before the replay (D-041). Each later change is recorded as a dated contract change with its month of entry into force, its reason and its pull request, like a migration. A delivery is validated with the contract in force in its month. A value that arrives before its change enters into force fails as critical.
+- **Alternatives considered**: (A) the 2014-01 list with a manual contract change each time, which stops again at every new run of the five-year replay; (B) the list from the whole file plus a warning when a value is seen for the first time, proposed first and rejected by Juan: it uses knowledge of the file's future to run operations, hiding the stops a real pipeline would have had; (C) the whole-file list without a warning.
+- **Why**: the contract only knows the past, as in a real system, and product changes are handled the way a real team handles them, with a reviewed change. Once accepted, a change is part of the history, so later replays run unattended and still see, each month, the contract that would have been in force then.
+- **Consequences**: a data test checks that the base contract alone stops the replay exactly at the months of the recorded changes, which shows that the stop works and that the list of changes is complete. Known simplification, documented: each change enters into force in the month the novelty first appears, as if the team reacted within the month.
+
+### D-057 Every test is listed in a catalogue kept in step with the code by a test
+
+Date: 2026-11-23 · Step: 2.2 (cross-cutting) · Status: Active
+
+- **Context**: decisions and errors each have a log with an index and a card, but tests were only described in tables per step of technical.md, with `# Tx.y` comments in the code. There was no single list of every test, no record of what changed in an approved test and why, and nothing stopped the tables and the code from drifting apart. B1 to B5 and three data tests had no marker in the code.
+- **Decision**: `docs/tests.md` lists every test with its ID, what it checks, its functions as `file::function`, its kind and where it runs, plus a change history. In the code, a comment `# <ID>` on the line before the first function of each test. Test B6 fails if a marker has no row, a row has no marker, a marker is in a file its row does not name, a row names a function that does not exist, or a test function in `tests/` is in no row (added on Juan's approval after two uncatalogued functions were found, now T3.14 and T3.15).
+- **Alternatives considered**: keep the tables in technical.md only (no history, drifts silently); generate the catalogue from docstrings (the code becomes the only source, but the approval record and the history need a place of their own); pytest markers such as `@pytest.mark.test_id("T3.4")` (machine-readable, but noisier than a comment and still needs the catalogue).
+- **Why**: Juan approves every test, so the catalogue is the record of what he approved; a test that checks it keeps the record true without relying on memory.
+- **Consequences**: adding or changing a test means a row and a history line in the same pull request, or B6 fails in CI. The tables of technical.md stay as the summary of each step and link to the catalogue.
+
+### D-058 A training set version is an immutable snapshot plus a manifest of where it came from
+
+Date: 2026-11-23 · Step: 2.3 · Status: Active
+
+- **Context**: a model must be reproducible months later, so the exact rows it was trained on must be known. The training set at date T is built from `clean` (matured cohorts, D-040; last 6 months as validation, D-042), but `clean` changes: a corrected delivery replaces its month (D-049), so the same query at the same T can return different rows later.
+- **Decision**: a SQL query builds the training set at T; the result is saved once as an immutable Parquet file with a manifest: T, the git commit of the code, the `load_id` of every month used, the number of rows and the hash of the content. Training reads the saved copy, never the live query. Rebuilding with the same manifest must give the same hash; a different hash means a month changed since.
+- **Alternatives considered**: (A) the version is the cutoff date T and the set is rebuilt on demand (no storage, but not reproducible after a correction); (B) a saved copy identified by its hash only (reproducible, but nothing records which loads it came from).
+- **Why**: the copy makes training reproducible whatever happens to `clean` later; the manifest explains it and lets a check find every set, and so every model, built on a load that has since been replaced. This is what tools such as DVC, lakeFS or Delta time travel give: a fixed copy plus a record of its origin.
+- **Consequences**: storage grows with every training; where copies and manifests live is the next decision. A correction never changes an old set: the old set stays as the record of what the model saw, and the set is flagged as built on a replaced load.
+
+### D-059 Snapshots in object storage by content hash; manifests in Postgres
+
+Date: 2026-11-23 · Step: 2.3 · Status: Active
+
+- **Context**: every training produces a new snapshot (D-058); the one at 2018-12 was estimated at over a million rows and a few hundred MB (measured later: 522,904 rows, 67 MB, technical.md step 2.3). Snapshots are produced by the pipeline on its own, not by a person working in git.
+- **Decision**: each snapshot is a Parquet file at `training_sets/<hash>.parquet` in object storage: a local folder for now, an S3 bucket with versioning in AWS. Its manifest is a row of `ops.training_sets` (T, git commit, rows, hash, path) with the `load_id` of every month used as foreign keys to `ops.ingest_log`. Finding the sets built on a load that was later replaced is a SQL query. From F3, MLflow stores the hash with each model.
+- **Alternatives considered**: (A) DVC, the best known tool, which keeps a `.dvc` pointer in git and the file in remote storage: it fits a person versioning data with the code, but here the pipeline would have to commit to git at every training; (C) everything in Postgres, one table per version: simple and all SQL, but the database grows with large copies and training reads from it.
+- **Why**: each piece goes where it is handled best: large immutable files to object storage, metadata that must be queried to the database. It maps directly to S3 in AWS.
+- **Consequences**: the path is the content hash, so a path can never point to different content, the same content is stored once and a file is never overwritten. A storage layer with a local and an S3 implementation; the local folder stays out of git.
+
+### D-060 A snapshot is two files: what training may see, and what only evaluation may see
+
+Date: 2026-11-23 · Step: 2.3 · Status: Active
+
+- **Context**: a snapshot serves two purposes. Training needs the columns visible at listing (D-014) and the label (D-040). Evaluation in money needs payments, recoveries and the funded amount: realised return (D-007) and LGD (D-017). Those are future information; if the model saw them, it would be pure leakage.
+- **Decision**: one version, one manifest, two files joined by `id`. `features.parquet` holds every column of `clean.listings`, the label and the split (train or validation). `evaluation.parquet` holds the outcome columns. Training receives only the path of the first. A test checks that the first holds no outcome column.
+- **Alternatives considered**: (A) features and label only: safest, but evaluation in money goes back to `clean` and is no longer reproducible from the snapshot; (B) everything in one file with a prefix on the evaluation columns: reproducible, but one wrong `select` puts future payments into the model.
+- **Why**: the structure prevents the leak instead of relying on discipline, and evaluation stays reproducible. `features.parquet` keeps every listing column, not only the model's: which columns the model uses and how they are prepared is step 2.4, so the snapshot does not depend on it.
+- **Consequences**: the version path of D-059 becomes a folder, `training_sets/<hash>/` with both files; the hash covers both. The label is allowed in the training file although it comes from the future because it is the target, never an input, and exists only for matured cohorts.
+
+### D-061 Two hashes: the content hash names a version, the file checksum guards the stored file
+
+Date: 2026-11-23 · Step: 2.3 · Status: Active
+
+- **Context**: the hash names a version (D-059) and checks that a rebuild gives the same data (D-058). That check must fire when the data changes, and only then. A Parquet file stores the version of the library that wrote it, its compression and its row groups, so the same data can give different bytes.
+- **Decision**: the **content hash** is SHA-256 over a canonical text form of the data: rows sorted by `id`, columns in a fixed order with their types, each value written in one fixed way. It is the identity and the path of the version. The **file checksum** (SHA-256 of the bytes of each stored file) goes in the manifest and is verified every time a file is read.
+- **Alternatives considered**: (A) the hash of the file bytes only: simple, but updating polars changes the bytes and the rebuild check raises false alarms, which teaches people to ignore it; (B) the content hash only: no way to tell that a stored file was corrupted or altered. polars `hash_rows` was rejected: its documentation warns that its result may change between versions.
+- **Why**: "are these the same data?" and "is this the file I stored?" are two different questions, each with its own hash.
+- **Consequences**: if a version is rebuilt and its path already exists, nothing is written: the content hash proves the data are the same, and the stored file is verified against its checksum; a failed checksum stops with an error instead of overwriting.
+
+### D-062 Two layers of preparation: fixed transformations in the package, learned ones inside the model
+
+Date: 2026-11-23 · Step: 2.4 · Status: Active
+
+- **Context**: features are computed at prediction time too, so they are written once, in Python (D-045). Preparation is of two kinds. Fixed transformations learn nothing from the data (length of credit history from `issue_d` and `earliest_cr_line`, FICO midpoint, logarithm of income) and give the same result with any training set. Learned transformations are fitted on data (median to fill a gap, known categories of `purpose`, mean and spread to scale); fitted on validation rows, they leak.
+- **Decision**: fixed transformations live in `features.py`: pure polars functions with no state, the same in training, in the API and in monitoring, versioned with the package. Learned transformations live inside the model pipeline (F3), fitted on the training split only and saved with the model.
+- **Alternatives considered**: (A) everything in one scikit-learn pipeline saved with the model: a single artifact, but the fixed transformations are tied to it and harder to test and to reuse in monitoring; (C) a feature store such as Feast: built to share features across many teams and models, far too much for one model.
+- **Why**: each kind lives where it makes sense. Fixed transformations are tested as plain functions and monitoring can watch them; learned ones cannot see validation because they exist only inside the fitted model.
+- **Consequences**: a learned value (such as the median of `dti`) never appears in `features.py`: it depends on the training set, so it must be fitted on train only and travel with the model; in `features.py` it would be either a constant from nowhere or a value computed on whatever arrives (one row in the API).
+
+### D-063 v1 features: the columns filled since 2007 plus two required transformations; engineered features are F3 experiments
+
+Date: 2026-11-23 · Step: 2.4 · Status: Active
+
+- **Context**: building features (ratios, logarithms, combinations) is a modelling experiment: each new feature can help, do nothing or add noise, and only a measurement against the metric noise tells which (the challenger rule of D-015).
+- **Decision**: `features.py` does only what a model needs to read the data, plus the selection already decided. It computes the **length of credit history** in months at listing (`issue_d` minus `earliest_cr_line`) and the **FICO midpoint** (`fico_range_high` is `fico_range_low` + 4, or + 5 in 441 loans). It keeps the columns proven visible at listing (D-014) and filled since 2007 (D-016), without free text (D-015), state or zip code (D-018). `installment` stays out until F3 decides whether to recompute it (the funded-amount leak, data_audit section 3). Every other engineered feature enters as an F3 experiment.
+- **Alternatives considered**: (B) a rich set from the start (loan to income, instalment to income, logarithm of income, revolving balance to limit, `sub_grade` as a number from 1 to 35): more signal at once, but features chosen without evidence, and the first model is no longer a clean reference for what comes later.
+- **Why**: each engineered feature must earn its place with evidence; the first model is a clean starting point.
+- **Consequences**: 30 inputs. 22 numeric: `loan_amnt`, `term`, `int_rate`, `emp_length`, `annual_inc`, `dti`, `delinq_2yrs`, `inq_last_6mths`, `mths_since_last_delinq`, `mths_since_last_record`, `open_acc`, `pub_rec`, `revol_bal`, `revol_util`, `total_acc`, `collections_12_mths_ex_med`, `acc_now_delinq`, `chargeoff_within_12_mths`, `delinq_amnt`, `tax_liens`, the FICO midpoint and the credit history. 8 categorical: `grade`, `sub_grade`, `home_ownership`, `verification_status`, `purpose`, `initial_list_status`, `application_type`, `disbursement_method`. `pub_rec_bankruptcies` stays out by D-016: it is missing in 583 of 603 loans of 2007 and 779 of 2008, and filled only from 2009. Missing values stay missing: filling them is learned (D-062). The FICO midpoint is kept instead of `fico_range_low` alone because it is the score the range stands for, also for the 441 loans with a 5-point range.
+
+### D-064 Coverage: 85% of branches over unit and integration tests, 90% of the lines each pull request changes
+
+Date: 2026-11-23 · Step: F2 (cross-cutting, closes D-031) · Status: Active
+
+- **Context**: D-031 left the minimum for F2, on real code. Branch coverage measured on 2026-11-23: unit tests alone 58%, because loading (`ingest.py`) and versioning (`snapshot.py`) are SQL run by Postgres and only the integration tests exercise them; unit and integration tests together 89%, with only the two command-line entry points at 0%.
+- **Decision**: CI (integration job, `make test-integration`) measures unit and integration tests together and fails below **85%** of branches. `make diff-cover` fails when less than **90%** of the lines a pull request adds or changes are covered, compared with `origin/main`. The `if __name__ == "__main__":` lines are left out of the count. The unit job still shows its own number, without a minimum.
+- **Alternatives considered**: (A) a minimum on unit tests alone, around 55%: almost meaningless for the SQL code, or a push to mock Postgres, which is what SQL must not be tested against; (B) 85% over unit and integration only: simple, but a pull request could add untested code while the total stays above 85%.
+- **Why**: 85% protects what exists; 90% on new lines makes every change bring its tests, which is what D-031 meant by "no PR may lower coverage", without freezing an arbitrary number. 100% was not chosen: it pushes tests that execute lines without checking anything (Goodhart's law) and costs most on defensive branches that are hard to reach. Juan approving every test stays the main defence.
+- **Consequences**: new dev dependency `diff-cover`; the CI checkout of the integration job fetches the full history to compare with `main`.
+
+### D-065 The audit notebook runs in CI every week and on pull requests that touch it, and must reproduce its outputs
+
+Date: 2026-11-23 · Step: F2 (cross-cutting, closes the open point of D-021) · Status: Active
+
+- **Context**: Juan asked in F1 to run notebooks top to bottom in CI, once the data download existed. There is one notebook, the data audit. It downloads the 1.6 GB file from Kaggle itself, checks its hash, runs in about 2 minutes, and its outputs in `reports/data_audit` are deterministic (E-010).
+- **Decision**: a `Notebooks` workflow runs `make notebooks` every Monday, by hand, and on pull requests that touch `notebooks/`, `reports/data_audit/`, `uv.lock` or the workflow. It fails if the notebook raises an error or if any file of `reports/data_audit` differs from the committed one. The Kaggle token is a repository secret, `KAGGLE_API_TOKEN`. The notebook file itself is not compared: execution timestamps and kernel metadata change on every run.
+- **Alternatives considered**: (A) on every pull request: the Kaggle token and 1.6 GB on every run, and several minutes more for a notebook that almost never changes; (C) only locally with `make test-data`: free, but nobody watches it.
+- **Why**: the notebook cannot break in silence and normal pull requests stay fast. Running without an error is not enough: a library update or a change in the data could change a number without any error, so the outputs are compared like a regression test.
+- **Consequences**: Juan adds the `KAGGLE_API_TOKEN` secret to the repository. Checked on 2026-11-23: the notebook ran in 1 min 53 s and every file of `reports/data_audit` came out byte-identical. The first run on GitHub drew the figure differently from the cloud machine, and Juan decided to leave the PNG figures out of the comparison; the tables they draw are still compared (E-024).
+

@@ -20,6 +20,19 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-010](#e-010) | 2026-11-22 | 1.1 | Audit outputs changed row order between runs | Minor |
 | [E-011](#e-011) | 2026-11-22 | 1.1 | Audit notebook deleted a variable a function still reads | Minor |
 | [E-012](#e-012) | 2026-11-22 | 1.2 | Image test could not search the whole file system | Minor |
+| [E-013](#e-013) | 2026-11-23 | 2.1 | Audit text and notebook disagreed on the charge-off month by one month | Minor |
+| [E-014](#e-014) | 2026-11-23 | 2.1 | `dti = 999` proposed as "unknown" without looking at the income of those rows | Minor |
+| [E-015](#e-015) | 2026-11-23 | 2.1 | Publishing every delivery took almost 6 minutes | Minor |
+| [E-016](#e-016) | 2026-11-23 | 2.1 | Splitting the whole snapshot by month at once ran out of memory | Minor |
+| [E-017](#e-017) | 2026-11-23 | 2.1 | The data tests folder was ignored by git | Minor |
+| [E-018](#e-018) | 2026-11-23 | 2.1 | polars reads a row with too few fields as nulls instead of failing | Major |
+| [E-019](#e-019) | 2026-11-23 | 2.1 | Column `desc` is a reserved word in SQL | Minor |
+| [E-020](#e-020) | 2026-11-23 | 2.2 | Required columns taken from the whole file, not from the past | Major |
+| [E-021](#e-021) | 2026-11-23 | 2.2 | Catalogue months of R2.13 written from a guess, not measured | Minor |
+| [E-022](#e-022) | 2026-11-23 | 2.3 | First training set counted with outcomes known only after T0 | Minor |
+| [E-023](#e-023) | 2026-11-23 | 2.4 | Notebooks workflow failed deep in the notebook when the Kaggle secret was missing | Minor |
+| [E-024](#e-024) | 2026-11-23 | 2.4 | The audit figure came out different on GitHub | Minor |
+| [E-025](#e-025) | 2026-11-23 | 2.4 | PR blocked: a required CI check was renamed | Minor |
 
 ## Errors
 
@@ -142,3 +155,129 @@ Date: 2026-11-22 · Step: 1.2 · Severity: minor
 - **Cause**: the image runs as an unprivileged user (D-025), which cannot read some system folders, so `find` exited with an error.
 - **Fix**: the test inspects the image as root (`--user 0`), only to look; the image itself still runs unprivileged, which `test_image_runs_as_non_root` checks.
 - **Prevention**: the test itself; recorded so the reason for `--user 0` is clear.
+
+<a id="e-013"></a>
+### E-013 Audit text and notebook disagreed on the charge-off month by one month
+
+Date: 2026-11-23 · Step: 2.1 · Severity: minor
+
+- **Symptom**: while specifying the simulator's resolution month, `data_audit.md` section 4.2 described the charge-off month as "5 months after the first missed payment" (`last_pymnt_d` + 6), while the notebook computes `last_pymnt_d` + 5 (and issue + 5 for loans that never paid, which the text called "issue + 1").
+- **Cause**: the text was written from Lending Club's 150-day rule, the code from the data; nothing compared them.
+- **Fix**: checked against the data on 2026-11-23, using the months between the last payment and the snapshot (2019-03) for loans still open: "In Grace Period" 0 to 1 months, "Late (16-30 days)" mostly 1, "Late (31-120 days)" 2 to 4 (3,938 loans at 4, only 17 at 5), "Default" (121+ days, not yet charged off) only 40 loans. Loans leave the late states at about 5 months after the last payment, so `last_pymnt_d` + 5 is the supported rule. Text corrected; numbers in the audit and in D-040 to D-042 were computed with the notebook's rule and do not change.
+- **Prevention**: the rule is implemented once, in the simulator, with unit tests that state it explicitly; the documentation points to that code.
+
+<a id="e-014"></a>
+### E-014 `dti = 999` proposed as "unknown" without looking at the income of those rows
+
+Date: 2026-11-23 · Step: 2.1 · Severity: minor (caught before any code was written)
+
+- **Symptom**: the audit (section 5) proposed turning `dti = 999` into missing, and Claude repeated it as the example of a cleaning rule. Checking `annual_inc = 0` at Juan's suggestion (look at related columns) showed that the 135 loans with `dti = 999` have annual incomes of only 15 to 3,600 dollars: 999 is a cap on an enormous ratio caused by an implausible income, not a code for "unknown".
+- **Cause**: the proposal was based on the value alone, without checking the columns it is computed from.
+- **Fix**: under the cleaning boundary (D-051), cleaning keeps `dti = 999` and `dti = -1` as they are; validation flags them and feature engineering (step 2.4) decides. The same check showed that all 1,667 loans with `annual_inc = 0` are joint applications with `annual_inc_joint` filled and, in 1,659 of them, `dti` empty (division by zero income): a real value, not a code.
+- **Prevention**: a value is treated as a code only if Lending Club's documentation says so; otherwise it is a validation rule. Every rule about a derived column is checked against the columns it is derived from.
+
+<a id="e-015"></a>
+### E-015 Publishing every delivery took almost 6 minutes
+
+Date: 2026-11-23 · Step: 2.1 · Severity: minor
+
+- **Symptom**: the first version of the simulator took 5 min 40 s to publish the 284 deliveries (2007-06 to 2019-03).
+- **Cause**: Python's `gzip` compresses at level 9 by default. Measured on the largest month (2016-03, 36.5 MB of CSV): level 9 takes 10 s for 8.4 MB, level 6 takes 1.1 s for 8.8 MB.
+- **Fix**: level 6 (`GZIP_LEVEL` in `simulator/io.py`). Full publication: 60 s.
+- **Prevention**: measure before optimising; the measurement is recorded next to the constant.
+
+<a id="e-016"></a>
+### E-016 Splitting the whole snapshot by month at once ran out of memory
+
+Date: 2026-11-23 · Step: 2.1 · Severity: minor
+
+- **Symptom**: a version that split the prepared snapshot into all monthly deliveries in one `group_by` was killed by the kernel for lack of memory (15 GB machine).
+- **Cause**: it held the full table (2.26 million rows, 151 text columns) plus a copy split into 284 pieces.
+- **Fix**: the prepared snapshot is cached as Parquet and read lazily; each delivery reads only its month.
+- **Prevention**: the data test (T1.12) publishes the full file on every run of `make test-data`, so a change that brings the problem back is seen at once.
+
+<a id="e-017"></a>
+### E-017 The data tests folder was ignored by git
+
+Date: 2026-11-23 · Step: 2.1 · Severity: minor (caught before pushing)
+
+- **Symptom**: after committing the simulator, `tests/data/` was missing from the commit.
+- **Cause**: `.gitignore` had `data/`, which matches a folder called `data` at any depth, not only the top-level data folder.
+- **Fix**: `/data/` (anchored to the repository root).
+- **Prevention**: `git status` is checked after every commit for files that should be there; the anchored pattern makes the intent explicit.
+
+<a id="e-018"></a>
+### E-018 polars reads a row with too few fields as nulls instead of failing
+
+Date: 2026-11-23 · Step: 2.1 · Severity: major (caught by test T3.5 before any real load)
+
+- **Symptom**: test T3.5 appends a truncated row (`4,this row has too few fields`) to a delivery and expects the load to fail. It loaded: polars `read_csv` filled the missing 107 fields with nulls. A row with too many fields does fail.
+- **Cause**: lenient default of polars for short rows; there is no option to make it strict.
+- **Fix**: ingestion reads deliveries with `read_delivery` (standard `csv` module, `strict=True`): the header must equal the contract and every record must have exactly that many fields, or the load stops naming the record. The rest of the pipeline keeps polars.
+- **Prevention**: test T3.5 (now expects `DeliveryError`, "record 5 has 2 fields"). Lesson: "fail fast" must be checked, not assumed, for every library at a boundary.
+
+<a id="e-019"></a>
+### E-019 Column `desc` is a reserved word in SQL
+
+Date: 2026-11-23 · Step: 2.1 · Severity: minor
+
+- **Symptom**: the raw-tables migration failed with `syntax error at or near "desc"`.
+- **Cause**: `desc` (the loan description) is a reserved word (`ORDER BY ... DESC`).
+- **Fix**: quoted as `"desc"` in the migrations. Python code composes every name with `psycopg.sql.Identifier`, which always quotes, so it was not affected. dbmate runs each migration in a transaction, so the failed one left nothing behind.
+- **Prevention**: test T3.1 applies every migration on an empty database in CI.
+
+<a id="e-020"></a>
+### E-020 Required columns taken from the whole file, not from the past
+
+Date: 2026-11-23 · Step: 2.2 · Severity: major (caught before implementation)
+
+- **Symptom**: the first version of rules R4.1 and R4.2 (approved as group 4) listed the columns that "never came empty", measured on 2007 to 2018. A team at 2013-12 could not have known that: 4 columns complete through 2013 get empty values later (`num_rev_accts` 2015-10, `inq_last_6mths` 2016-01, `zip_code` 2017-01, one row each; `last_credit_pull_d` from 2014-08, 53 sporadic rows).
+- **Cause**: the same mistake Juan had caught for allowed values (D-056, option B): using knowledge of the file's future to define the contract.
+- **Fix**: found while implementing, before any code was merged, and approved by Juan: required columns come only from the history up to 2013-12 (complete through 2013, required from the month after their last gap); the 3 single rows became reviewed exceptions and `last_credit_pull_d` the dated change C9.
+- **Prevention**: test T4.16 runs the base contract alone over every real delivery and checks that it stops exactly at the months of the recorded changes, so a rule built from future data shows up as an unexplained stop. Every threshold chosen from data now says which months it was measured on.
+
+<a id="e-021"></a>
+### E-021 Catalogue months of R2.13 written from a guess, not measured
+
+Date: 2026-11-23 · Step: 2.2 · Severity: minor
+
+- **Symptom**: the catalogue said R2.13 (rate above every rate seen) fires in 2015 at 28.99% and in 2016 at 30.99%. The full load showed 2015-05 (26.77%), 2016-04 (29.96%) and 2016-05 (30.99%), plus 18 months of the history as rates rose.
+- **Cause**: the months were inferred from the yearly maximum rates instead of being measured with the rule itself.
+- **Fix**: catalogue corrected with the measured months.
+- **Prevention**: test T4.15 checks every number of the catalogue against the full real load, so a number written from a guess fails.
+
+### E-022 First training set counted with outcomes known only after T0
+
+Date: 2026-11-23 · Step: 2.3 · Severity: minor
+
+- **Symptom**: test T5.13 expected the counts of the audit and of D-041/D-042 at T0 = 2014-01: 12,078 matured loans, train 7,745, validation 4,333 with 432 defaults, 2,230 old-policy loans. The version built from clean at T0 has 12,057: train 7,733 (1,019 defaults), validation 4,324 (429 defaults), 2,226 old-policy loans and 25 matured loans with no outcome yet.
+- **Cause**: the audit counted matured loans with their final status in the 2019-03 snapshot. 25 of them were resolved after T0, between 2014-02 and 2016-01 (21 of the current policy, 9 of them defaults; 4 of the old policy), so at T0 nobody could know their label. The same mistake as E-020: a figure computed with knowledge of the file's future.
+- **Fix**: T5.13 (approved by Juan) checks the counts known at T0 and reconciles them with the audit: the 21 and 4 loans are found in the later deliveries and added back give 12,078 and 2,230. The decisions keep their text; the numbers of the first model are those of technical.md, step 2.3. The difference does not change D-041 (still enough defaults for the first model).
+- **Prevention**: every count of a training set comes from a version built at its cutoff (T5.13, T5.14), never from the whole file.
+
+### E-023 Notebooks workflow failed deep in the notebook when the Kaggle secret was missing
+
+Date: 2026-11-23 · Step: 2.4 · Severity: minor
+
+- **Symptom**: the first run of the Notebooks workflow (D-065), on PR #5, failed in cell 3 of the audit notebook with `CalledProcessError` from `kaggle datasets metadata`. The log does not say why.
+- **Cause**: the repository secret `KAGGLE_API_TOKEN` was not created yet, so the job ran with an empty token. Nothing checked it before the notebook started.
+- **Fix**: a first step in the workflow stops the job with a clear error when the secret is empty. The secret is added by the repository owner in the GitHub settings.
+- **Prevention**: the same check stops every later run at the first step with the message, so a missing or deleted secret is seen at once.
+
+### E-024 The audit figure came out different on GitHub
+
+Date: 2026-11-23 · Step: 2.4 · Severity: minor
+
+- **Symptom**: the first full run of the Notebooks workflow (D-065) on GitHub executed the notebook without error and every table matched, but `reports/data_audit/loans_per_month.png` changed from 58,213 to 49,354 bytes; decoded, 38,719 pixels differed, spread over the whole plot.
+- **Cause**: the cloud machine where the figure was made has a system-wide `/etc/matplotlib/matplotlibrc` that sets the font to Inter (plus `figure.dpi` and text hinting). matplotlib reads it silently, so the committed figure used Inter while GitHub, without that file, used matplotlib's own DejaVu Sans. The figure depended on the machine's settings, not only on the code and the locked versions. Found by printing the GitHub image in the job log: same plot, different font. On the way, comparing pixels instead of bytes was tried and failed for the same reason.
+- **Fix**: the notebook calls `matplotlib.rcdefaults()` right after choosing the backend, so it ignores any machine settings. The figure was made again: the new file is byte-identical to the one GitHub produced. Independently, Juan decided to leave the PNG figures out of the comparison (`git diff --exit-code -- reports/data_audit ':(exclude)*.png'`): a figure only draws a table that is still compared, so a changed number is still caught, and a figure check is more likely to fail for reasons that are not errors. A failed run uploads its outputs as a workflow artifact, kept 14 days.
+- **Prevention**: `rcdefaults()` makes every figure of the notebook independent of the machine. Every number shown in a figure is also written to a table in `reports/data_audit`, which is compared.
+
+### E-025 PR blocked: a required CI check was renamed
+
+Date: 2026-11-23 · Step: 2.4 · Severity: minor
+
+- **Symptom**: with every check of PR #5 green, GitHub still showed it as blocked.
+- **Cause**: the `protect-main` ruleset (D-037) requires checks by their job name. D-064 renamed the job `integration (image + Postgres)` to `integration (image + Postgres, coverage)`, so the required check never reported and GitHub waited for it.
+- **Fix**: the job keeps its original name; the coverage steps stay inside it.
+- **Prevention**: a comment above each required job in `ci.yml` says that its name is required by the ruleset and must not change without changing the ruleset too.

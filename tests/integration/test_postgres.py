@@ -7,6 +7,7 @@ from tests.integration.conftest import PgConnection
 pytestmark = pytest.mark.integration
 
 
+# B3
 def test_postgres_accepts_connection(pg_connection: PgConnection) -> None:
     result = pg_connection.execute("SELECT 1").fetchone()
 

@@ -9,9 +9,10 @@ from tests.integration.conftest import docker
 
 pytestmark = pytest.mark.integration
 
-# Measured at 211 MB on 2026-11-22 (F1); about 40% headroom. A jump above this means
-# something that should not be there (data, Jupyter, compilers) entered the image.
-MAX_IMAGE_SIZE_MB = 300
+# Measured at 211 MB on 2026-11-22 (F1) and 456 MB on 2026-11-23 after polars entered
+# (its binary alone is 170 MB, D-052). A jump above this means something that should not
+# be there (data, Jupyter, compilers) entered the image.
+MAX_IMAGE_SIZE_MB = 500
 
 SECRET_MARKERS = ("PASSWORD", "SECRET", "TOKEN", "KAGGLE", "AWS_")
 
@@ -20,6 +21,7 @@ def _looks_secret(text: str) -> bool:
     return any(marker in text.upper() for marker in SECRET_MARKERS)
 
 
+# B5
 def test_image_runs_as_non_root(image: str) -> None:
     uid = docker("run", "--rm", "--entrypoint", "id", image, "-u")
 

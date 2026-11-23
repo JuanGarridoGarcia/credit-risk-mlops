@@ -51,6 +51,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-editable --group dev
 
 COPY tests ./tests
+COPY reports/data_audit/data_dictionary.csv ./reports/data_audit/data_dictionary.csv
+COPY docs/validation_rules.md docs/tests.md ./docs/
 ENV PATH="/opt/venv/bin:${PATH}"
 RUN rm -rf /app/src
 USER nobody

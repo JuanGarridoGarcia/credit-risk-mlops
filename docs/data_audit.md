@@ -1,6 +1,6 @@
 # Data audit
 
-Step 0.2 of the playbook. Status: **draft**. Decisions 9.1 to 9.3, 9.7 and 9.8 taken by Juan on 2026-11-21 (D-013 to D-018); 9.4 to 9.6 deferred by Juan to the design of the simulation.
+Step 0.2 of the playbook. Status: **draft**. Decisions 9.1 to 9.3, 9.7 and 9.8 taken by Juan on 2026-11-21 (D-013 to D-018); 9.4 to 9.6 deferred by Juan to the design of the simulation and decided on 2026-11-23 in F2 (D-040 to D-042).
 
 Every figure in this document is produced by [`notebooks/00_data_audit.ipynb`](../notebooks/00_data_audit.ipynb), which writes its tables to [`reports/data_audit/`](../reports/data_audit/). Nothing here is typed by hand from memory.
 
@@ -56,6 +56,7 @@ Proposed use:
 | `funded_amnt_inv` | Result of the listing (how much investors funded) | Not in Browse Notes | Drop |
 | Fields that start being reported in a given year | Their missingness tells the model the vintage | Bureau family 1 from 2012 (37 columns, for example `tot_cur_bal`, `mths_since_recent_inq`); bureau family 2 from December 2015 (14 columns, for example `open_acc_6m`, filled for 99.8% of loans from January 2016); joint applications from late 2015 and second applicant data from 2017; `desc` stops in 2014. Table: `missingness_by_year.csv` | Decision 9.3 |
 | `issue_d` | Encodes the vintage; later vintages defaulted more for the same profile | Bad rate of resolved 36-month loans: 12.3% for 2013, 14.9% for 2015 | Not a feature. Used only to order and split in time |
+| `installment` | Looks like listing data, but is computed on the **funded** amount, not the requested one (found in step 2.2, 2026-11-23) | Against the amortisation formula on `loan_amnt`, 2,760 loans differ by more than 1%; on `funded_amnt`, only 433. 2,062 resolved loans were not fully funded (0.15%), and their instalment reveals it | Decided in F3: recompute from `loan_amnt`, `int_rate` and `term`, or drop |
 | `grade` and `int_rate` | Not leakage, but their meaning drifts: Lending Club re-priced the grades over time | Mean rate of grade E: 14.1% in 2007, 25.2% in 2018 | Feature, monitored for drift |
 
 ## 4. Labels and their delay
@@ -80,11 +81,11 @@ Result: **1,345,350 loans with a final outcome**, 268,599 of them bad (20.0%).
 **There is no charge-off date column.** It can be estimated:
 
 - The first missed payment is the month after `last_pymnt_d`.
-- Lending Club charged a loan off at about 150 days past due, so about 5 months after the first missed payment.
+- Lending Club charged a loan off at about 150 days past due. The estimate used is **5 months after the last payment** (`last_pymnt_d` + 5), or issue + 5 when the loan never paid. (Corrected on 2026-11-23, E-013: this text first said "5 months after the first missed payment", which is one month later than what the notebook computes. The notebook's rule is the one supported by the data; see E-013.)
 
 Checks:
 
-- 2,313 bad loans never paid anything (`last_pymnt_d` empty): their default month is taken as issue + 1.
+- 2,313 bad loans never paid anything (`last_pymnt_d` empty): their first missed payment is issue + 1 and their charge-off month is estimated as issue + 5.
 - 4,015 bad loans had their last payment less than 5 months before the snapshot and were already charged off. So the 5-month lag is a typical value, not a fixed rule (a bankruptcy, for example, is charged off sooner). The estimate is capped at the snapshot.
 - The estimate has monthly precision, which is enough for monthly monitoring.
 
@@ -139,7 +140,7 @@ Table: `quality.json`. Counts are on the loans in scope (after D-013).
 | Check | Result | Proposal (validated in F2) |
 |---|---|---|
 | Duplicate `id` | 0 | Uniqueness rule |
-| Summary rows at the end of the file | 33 | Removed at ingestion |
+| Summary rows inside the file (two at the end of each original Lending Club file that Kaggle concatenated, plus one section title; corrected 2026-11-23, they are not only at the end) | 33 | Removed at ingestion |
 | `member_id` | Empty in every row | Drop |
 | `url` | Always `...loan_id=<id>`: no information | Drop |
 | `term` | `" 36 months"`, `" 60 months"` (leading space) | Parse to 36 / 60 |

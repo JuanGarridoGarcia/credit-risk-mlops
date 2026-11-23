@@ -1,0 +1,56 @@
+# The audit notebook, run top to bottom (D-065). It must run without error and give back
+# exactly the outputs committed in reports/data_audit (they are deterministic, E-010).
+# Weekly, by hand, and on pull requests that touch the notebook or what it depends on;
+# normal pull requests are not slowed down. A failed scheduled run e-mails the owner.
+
+name: Notebooks
+
+on:
+  schedule:
+    - cron: "0 5 * * 1" # Mondays 05:00 UTC
+  pull_request:
+    paths:
+      - notebooks/**
+      - reports/data_audit/**
+      - uv.lock
+      - .github/workflows/notebooks.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.11.32"
+
+jobs:
+  audit:
+    name: audit notebook (Kaggle data)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      # Fail fast and say why when the secret is missing (E-023).
+      - name: Check the Kaggle secret is set
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          if [ -z "$KAGGLE_API_TOKEN" ]; then
+            echo "::error::Repository secret KAGGLE_API_TOKEN is not set. Add it in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen --group notebooks
+      # The notebook downloads the 1.6 GB file itself and checks its SHA-256.
+      - run: make notebooks
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      # On failure, keep the outputs this run produced, to compare them with the committed ones.
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: data-audit-outputs
+          path: reports/data_audit/
+          retention-days: 14
