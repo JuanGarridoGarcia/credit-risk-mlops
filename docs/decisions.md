@@ -84,6 +84,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-074](#d-074) | 2026-11-23 | 3.2 | Search: Optuna TPE with 50 seeded trials for LightGBM, a grid over `C` for the logistic regression | Active |
 | [D-075](#d-075) | 2026-11-23 | 3.2 | "Better by more than the noise": the 95% paired bootstrap interval of the difference lies above zero | Active |
 | [D-076](#d-076) | 2026-11-23 | 3.2 | The PD is calibrated with Platt scaling fitted on the validation set | Active |
+| [D-077](#d-077) | 2026-11-23 | 3.2 | No refit on training plus validation: the deployed model is exactly the one measured | Active |
 
 ## Decisions
 
@@ -877,3 +878,14 @@ Date: 2026-11-23 · Step: 3.2 (closes part of the open point of D-042) · Status
 - **Alternatives considered**: (A) no calibration: the PD keeps the level of the training period and expected loss is inflated; (C) split validation into a selection half and a calibration half: clean, but more noise in both with 429 defaults. Isotonic regression instead of Platt: no fixed shape, but it overfits with a few hundred defaults.
 - **Why**: it moves the level to the most recent known period with only two parameters, stable with 429 defaults. Platt keeps the order, so the AUC and every paired AUC comparison of D-075 are not affected by it.
 - **Consequences**: the deployed model is the pair model plus calibrator. Isotonic calibration may enter later as a challenger once data are larger. Whether to refit the model on training plus validation is a separate decision.
+
+<a id="d-077"></a>
+### D-077 No refit on training plus validation: the deployed model is exactly the one measured
+
+Date: 2026-11-23 · Step: 3.2 (closes the open point of D-042) · Status: Active
+
+- **Context**: refitting the chosen model on training plus validation is common practice: at T0 validation adds 4,324 loans to 7,733, the most recent ones. But here validation compares candidates and the baseline (D-075) and fits the calibrator (D-076).
+- **Decision**: no refit. The deployed model is the one trained on the training set, with the calibrator fitted on validation: exactly the pair that was measured.
+- **Alternatives considered**: (B) refit and reuse the calibrator: more data, but the calibrator was fitted on the outputs of another model, and the deployed model was never measured; (C) refit and calibrate on out-of-sample predictions from time windows: uses everything, but far more complex, and the deployed model is still not measured directly.
+- **Why**: after a refit no clean data would remain to check that the final model beats the baseline: only the forward test, years later, after it had already been deciding purchases. In a regulated field such as credit, the artefact deployed is the artefact validated. The recent months are not lost: the calibrator moves the level to them, and the next retraining puts them in training.
+- **Consequences**: the ranking at each date is learned without the latest 6 matured months of each term. Option C may be tried later as a challenger.
