@@ -70,6 +70,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-060](#d-060) | 2026-11-23 | 2.3 | A snapshot is two files: what training may see, and what only evaluation may see | Active |
 | [D-061](#d-061) | 2026-11-23 | 2.3 | Two hashes: the content hash names a version, the file checksum guards the stored file | Active |
 | [D-062](#d-062) | 2026-11-23 | 2.4 | Two layers of preparation: fixed transformations in the package, learned ones inside the model | Active |
+| [D-063](#d-063) | 2026-11-23 | 2.4 | v1 features: the columns filled since 2007 plus two required transformations; engineered features are F3 experiments | Active |
 
 ## Decisions
 
@@ -712,4 +713,14 @@ Date: 2026-11-23 · Step: 2.4 · Status: Active
 - **Alternatives considered**: (A) everything in one scikit-learn pipeline saved with the model: a single artifact, but the fixed transformations are tied to it and harder to test and to reuse in monitoring; (C) a feature store such as Feast: built to share features across many teams and models, far too much for one model.
 - **Why**: each kind lives where it makes sense. Fixed transformations are tested as plain functions and monitoring can watch them; learned ones cannot see validation because they exist only inside the fitted model.
 - **Consequences**: a learned value (such as the median of `dti`) never appears in `features.py`: it depends on the training set, so it must be fitted on train only and travel with the model; in `features.py` it would be either a constant from nowhere or a value computed on whatever arrives (one row in the API).
+
+### D-063 v1 features: the columns filled since 2007 plus two required transformations; engineered features are F3 experiments
+
+Date: 2026-11-23 · Step: 2.4 · Status: Active
+
+- **Context**: building features (ratios, logarithms, combinations) is a modelling experiment: each new feature can help, do nothing or add noise, and only a measurement against the metric noise tells which (the challenger rule of D-015).
+- **Decision**: `features.py` does only what a model needs to read the data, plus the selection already decided. It computes the **length of credit history** in months at listing (`issue_d` minus `earliest_cr_line`) and the **FICO midpoint** (`fico_range_high` is `fico_range_low` + 4, or + 5 in 441 loans). It keeps the columns proven visible at listing (D-014) and filled since 2007 (D-016), without free text (D-015), state or zip code (D-018). `installment` stays out until F3 decides whether to recompute it (the funded-amount leak, data_audit section 3). Every other engineered feature enters as an F3 experiment.
+- **Alternatives considered**: (B) a rich set from the start (loan to income, instalment to income, logarithm of income, revolving balance to limit, `sub_grade` as a number from 1 to 35): more signal at once, but features chosen without evidence, and the first model is no longer a clean reference for what comes later.
+- **Why**: each engineered feature must earn its place with evidence; the first model is a clean starting point.
+- **Consequences**: 30 inputs. 22 numeric: `loan_amnt`, `term`, `int_rate`, `emp_length`, `annual_inc`, `dti`, `delinq_2yrs`, `inq_last_6mths`, `mths_since_last_delinq`, `mths_since_last_record`, `open_acc`, `pub_rec`, `revol_bal`, `revol_util`, `total_acc`, `collections_12_mths_ex_med`, `acc_now_delinq`, `chargeoff_within_12_mths`, `delinq_amnt`, `tax_liens`, the FICO midpoint and the credit history. 8 categorical: `grade`, `sub_grade`, `home_ownership`, `verification_status`, `purpose`, `initial_list_status`, `application_type`, `disbursement_method`. `pub_rec_bankruptcies` stays out by D-016: it is missing in 583 of 603 loans of 2007 and 779 of 2008, and filled only from 2009. Missing values stay missing: filling them is learned (D-062). The FICO midpoint is kept instead of `fico_range_low` alone because it is the score the range stands for, also for the 441 loans with a 5-point range.
 
