@@ -63,16 +63,21 @@ def load_prepared(
     )
 
 
-def publish(prepared: Prepared, landing: Path, until: date) -> list[Path]:
-    """Write the deliveries of every month up to ``until`` (inclusive).
+def publish(
+    prepared: Prepared, landing: Path, until: date, *, since: date | None = None
+) -> list[Path]:
+    """Write the deliveries of every month up to ``until`` (inclusive), from ``since`` if given.
 
     Months after ``until`` are never written: the landing folder only holds what has
-    "arrived" by the simulated date. Rewriting a month gives identical bytes.
+    "arrived" by the simulated date. Rewriting a month gives identical bytes. The clock
+    passes ``since`` to deliver only the new month (D-107).
     """
     written = []
     for period in core.all_periods(prepared.loans):
         if period > until:
             break
+        if since is not None and period < since:
+            continue
         for stream, frame in (
             (LISTINGS, core.listings_for(prepared.loans, period)),
             (OUTCOMES, core.outcomes_for(prepared.loans, period)),

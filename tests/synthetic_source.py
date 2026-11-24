@@ -7,8 +7,9 @@ month, and whose training set at the cutoff has enough defaults for the PD to co
 vary: the listing month, the risk features and the outcome.
 
 At ``CUTOFF`` = 2012-01 the matured 36-month loans are those listed up to 2008-08;
-validation is 2008-03 to 2008-08 (D-069) and training 2007-06 to 2008-02. Later months
-carry a few loans each, so every month up to the cutoff has a delivery.
+validation is 2008-03 to 2008-08 (D-069) and training 2007-06 to 2008-02. Months up to
+2008-11 carry the full volume, for the later cutoffs of the clock tests (T17); later
+months carry a few loans each, so every month has a delivery.
 """
 
 import gzip
@@ -27,6 +28,9 @@ CUTOFF: Final = date(2012, 1, 1)
 FIRST: Final = date(2007, 6, 1)
 #: Newest matured listing month at the cutoff (T - 36 - 5).
 MATURED: Final = date(2008, 8, 1)
+#: Months up to here carry the full volume and are paid off or charged off, so that the
+#: clock tests (T17) also have enough defaults at later cutoffs, up to 2012-06.
+FULL: Final = date(2008, 11, 1)
 #: Loans per listing month: enough defaults in training and in validation (D-070).
 PER_MATURED_MONTH: Final = 220
 PER_LATER_MONTH: Final = 15
@@ -64,7 +68,7 @@ def source_rows(
     rows: list[dict[str, str | None]] = []
     next_id = 1
     for period in _months(FIRST, until):
-        n = PER_MATURED_MONTH if period <= MATURED else PER_LATER_MONTH
+        n = PER_MATURED_MONTH if period <= FULL else PER_LATER_MONTH
         for _ in range(n):
             loan_id = next_id
             next_id += 1
@@ -109,7 +113,7 @@ def _outcome(
 ) -> dict[str, str | None]:
     """The final state of a loan: paid at 36 months, charged off, or still running."""
     interest = amount * int_rate / 100 * 1.5
-    if period > MATURED and not defaults:
+    if period > FULL and not defaults:
         paid = amount * 0.3
         return {
             "loan_status": "Current",

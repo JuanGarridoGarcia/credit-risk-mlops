@@ -34,7 +34,7 @@ import polars as pl
 from mlflow import MlflowClient
 from mlflow.exceptions import MlflowException
 
-from credit_risk import battery
+from credit_risk import alerts, battery
 from credit_risk.compare import (
     LGD_MARGINS,
     PD_MARGINS,
@@ -374,8 +374,12 @@ def promote(
     return verdict
 
 
-def rollback(name: str) -> tuple[str, str]:
-    """Point ``champion`` back to the champion before the current one."""
+def rollback(name: str, *, notify: Callable[[str, str], Any] | None = None) -> tuple[str, str]:
+    """Point ``champion`` back to the champion before the current one.
+
+    ``notify(current, previous)`` is called once the alias has moved: the command line
+    records the alert there (D-108).
+    """
     client = MlflowClient()
     current = champion(name)
     if current is None:
@@ -385,6 +389,8 @@ def rollback(name: str) -> tuple[str, str]:
         raise RegistryError(f"{name} version {current} has no previous champion")
     client.set_model_version_tag(name, current, "rolled_back_at", datetime.now(UTC).isoformat())
     _move(name, previous, current, "rolled back")
+    if notify is not None:
+        notify(current, previous)
     return current, previous
 
 
@@ -396,7 +402,9 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     if args.action == "rollback":
-        current, previous = rollback(args.model)
+        current, previous = rollback(
+            args.model, notify=lambda c, p: alerts.record(alerts.rolled_back(args.model, c, p))
+        )
         print(f"champion {args.model}: v{current} -> v{previous}")
     else:
         print(json.dumps({"model": args.model, "champion": champion(args.model)}))

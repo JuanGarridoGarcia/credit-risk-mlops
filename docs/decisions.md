@@ -113,6 +113,9 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-103](#d-103) | 2026-11-24 | 4.1 | Prefect in the `train` group, accepting three version downgrades; server and worker from the `train` image | Active |
 | [D-104](#d-104) | 2026-11-24 | 4.1 | The load task catches up every delivered month up to the one asked | Active |
 | [D-105](#d-105) | 2026-11-24 | 4.1 | Publishing deliveries is not a task of the system's flow (D-043 kept) | Active |
+| [D-106](#d-106) | 2026-11-24 | 4.1 | Retraining every quarter (January, April, July, October); every month is loaded | Active |
+| [D-107](#d-107) | 2026-11-24 | 4.1 | The simulated clock: an "advance one month" flow with its state in `sim.clock` | Active |
+| [D-108](#d-108) | 2026-11-24 | 4.1 | Alerts recorded in `ops.alerts`; the channel that delivers them is chosen in F6 | Active |
 
 ## Decisions
 
@@ -1214,3 +1217,32 @@ Date: 2026-11-24 · Step: 4.1 (amends D-100) · Status: Active
 - **Why**: it is what D-043 is for: if a real provider replaced the file, the simulator would be thrown away and the system's flow would not change.
 - **Consequences**: D-100 amended (four tasks in the system); T16.7 and T16.10 changed wording (the test publishes; the failing deployment run fails in `load`).
 
+### D-106 Retraining every quarter (January, April, July, October); every month is loaded
+
+Date: 2026-11-24 · Step: 4.1 · Status: Active
+
+- **Context**: the flow loads and validates every month. The cadence decides in which months it also versions a training set and retrains the PD and the LGD. Each month adds only one matured cohort (the 36-month loans listed 41 months before), so the training set grows little from one month to the next, and a full-scale retraining (up to about 500,000 loans and 50 Optuna trials) can take minutes. The simulation runs 60 months, 2014-01 to 2018-12.
+- **Decision**: retrain in January, April, July and October (20 retrainings in the simulation). The cadence is a parameter of the flow and of the clock (`monthly`, `quarterly`, `yearly`; anything else is refused); `quarterly` is the default. A month that does not retrain runs only the `load` task. F6 adds retraining triggered by drift.
+- **Alternatives considered**: (A) every month: the freshest, but each challenger is almost the champion, promotion rejects it as within the noise, and the registry fills with versions that add nothing; (C) every year, as in a bank's annual model review: the system would barely show its improvement cycle in five years, and a change in 2015 could take a year to be noticed; (D) none fixed, only when the monitoring of F6 asks: until F6 the clock would never retrain, and F4 would not show the whole cycle.
+- **Why**: each challenger brings three new cohorts and a real chance of improving; compute and registry stay reasonable; new fields (D-016) enter with three months of delay at most. A fixed calendar plus a trigger on evidence is the usual pattern: the calendar keeps a model from ever getting too old, the trigger reacts sooner when something changes.
+- **Consequences**: `flows.retrains(period, cadence)`; the flow returns early, after `load`, in the other months (`"retrained": False` in its summary). Tests T17.1 and T17.6.
+
+### D-107 The simulated clock: an "advance one month" flow with its state in `sim.clock`
+
+Date: 2026-11-24 · Step: 4.1 · Status: Active
+
+- **Context**: in production the calendar is real: on the first of each month the orchestrator runs the flow for the month that has just arrived. In the simulation something must say what "now" is, keep it, and move it. The clock belongs to the simulated world, like the simulator (D-043): it publishes the next month's delivery and then runs the system's flow for that month.
+- **Decision**: a flow `advance` (in `credit_risk/simulator/clock.py`) reads the last completed month from `sim.clock`, publishes the next one (the whole history on the first run, from 2014-01, D-041), runs the system's flow for it as a subflow and only then writes the month as done. If anything fails the clock does not move, and the next `advance` tries the same month again: a month is never skipped nor done twice. A flow `replay` calls `advance` until a given month. Both are deployments served by a new compose service, `clock`; `advance` has an interval schedule (one simulated month every 10 real minutes), paused by default. `make advance` and `make replay TO=YYYY-MM` run them through the server; they replace `make flow` of PR 1. The table lives in a schema of its own, `sim`, that the system never reads.
+- **Alternatives considered**: (A) only a replay command looping over months: simple and deterministic, but "now" is kept nowhere (after a failure in 2016-03 someone has to remember to start again there), and it does not use the orchestrator's scheduling, which the playbook asks for; (B) only a Prefect schedule moving one simulated month every N real minutes: shows periodic scheduling, but replaying five years takes hours, and tests and demos need a faster way.
+- **Why**: the stored state means the clock never skips or repeats a month, and the same flow serves the scheduled demo and the fast replay.
+- **Consequences**: `publish` takes `since`, so a month delivers only its own files. The worker no longer mounts `data/landing`: deliveries arrive in the shared volume through the clock. Tests T17.3 (no system module mentions `sim`), T17.4, T17.5, T17.8 and T17.9.
+
+### D-108 Alerts recorded in `ops.alerts`; the channel that delivers them is chosen in F6
+
+Date: 2026-11-24 · Step: 4.1 · Status: Active
+
+- **Context**: an alert has two parts: recording the event (what, when, which month and task, which error) and getting it to a person (email, Slack, phone). Step 4.1 asks for an alert when a flow fails; a change of champion, by promotion or rollback, was until now a WARNING line in the log (D-082).
+- **Decision**: one table, `ops.alerts`, records four kinds of event: `flow_failed` (severity error, written by an `on_failure` hook of the system's flow, with the month, the failed task and the error), `promoted` (warning: model, new version, previous champion), `rejected` (info, with the failed rules) and `rolled_back` (warning, written by `python -m credit_risk.registry rollback`). A verdict on a version is recorded once however many times its month runs (unique index on kind, model and version for promotions and rejections). Grafana reads the table in F6 and sends the alerts through the channel chosen then, together with the drift alerts. Until then they are read with SQL or in the Prefect UI.
+- **Alternatives considered**: (A) only logs and the Prefect UI: free, but nobody finds out without looking, and there is no record to query; (C) the table plus a webhook now (Slack, Discord or ntfy.sh): the alert really arrives from today, but needs a webhook kept as a secret, leaves two alert paths in F6, and the real sending cannot be tested in CI; (D) Prefect automations (rules on the server): native and without code of ours, but they only see what Prefect sees (not a promotion or a rollback), and their configuration lives on the server, not in the repository.
+- **Why**: one record of events that everything writes and F6 reads; the channel is decided once, with Grafana, for failures, promotions and drift together.
+- **Consequences**: module `credit_risk/alerts.py`; `registry.rollback` takes a `notify` callback. Tests T17.2 and T17.7.
