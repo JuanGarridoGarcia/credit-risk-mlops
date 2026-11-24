@@ -98,6 +98,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-088](#d-088) | 2026-11-24 | 3.2 (changes step 2.3) | The LGD label is a column of the training file, computed when the snapshot is built | Active |
 | [D-089](#d-089) | 2026-11-24 | F3 (cross-cutting) | F3 is delivered in three pull requests: data, training, explanation and business | Active |
 | [D-090](#d-090) | 2026-11-24 | 3.4 | With no PD champion yet, the first model must beat the grade-only baseline; otherwise the baseline is the champion | Active |
+| [D-091](#d-091) | 2026-11-24 | 3.2 | The MLflow server of docker compose runs from our `train` image | Active |
 
 ## Decisions
 
@@ -1045,4 +1046,15 @@ Date: 2026-11-24 · Step: 3.4 · Status: Active
 - **Alternatives considered**: (A) the first model becomes champion without comparison: simple, but a model no better than the grade alone could start buying; (B) no champion until a model beats the baseline, so nothing is scored: the simulation stops buying for no reason, when the baseline is a valid model that the business metric already uses as reference (D-084).
 - **Why**: the same rule as the LGD (D-087) and as every later promotion; nothing enters production without beating what it replaces, and something always does the scoring.
 - **Consequences**: the baseline is trained, logged and registered like any model, with the same required fields (D-079). The battery for the baseline has to accept that its PD is constant inside a grade: every test of D-086 applies as it is, and the direction test passes without effort for the features the baseline does not use, because its PD does not move with them. Each promotion writes on the new model version a tag with the previous champion and the date, so that rollback (T11.4) and the history of champions do not depend on the registry alias, which keeps only the current one.
+
+<a id="d-091"></a>
+### D-091 The MLflow server of docker compose runs from our `train` image
+
+Date: 2026-11-24 · Step: 3.2 (completes D-079) · Status: Active
+
+- **Context**: D-079 puts an MLflow tracking server in docker compose, with its metadata in Postgres, but does not say which image it runs from. The `train` image (D-078) already carries the full MLflow and a Postgres driver (`psycopg`).
+- **Decision**: the `mlflow` service of docker compose runs `mlflow server` from our `train` image. It is built by `make build` before `make up`.
+- **Alternatives considered**: (B) the official MLflow image, pinned by version and digest: an external image to keep up to date apart from `uv.lock`, and, as far as known, without a Postgres driver, so it would need a Dockerfile of its own to extend it (not checked: Claude's cloud machine cannot download from ghcr.io).
+- **Why**: the server and the client that logs the runs have the same MLflow version always, fixed in `uv.lock` and updated by Dependabot with everything else; no new image to pin and scan.
+- **Consequences**: `make up` needs the `train` image built first; CI builds it before starting compose. The server image is scanned by Trivy with the `train` image.
 

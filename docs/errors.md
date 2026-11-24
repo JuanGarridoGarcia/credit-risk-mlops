@@ -34,6 +34,8 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-024](#e-024) | 2026-11-23 | 2.4 | The audit figure came out different on GitHub | Minor |
 | [E-025](#e-025) | 2026-11-23 | 2.4 | PR blocked: a required CI check was renamed | Minor |
 | [E-026](#e-026) | 2026-11-23 | 2.4 | Notebooks check failed on a Dependabot PR: the Kaggle secret was empty | Minor |
+| [E-027](#e-027) | 2026-11-24 | 3.2 | apt could not install `libgomp1` in the image build on Claude's cloud machine | Minor |
+| [E-028](#e-028) | 2026-11-24 | 3.2 | The image size measured by B5 depends on how Docker stores images | Moderate |
 
 ## Errors
 
@@ -292,3 +294,24 @@ Date: 2026-11-23 · Step: 2.4 · Severity: minor
 - **Cause**: GitHub gives workflows started by Dependabot only the secrets stored as **Dependabot secrets**, never the Actions secrets, so a malicious dependency update cannot read them.
 - **Fix**: Juan added `KAGGLE_API_TOKEN` also as a Dependabot secret (Settings > Secrets and variables > Dependabot). PR #4 was then green and merged.
 - **Prevention**: the guard message, `docs/technical.md` and D-065 say that the secret must exist in both places.
+
+<a id="e-027"></a>
+### E-027 apt could not install `libgomp1` in the image build on Claude's cloud machine
+
+Date: 2026-11-24 · Step: 3.2 · Severity: minor
+
+- **Symptom**: building the images on Claude's cloud machine, `apt-get update` failed: first `405 Method Not Allowed`, then `403 Forbidden`, then `Could not load certificates from /run/secrets/extra_ca ... Permission denied`.
+- **Cause**: three things in a row. The machine's proxy only tunnels HTTPS, and Debian's sources use plain HTTP; `deb.debian.org` was not on the machine's list of allowed hosts; and apt downloads as its own unprivileged user `_apt`, which cannot read a build secret mounted with the default mode (readable by root only).
+- **Fix**: `deb.debian.org` added to the allowed hosts of the cloud environment (approved by Juan). In the Dockerfile, only when the `extra_ca` secret is present (E-008), apt goes over HTTPS through the proxy with that CA, the secret is mounted with mode `0444`, and the sources are restored to HTTP afterwards. Without the secret (CI, a normal PC) the step is the plain `apt-get install`.
+- **Prevention**: the comment in the Dockerfile explains the three parts.
+
+<a id="e-028"></a>
+### E-028 The image size measured by B5 depends on how Docker stores images
+
+Date: 2026-11-24 · Step: 3.2 · Severity: moderate
+
+- **Symptom**: the first `serve` image measured 973 MB with `docker image inspect --format {{.Size}}` (the measure of B5), above its 800 MB budget (D-078), although its layers add up to 752 MB.
+- **Cause**: Docker reports `Size` differently by image store. With the containerd image store (the default of new Docker installs, used on Claude's cloud machine) it adds the compressed layers to the unpacked ones; with the classic store it is the unpacked size only. The same image gives two numbers, so a budget can pass in one place and fail in another. The 466 MB of the F2 image (D-052) was measured the first way: its layers add up to 356 MB.
+- **Fix**: pending Juan's approval of the change to B5: measure the unpacked size as the sum of the image's layers (`docker history`), the same on every machine.
+- **Prevention**: B5 states which size it measures and why.
+

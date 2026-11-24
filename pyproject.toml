@@ -6,10 +6,13 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 authors = [{ name = "Juan Garrido García" }]
 dependencies = [
+    "lightgbm>=4.7",
+    "mlflow-skinny>=3.18",
     "pandera[polars]>=0.36",
     "polars>=2.1",
     "psycopg[binary]>=3.3.9",
     "pydantic-settings>=2.16",
+    "scikit-learn>=1.9.1",
 ]
 
 [project.scripts]
@@ -39,9 +42,14 @@ notebooks = [
     "pyarrow==26.0.1",
     "scikit-learn==1.9.1",
 ]
+train = [
+    "mlflow>=3.18",
+    "optuna>=5.1",
+    "shap>=0.54",
+]
 
 [tool.uv]
-default-groups = ["dev"]
+default-groups = ["dev", "train"]
 
 [build-system]
 requires = ["uv_build>=0.13.9,<0.14"]
