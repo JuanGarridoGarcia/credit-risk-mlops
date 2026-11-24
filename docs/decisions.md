@@ -102,6 +102,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-092](#d-092) | 2026-11-24 | 3.2 | The logistic regression keeps the signs of D-080 by removing a wrong-signed feature and refitting | Active |
 | [D-093](#d-093) | 2026-11-24 | 3.3 | A key segment blocks a promotion only if it is clearly worse by more than a margin | Active |
 | [D-094](#d-094) | 2026-11-24 | 3.2 | The level of every LGD model is corrected on validation, like Platt scaling for the PD | Active |
+| [D-095](#d-095) | 2026-11-24 | 3.5 | A model card is generated for every registered version and stored with it | Active |
 
 ## Decisions
 
@@ -1092,3 +1093,13 @@ Date: 2026-11-24 · Step: 3.2 (amends D-087) · Status: Active
 - **Alternatives considered**: (B) give more weight to recent years in training: reduces the lag but does not remove it, and adds a weight to choose; (C) leave the model as it is, record the failing check as expected and let the monitoring of F6 watch the level.
 - **Why**: it is the same logic Juan chose for the PD (D-076): the shape is learned on training and the level is set on the most recent period with known outcomes. One number keeps it simple and cannot change the order of predictions.
 - **Consequences**: at T0 the shifts are +0.050 (ridge), +0.054 (LightGBM) and +0.050 (baseline); validation RMSE goes from 0.221 to 0.216 for each; no candidate beats the baseline, which stays champion. On validation the mean predicted equals the observed mean by construction, so it can no longer be a check of the level: T12.6 changes, with Juan's approval. With a rising trend the model can still lag by the change between the validation window and the time it is used; the monitoring of F6 compares the predicted and observed LGD of each new group of resolved defaults.
+
+### D-095 A model card is generated for every registered version and stored with it
+
+Date: 2026-11-24 · Step: 3.5 · Status: Active
+
+- **Context**: a model card states what a model is for and not for, the data it was trained on, how it performs overall and by segment, its known limits and which features weigh most. It is the first document a model validator asks for. Models here are retrained and promoted automatically (D-082), so a document written by hand would be out of date after the first retraining.
+- **Decision**: every registered version gets a `model_card.md` in the artefacts of its run, built from what the run recorded: training set version and dates, counts, metrics with intervals, segment results, battery, signs and removed features (D-092), LGD level shift (D-094), global importance (mean absolute SHAP contribution on validation, D-083). The parts that do not come from data (intended use, uses not intended, features left out on purpose, known limits) are fixed text in the code, reviewed in every pull request. A copy of the card of the first champion (T0) is kept in `docs/`.
+- **Alternatives considered**: (B) a card written by hand in `docs/`: easier to read, stale at the first retraining; (C) only the model description in MLflow: no structure, no segments.
+- **Why**: each version that can become champion carries its own card, and the card can never disagree with the model it describes.
+- **Consequences**: one more artefact per run; its content is checked by tests.
