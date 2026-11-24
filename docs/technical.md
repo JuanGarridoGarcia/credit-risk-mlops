@@ -36,7 +36,7 @@ Status of every step of the playbook. Updated in every pull request.
 | | 3.3 Model tests and promotion rules | Done | PR 2 | D-080, D-081, D-086, D-093 |
 | | 3.4 Model registry | Done | PR 2 | D-082, D-090 |
 | | 3.5 Explainability and model card | Done | PR 3 | D-083, D-095; buy rule, budget and business result D-084, D-085, D-096, D-097 |
-| F4 Automation | 4.1 Orchestrated training flow | In review | PR 1 of F4 | D-098 to D-105; E-037 to E-041; clock, cadence and alerts in PR 2 |
+| F4 Automation | 4.1 Orchestrated training flow | In review | PR 1 (#10) and PR 2 of F4 | D-098 to D-108; E-037 to E-042; PR 2: clock, cadence and alerts |
 | | 4.2 Batch prediction flow | Moved to F5 | | Replaced by the replayer calling the API (D-008, D-098) |
 | F5 Deployment | 5.1 API | Pending | | |
 | | 5.2 Published image and CD | Pending | | |
@@ -711,7 +711,7 @@ At T0 our model does not beat the grade baseline on realised return: about equal
 
 ## 6. F4 Automation
 
-Every decision of F4 was explained to Juan and taken by him one at a time on 2026-11-24 (D-098 to D-105). Scope (D-098): step 4.1 plus a simulated clock; step 4.2 moves to F5 as the replayer that calls the API (D-008). Two pull requests: (1) the flow and Prefect in docker compose; (2) the clock, the retraining cadence and the alerts.
+Every decision of F4 was explained to Juan and taken by him one at a time on 2026-11-24 (D-098 to D-108). Scope (D-098): step 4.1 plus a simulated clock; step 4.2 moves to F5 as the replayer that calls the API (D-008). Two pull requests: (1) the flow and Prefect in docker compose; (2) the clock, the retraining cadence and the alerts.
 
 **The design in one page**
 
@@ -724,6 +724,9 @@ Every decision of F4 was explained to Juan and taken by him one at a time on 202
 | Loading | Catches up every delivered month up to the one asked (D-104) |
 | Idempotency | Key (model, training set version, commit) as tags of the registered versions; promotion in two phases (D-101) |
 | Retries | Only transient failures: 3 attempts after 10, 30 and 90 s; anything else stops the flow (D-102) |
+| Cadence | Every month is loaded; versioning and retraining in January, April, July and October; a parameter (D-106) |
+| Clock | An `advance` flow of the simulated world: publishes the next month, runs the system's flow, then records the month in `sim.clock`; `replay` loops it; schedule paused by default (D-107) |
+| Alerts | Table `ops.alerts`: failed flows, promotions, rejections, rollbacks; the channel comes with Grafana in F6 (D-108) |
 
 ### First pull request: the flow
 
@@ -736,7 +739,7 @@ Every decision of F4 was explained to Juan and taken by him one at a time on 202
                                             (D-104)    manifest      promotion       the LGD
 ```
 
-`credit_risk.flows` holds only coordination: each task is one call to a function of `src/` (`ingest.catch_up`, `snapshot.build`, `pipeline.retrain_pd`, `pipeline.retrain_lgd`), and the tasks hand on a month, a training set version, a registered version and the covered terms. The flow's folders are a parameter (`Paths`, a pydantic model so the server can send it as JSON, E-038). `python -m credit_risk.flows run 2014-01` runs it in process; `serve` registers the deployment `monthly/monthly` and waits for runs (the `worker` service); `server` creates the database `prefect` and starts the Prefect server (the `prefect` service, web interface on `localhost:4200`). `make flow PERIOD=2014-01` publishes with the simulator and then sends a run through the server.
+`credit_risk.flows` holds only coordination: each task is one call to a function of `src/` (`ingest.catch_up`, `snapshot.build`, `pipeline.retrain_pd`, `pipeline.retrain_lgd`), and the tasks hand on a month, a training set version, a registered version and the covered terms. The flow's folders are a parameter (`Paths`, a pydantic model so the server can send it as JSON, E-038). `python -m credit_risk.flows run 2014-01` runs it in process; `serve` registers the deployment `monthly/monthly` and waits for runs (the `worker` service); `server` creates the database `prefect` and starts the Prefect server (the `prefect` service, web interface on `localhost:4200`). `make flow PERIOD=2014-01` published with the simulator and then sent a run through the server (replaced in the second pull request by `make advance` and `make replay`, D-107).
 
 **Compose.** Two services from the `train` image (D-103): `prefect` (server, metadata in the database `prefect` of our Postgres) and `worker` (environment pointing at `postgres`, `mlflow` and `prefect` inside the compose network). The worker reads the deliveries from `./data/landing`, read only, and writes reports and training sets to a volume of its own. The `train` image carries the commit of its code (`CREDIT_RISK_COMMIT`, a build argument passed by `make build` and CI), needed by the key of D-101.
 
@@ -755,4 +758,40 @@ Every decision of F4 was explained to Juan and taken by him one at a time on 202
 | E-039 | The first flow imported the simulator; T1.11 caught it; D-105 |
 | E-040 | T16.8 expected raw unchanged; raw keeps deliveries by design (D-044) |
 | E-041 | Prefect could not create its home folder in the image (users without home); `PREFECT_HOME=/tmp/prefect` |
+
+### Second pull request: the simulated clock, cadence and alerts
+
+```
+ simulated world (credit_risk.simulator)          system
+ flow "advance" (deployment advance/advance,      flow "monthly" (subflow)
+ every 10 min, paused; or make advance)             load                       every month
+   1. sim.clock -> next month (2014-01 if empty)    if Jan, Apr, Jul, Oct (D-106):
+   2. publish its delivery (history on first run)     version -> train-pd -> train-lgd
+   3. run "monthly" for it  ----------------------->  verdicts -> ops.alerts (promoted, rejected)
+   4. only then write the month in sim.clock        on failure -> ops.alerts (flow_failed)
+ flow "replay" (make replay TO=YYYY-MM): advance until TO
+```
+
+**Clock (D-107).** `credit_risk/simulator/clock.py` keeps "now", the last completed month, in the one row of `sim.clock`, a schema of the simulated world that the system never reads (T17.3). `advance` publishes the next month (`publish(..., since=month)` writes only its own files; the first run writes the whole history), runs `flows.monthly` as a subflow and writes the month only after it succeeds: a failure leaves the clock where it was and the next `advance` repeats the month. A new compose service, `clock`, serves the deployments `advance/advance` (interval of 10 minutes, paused: switch it on in the Prefect UI to watch the system live on its own) and `replay/replay`. It reads the source file read only from `./data/raw` and writes the deliveries to the volume it shares with the worker, so the worker no longer mounts `./data/landing`. `make advance` and `make replay TO=2014-12` send runs through the server and wait for them.
+
+**Cadence (D-106).** `flows.retrains(period, cadence)`; `monthly` takes `cadence` (default `quarterly`), loads every month and returns after `load` in the months that do not retrain. Its summary carries `retrained` and the flow run id.
+
+**Alerts (D-108).** `credit_risk/alerts.py` writes `ops.alerts` (migration `20261124150000`): kind, severity, month, flow, task, model, version, previous champion, message and details as JSON. The train tasks read the champion before and after training and record `rejected` (with the failed rules) and `promoted`; a unique index on kind, model and version keeps a verdict from being recorded twice when a month runs again. The `on_failure` hook of `monthly` records `flow_failed` with the month, the failed task and the error; it waits up to 15 s for the server to record the failed task (E-042). `python -m credit_risk.registry rollback pd` records `rolled_back`. Until F6, the alerts are read with SQL: `SELECT at, kind, severity, period, task, model, version, message FROM ops.alerts ORDER BY at DESC;`.
+
+**Measured** (2026-11-24, cloud machine): the clock story of the integration tests (four advances on the made-up source, two of them retraining, one failing) takes about 60 s. The real year of T17.9 (empty clock, 2014-01 to 2014-12, real file, real number of trials) took 25 min (1,487 s; the first month publishes and loads the whole history since 2007-06): 12 months, 4 training sets, no failed flow. Verdicts:
+
+| Retraining | PD challenger | LGD challenger |
+|---|---|---|
+| 2014-01 | v2 promoted (against the baseline, D-090) | v2 rejected: not better than the noise; the baseline stays champion (D-087) |
+| 2014-04 | v3 rejected: not better than the noise, a key segment clearly worse | v3 rejected: not better than the noise |
+| 2014-07 | v4 promoted | v4 rejected: not better than the noise |
+| 2014-10 | v5 promoted | v5 rejected: not better than the noise |
+
+At the end of 2014 the PD champion is v5 and the LGD champion is still the mean by grade (v1): as at T0 (D-087), no LGD model beats it. Every verdict has its alert in `ops.alerts`.
+
+**Tests** (T17, approved by Juan on 2026-11-24): cadence (T17.1); the failure hook (T17.2); the system never touches `sim` (T17.3); advance from an empty clock (T17.4); a failed advance repeats its month (T17.5); only cadence months retrain (T17.6); every event in `ops.alerts` once (T17.7); the deployments and `replay` (T17.8); a real year, 2014 (T17.9).
+
+| Error | What happened |
+|---|---|
+| E-042 | The failure hook asked for the task runs before the server had recorded the failed task; it now asks again for up to 15 s |
 

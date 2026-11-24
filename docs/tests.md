@@ -24,6 +24,7 @@ Every test of the project, what it checks, where it lives and where it runs. Jua
 - [T14 Model card](#t14-model-card)
 - [T15 Buy rule and business metric](#t15-buy-rule-and-business-metric)
 - [T16 Orchestration](#t16-orchestration)
+- [T17 Clock and alerts](#t17-clock-and-alerts)
 - [Change history](#change-history)
 
 ## How tests are organised
@@ -34,7 +35,7 @@ Tests are grouped by the piece they check. Group B holds the foundations (packag
 |---|---|---|---|---|---|
 | Unit | `tests/unit/` | none | Nothing | `make test`, `make test-image` | CI (job `tests`), and inside the image (job `integration`) |
 | Integration | `tests/integration/` | `integration` (`destructive` for B4 and T8.2) | Docker: compose Postgres and MLflow, or the built images | `make test-integration` | CI (job `integration`) |
-| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15, T5.13, T5.14, T6.8, T10.6, T12.6, T14.6, T15.7; MLflow for T14.6) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
+| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15, T5.13, T5.14, T6.8, T10.6, T12.6, T14.6, T15.7, T17.9; MLflow for T14.6 and T17.9; the Prefect server for T17.9) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
 
 Integration and data tests never skip: if what they need is missing, they fail.
 
@@ -68,7 +69,8 @@ Changing what an approved test checks needs Juan's approval again. B6 fails if a
 | T14 Model card | F3, third pull request | 6 | 2026-11-24 | [technical.md, F3](technical.md#third-pull-request-explanations-and-business) |
 | T15 Buy rule and business metric | F3, third pull request | 7 | 2026-11-24 | [technical.md, F3](technical.md#third-pull-request-explanations-and-business) |
 | T16 Orchestration | F4, step 4.1, first pull request | 10 | 2026-11-24 | [technical.md, F4](technical.md#6-f4-automation) |
-| **Total** | | **144** | | |
+| T17 Clock and alerts | F4, step 4.1, second pull request | 9 | 2026-11-24 | [technical.md, F4](technical.md#second-pull-request-the-simulated-clock-cadence-and-alerts) |
+| **Total** | | **153** | | |
 
 ## B Foundations
 
@@ -333,6 +335,22 @@ F4, step 4.1, first pull request (D-099 to D-105). Unit tests use a local SQLite
 | T16.9 | Running the flow again for the same month ends `Completed` with nothing duplicated: same rows in raw and clean, same training sets, same MLflow runs and registered versions, same champions; PD and LGD report `reused` | `tests/integration/test_flows.py::test_running_the_same_month_again_duplicates_nothing` | Integration | CI |
 | T16.10 | The Prefect server of compose answers, keeps its metadata in the database `prefect` of our Postgres, and runs (with its worker) from the `train` image; the deployment `monthly/monthly` is on the server and a run sent through it is executed by the worker (with no deliveries at the given folder, it fails in the load task after one attempt) | `tests/integration/test_flows.py::test_the_prefect_server_runs_the_deployed_flow` | Integration | CI |
 
+## T17 Clock and alerts
+
+F4, step 4.1, second pull request (D-106 to D-108). Unit tests need no Docker (T17.2 runs on a temporary Prefect server); integration tests run the clock against the services of docker compose on the small made-up source, from 2012-01 to 2012-06, with one broken delivery of 2012-03.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T17.1 | Retraining cadence (D-106): `quarterly`, the default, retrains in January, April, July and October and in no other month; `monthly` every month, `yearly` in January; an unknown cadence is refused with a clear message | `tests/unit/test_clock.py::test_the_cadence_retrains_in_its_months_only` | Unit | CI, image |
+| T17.2 | When the monthly flow fails, its `on_failure` hook records one `flow_failed` alert (severity error) with the flow, the month, the failed task, the error and the flow run (the writer is replaced by a list in the test) | `tests/unit/test_clock.py::test_a_failed_flow_records_one_alert_with_its_month_task_and_error` | Unit | CI, image |
+| T17.3 | The system never touches the clock (D-043, D-107): no module or query of the package outside `simulator/` mentions the schema `sim` | `tests/unit/test_clock.py::test_system_code_never_touches_the_clock_schema` | Unit | CI, image |
+| T17.4 | `advance` from an empty clock publishes the history up to the first month, runs the system's flow and records the month; each later `advance` publishes, loads and records the next month only; nothing is published beyond the clock and no month is skipped | `tests/integration/test_clock.py::test_advance_moves_one_month_at_a_time_from_an_empty_clock` | Integration | CI |
+| T17.5 | An `advance` whose month has a critical validation failure fails and leaves the clock on the month before; with the delivery corrected, the next `advance` runs that same month and completes it; the broken rows never reach clean | `tests/integration/test_clock.py::test_a_failed_advance_leaves_the_clock_and_the_next_one_repeats_the_month` | Integration | CI |
+| T17.6 | Only the cadence months retrain: February and March run the `load` task only; January and April run `load`, `version`, `train-pd` and `train-lgd`, with a new training set in April | `tests/integration/test_clock.py::test_only_the_cadence_months_retrain` | Integration | CI |
+| T17.7 | `ops.alerts` (D-108): the failed month leaves exactly one `flow_failed` alert naming the `load` task and the error; every challenger rejected in MLflow has one `rejected` alert with the same reasons, and no other has one; each model's first champion has a `promoted` alert with no previous champion, and the last `promoted` names the current champion; running April again adds no alert; a rollback through `registry.rollback` records one `rolled_back` alert (on a toy model) | `tests/integration/test_clock.py::test_every_event_is_in_the_alerts_table_once` | Integration | CI |
+| T17.8 | The `advance` deployment is on the server with its 10-minute schedule paused, and `replay` is deployed with no schedule; `replay` (the flow `make replay` runs) advances month by month until the month asked and returns the months it ran | `tests/integration/test_clock.py::test_the_clock_is_deployed_paused_and_replay_loops_months` | Integration | CI |
+| T17.9 | A real year: from an empty clock, `replay` lives 2014-01 to 2014-12 on the real file with the real number of trials: 12 months, 4 training sets, one challenger of each model per quarter with its verdict carried out in MLflow and, when rejected, its alert in `ops.alerts`; no flow fails. It fixes no winner: it prints the verdicts | `tests/data/test_clock_data.py::test_a_real_year_runs_twelve_months_and_retrains_four_times` | Data | Local |
+
 ## Change history
 
 | Date | Test | Change | Why |
@@ -365,3 +383,4 @@ F4, step 4.1, first pull request (D-099 to D-105). Unit tests use a local SQLite
 | 2026-11-24 | B7 | Also checks that `serve` cannot import Prefect | Prefect enters the `train` group ([D-103](decisions.md#d-103)); approved by Juan with T16 |
 | 2026-11-24 | T16.7, T16.10 | T16.7: the test publishes the deliveries with the simulator before the flow, which no longer has a publish task. T16.10: the failing run of the deployment fails in the load task (no deliveries) instead of the publish task | Publishing belongs to the simulated world, not to the system ([D-105](decisions.md#d-105)); approved by Juan with D-105 |
 | 2026-11-24 | T16.8 | Raw is left out of the "nothing new" comparison | Raw keeps every delivery as it came, by design ([D-044](decisions.md#d-044)); validation stops it at clean ([E-040](errors.md#e-040)) |
+| 2026-11-24 | T17.1 to T17.9 | Written (F4, second pull request) | Approved by Juan |

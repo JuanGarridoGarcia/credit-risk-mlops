@@ -49,6 +49,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-039](#e-039) | 2026-11-24 | 4.1 | The first flow imported the simulator, against D-043 | Moderate |
 | [E-040](#e-040) | 2026-11-24 | 4.1 | T16.8 expected raw unchanged after a failed validation | Minor |
 | [E-041](#e-041) | 2026-11-24 | 4.1 | The unit tests failed inside the test image: Prefect could not create its home folder | Minor |
+| [E-042](#e-042) | 2026-11-24 | 4.1 | The alert of a failed flow did not name the failed task | Minor |
 
 ## Errors
 
@@ -445,3 +446,12 @@ Date: 2026-11-24 · Step: 4.1 · Severity: minor
 - **Fix**: `PREFECT_HOME=/tmp/prefect` in the `test` and `train` stages of the Dockerfile, so every container of the image has it, inside compose or not.
 - **Prevention**: `make test-image` (also in CI) imports Prefect as the image user.
 
+<a id="e-042"></a>
+### E-042 The alert of a failed flow did not name the failed task
+
+Date: 2026-11-24 · Step: 4.1 · Severity: minor
+
+- **Symptom**: in T17.2 the `flow_failed` alert had `task = None`, although the `load` task had failed and the Prefect UI showed it failed.
+- **Cause**: Prefect 3 sends task states to the server as events, which the server records a moment later. The `on_failure` hook of the flow runs right after the flow fails and asked the server for the task runs before the failed state of `load` was recorded.
+- **Fix**: `flows.failed_tasks` asks again every half second, for up to 15 seconds, until it sees a failed task. A flow that failed before any task waits it out and records the alert without a task.
+- **Prevention**: T17.2 checks the task in the alert on a real (temporary) Prefect server, and T17.7 on the server of docker compose.

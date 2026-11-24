@@ -28,6 +28,7 @@ import argparse
 import logging
 import os
 import shutil
+import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -38,11 +39,12 @@ import psycopg
 from mlflow.exceptions import MlflowException
 from prefect import flow, task
 from prefect.client.schemas.objects import State, TaskRun
+from prefect.runtime import flow_run
 from prefect.tasks import Task
 from psycopg import sql
 from pydantic import BaseModel, ConfigDict
 
-from credit_risk import pipeline
+from credit_risk import alerts, pipeline, registry
 from credit_risk.ingest import catch_up
 from credit_risk.settings import Settings
 from credit_risk.snapshot import ROOT, build, git_commit, read_features
@@ -174,13 +176,31 @@ def _features(version: str, paths: Paths) -> Any:
         return read_features(conn, LocalStore(Path(paths.training_sets)), version)
 
 
+def _with_alerts(target: str, prefix: str, period: str, train: Any) -> Trained:
+    """Run ``train`` and record its verdict and any change of champion (D-108)."""
+    name = f"{prefix}{target}"
+    before = registry.champion(name)
+    outcome: pipeline.Outcome = train()
+    after = registry.champion(name)
+    summary = _summary(outcome)
+    for alert in alerts.verdict_alerts(
+        name, outcome.version, summary.promoted, summary.reasons, before, after, _month(period)
+    ):
+        alerts.record(alert)
+    return summary
+
+
 @task(name="train-pd", **RETRY)
 def train_pd_task(period: str, version: str, paths: Paths, prefix: str, trials: int) -> Trained:
     """PD of the training set ``version``: trained, registered and judged (D-100, D-101)."""
-    outcome = pipeline.retrain_pd(
-        _features(version, paths), _month(period), version, prefix=prefix, trials=trials
+    return _with_alerts(
+        "pd",
+        prefix,
+        period,
+        lambda: pipeline.retrain_pd(
+            _features(version, paths), _month(period), version, prefix=prefix, trials=trials
+        ),
     )
-    return _summary(outcome)
 
 
 @task(name="train-lgd", **RETRY)
@@ -193,37 +213,123 @@ def train_lgd_task(
     trials: int,
 ) -> Trained:
     """LGD of the training set ``version``, on the terms the PD covers (D-100, D-101)."""
-    outcome = pipeline.retrain_lgd(
-        _features(version, paths),
-        _month(period),
-        version,
-        tuple(covered_terms),
-        prefix=prefix,
-        trials=trials,
+    return _with_alerts(
+        "lgd",
+        prefix,
+        period,
+        lambda: pipeline.retrain_lgd(
+            _features(version, paths),
+            _month(period),
+            version,
+            tuple(covered_terms),
+            prefix=prefix,
+            trials=trials,
+        ),
     )
-    return _summary(outcome)
+
+
+# ---------------------------------------------------------------- cadence (D-106)
+
+#: Months (1 to 12) in which each cadence retrains. Every month is always loaded.
+CADENCES: Final[dict[str, frozenset[int]]] = {
+    "monthly": frozenset(range(1, 13)),
+    "quarterly": frozenset({1, 4, 7, 10}),
+    "yearly": frozenset({1}),
+}
+CADENCE: Final = "quarterly"
+
+
+def retrains(period: date, cadence: str = CADENCE) -> bool:
+    """Whether the cycle of ``period`` retrains under ``cadence`` (D-106)."""
+    if cadence not in CADENCES:
+        raise ValueError(f"unknown cadence {cadence!r}; known: {sorted(CADENCES)}")
+    return period.month in CADENCES[cadence]
+
+
+# ---------------------------------------------------------------- alert on failure (D-108)
+
+
+#: How long the failure hook waits for the server to record the failed task (D-108).
+TASK_STATE_WAIT_SECONDS: Final = 15.0
+
+
+def failed_tasks(flow_run_id: Any, wait: float = TASK_STATE_WAIT_SECONDS) -> list[str]:
+    """Names of the tasks of a flow run that ended failed (``load``, ``train-pd``...).
+
+    Prefect 3 sends task states to the server as events, recorded a moment later, so the
+    hook of a flow that just failed may not see its task failed yet (E-042): ask again
+    for up to ``wait`` seconds. A flow that failed before any task waits it out and
+    returns nothing.
+    """
+    from prefect.client.orchestration import get_client
+    from prefect.client.schemas.filters import FlowRunFilter, FlowRunFilterId
+
+    deadline = time.monotonic() + wait
+    with get_client(sync_client=True) as client:
+        while True:
+            runs = client.read_task_runs(
+                flow_run_filter=FlowRunFilter(id=FlowRunFilterId(any_=[flow_run_id]))
+            )
+            failed = sorted(
+                r.name.rsplit("-", 1)[0]
+                for r in runs
+                if r.state is not None and r.state.is_failed()
+            )
+            if failed or time.monotonic() >= deadline:
+                return failed
+            time.sleep(0.5)
+
+
+def alert_on_failure(flow_: Any, flow_run: Any, state: Any) -> None:
+    """Prefect ``on_failure`` hook: one ``flow_failed`` alert, with month, task and error."""
+    period = flow_run.parameters.get("period")
+    try:
+        tasks = failed_tasks(flow_run.id)
+    except Exception:
+        log.exception("could not read the task runs of %s", flow_run.id)
+        tasks = []
+    alert = alerts.Alert(
+        "flow_failed",
+        f"flow {flow_.name} {period or ''} failed: {state.message or 'no message'}",
+        period=_month(period) if period else None,
+        flow=flow_.name,
+        task=",".join(tasks) or None,
+        details={"flow_run": str(flow_run.id)},
+    )
+    alerts.record(alert)
 
 
 # ---------------------------------------------------------------- the flow
 
 
-@flow(name=FLOW, log_prints=True)
+@flow(name=FLOW, log_prints=True, on_failure=[alert_on_failure])
 def monthly(
     period: str,
     paths: Paths | None = None,
     prefix: str = "",
     trials: int = LIGHTGBM_TRIALS,
+    cadence: str = CADENCE,
 ) -> dict[str, Any]:
-    """The monthly cycle up to ``period`` (YYYY-MM). ``prefix`` keeps test models apart."""
+    """The monthly cycle of ``period`` (YYYY-MM): load always, retrain per ``cadence``.
+
+    ``prefix`` keeps test models apart.
+    """
     paths = paths or Paths()
-    _month(period)  # a malformed month fails here, before any task runs
+    month = _month(period)  # a malformed month fails here, before any task runs
+    due = retrains(month, cadence)  # and so does an unknown cadence
+    run = str(flow_run.id)
     months = load_task(period, paths)
+    if not due:
+        log.info("monthly %s: loaded; no retraining this month (%s)", period, cadence)
+        return {"period": period, "months_loaded": months, "retrained": False, "flow_run": run}
     version = version_task(period, paths)
     pd_ = train_pd_task(period, version, paths, prefix, trials)
     lgd = train_lgd_task(period, version, pd_.covered_terms, paths, prefix, trials)
     summary = {
         "period": period,
         "months_loaded": months,
+        "retrained": True,
+        "flow_run": run,
         "training_set": version,
         "pd": pd_,
         "lgd": lgd,

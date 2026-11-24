@@ -66,7 +66,7 @@ One line per theme; each links to its full card with the alternatives considered
 | Fairness | State and zip code are not features (proxies for protected attributes); the state is kept only to monitor fairness ([D-018](docs/decisions.md#d-018)) |
 | Architecture | A single prediction path, the API, with every prediction stored ([D-008](docs/decisions.md#d-008)) |
 | Engineering | Three families of tests (code now; data from F2, model from F3), each approved before it is written and listed in the [test catalogue](docs/tests.md) ([D-057](docs/decisions.md#d-057)); CI is the only way into `main`, with no exceptions ([D-028](docs/decisions.md#d-028), [D-032](docs/decisions.md#d-032)); everything from outside is pinned by its fingerprint ([D-030](docs/decisions.md#d-030)) |
-| Orchestration | Prefect runs the monthly cycle: load and validate, version, train PD and LGD, promote; only identifiers travel between tasks ([D-099](docs/decisions.md#d-099), [D-100](docs/decisions.md#d-100)); running a month again changes nothing ([D-101](docs/decisions.md#d-101)); only transient failures are retried ([D-102](docs/decisions.md#d-102)); the simulator stays outside the system ([D-105](docs/decisions.md#d-105)) |
+| Orchestration | Prefect runs the monthly cycle: load and validate, version, train PD and LGD, promote; only identifiers travel between tasks ([D-099](docs/decisions.md#d-099), [D-100](docs/decisions.md#d-100)); running a month again changes nothing ([D-101](docs/decisions.md#d-101)); only transient failures are retried ([D-102](docs/decisions.md#d-102)); the simulator stays outside the system ([D-105](docs/decisions.md#d-105)); retraining every quarter ([D-106](docs/decisions.md#d-106)); a simulated clock moves the system one month at a time and never skips or repeats a month ([D-107](docs/decisions.md#d-107)); failures, promotions, rejections and rollbacks recorded as alerts ([D-108](docs/decisions.md#d-108)) |
 | Modelling | Baselines use only the grade ([D-004](docs/decisions.md#d-004)); models are judged on ranking and calibration ([D-006](docs/decisions.md#d-006)) and on realised return at equal budget ([D-007](docs/decisions.md#d-007)). Training decisions come in F3 |
 
 ## How to run it
@@ -80,10 +80,11 @@ make install            # environment from uv.lock, git hooks, .env from .env.ex
 make lint               # style, formatting, types, lock in sync
 make test               # unit tests with coverage
 make build              # the two application images, serve and train
-make up                 # Postgres, MLflow (UI at http://localhost:5000), Prefect (UI at http://localhost:4200) and its worker
+make up                 # Postgres, MLflow (UI at http://localhost:5000), Prefect (UI at http://localhost:4200), its worker and the simulated clock
 make test-integration   # tests against Postgres, MLflow and the images
 make train T=2014-01    # train, register and try to promote the PD and LGD models
-make flow PERIOD=2014-01  # simulator publishes up to the month, then the Prefect flow runs it
+make advance            # simulated clock: publish the next month and run the monthly flow for it
+make replay TO=2014-12  # advance month by month until December 2014
 make rollback MODEL=pd  # put back the previous champion
 make down               # stop; data stays in the volume
 ```
@@ -98,7 +99,7 @@ make down               # stop; data stays in the volume
 | F1 Foundations | Environment, code quality, Docker, CI, documentation | Done |
 | F2 Data | Ingestion, validation, versioning, features | Done |
 | F3 Model | Baselines, experiments, model tests, registry, explainability | Done |
-| F4 Automation | Orchestrated monthly cycle and simulated clock | In progress (flow in review; clock, retraining cadence and alerts next) |
+| F4 Automation | Orchestrated monthly cycle and simulated clock | In review (flow in PR #10; clock, retraining cadence and alerts in the second pull request) |
 | F5 Deployment | API, published image, continuous delivery | Pending |
 | F6 Monitoring | Drift, dashboard, alerts, triggered retraining | Pending |
 | F7 Closing | End to end, AWS with infrastructure as code | Pending |
