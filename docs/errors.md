@@ -48,6 +48,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-038](#e-038) | 2026-11-24 | 4.1 | A run sent through the Prefect server failed before starting: its parameter could not be read | Minor |
 | [E-039](#e-039) | 2026-11-24 | 4.1 | The first flow imported the simulator, against D-043 | Moderate |
 | [E-040](#e-040) | 2026-11-24 | 4.1 | T16.8 expected raw unchanged after a failed validation | Minor |
+| [E-041](#e-041) | 2026-11-24 | 4.1 | The unit tests failed inside the test image: Prefect could not create its home folder | Minor |
 
 ## Errors
 
@@ -434,4 +435,13 @@ Date: 2026-11-24 · Step: 4.1 · Severity: minor
 - **Cause**: an error in the test, not in the system. By design (D-044) raw keeps every delivery as it came; validation runs between raw and clean and stops the bad month there.
 - **Fix**: T16.8 compares everything except raw: clean, the training sets, the runs, the registered versions and the champions must be unchanged, and clean must have no row of the bad month.
 - **Prevention**: recorded in the change history of the test catalogue.
+
+### E-041 The unit tests failed inside the test image: Prefect could not create its home folder
+
+Date: 2026-11-24 · Step: 4.1 · Severity: minor
+
+- **Symptom**: `make test-image` failed while collecting `tests/unit/test_flows.py`: `UserWarning: Failed to create the Prefect home directory at /nonexistent/.prefect`, an error because every warning is one.
+- **Cause**: Prefect creates its settings folder (`~/.prefect`) when it is imported. The image users (`nobody` in the test image, `app` in the others) have no home folder.
+- **Fix**: `PREFECT_HOME=/tmp/prefect` in the `test` and `train` stages of the Dockerfile, so every container of the image has it, inside compose or not.
+- **Prevention**: `make test-image` (also in CI) imports Prefect as the image user.
 

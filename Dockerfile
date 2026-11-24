@@ -106,7 +106,9 @@ COPY pyproject.toml ./
 COPY tests ./tests
 COPY reports/data_audit/data_dictionary.csv ./reports/data_audit/data_dictionary.csv
 COPY docs/validation_rules.md docs/tests.md ./docs/
-ENV MPLCONFIGDIR=/tmp/matplotlib
+# Prefect writes its settings folder at import; the test user has no home (E-041).
+ENV MPLCONFIGDIR=/tmp/matplotlib \
+    PREFECT_HOME=/tmp/prefect
 USER nobody
 CMD ["pytest", "tests/unit", "-p", "no:cacheprovider"]
 
@@ -121,7 +123,9 @@ USER app
 # The commit of the code, recorded with every training set and model (D-079); the key of
 # a training (D-101). `make build` and CI pass it; without it, training stops with an error.
 ARG CREDIT_RISK_COMMIT=""
-ENV CREDIT_RISK_COMMIT=${CREDIT_RISK_COMMIT}
+# Prefect writes its settings folder at import; the app user has no home (E-041).
+ENV CREDIT_RISK_COMMIT=${CREDIT_RISK_COMMIT} \
+    PREFECT_HOME=/tmp/prefect
 COPY --from=builder-train --chown=app:app /opt/venv /opt/venv
 
 # ---------------------------------------------------------------- serve (default target)

@@ -75,7 +75,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-      PREFECT_HOME: /tmp/prefect
       PREFECT_SERVER_ANALYTICS_ENABLED: "false"
     command: ["python", "-m", "credit_risk.flows", "server"]
     ports:
@@ -104,7 +103,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       PREFECT_API_URL: http://prefect:4200/api
-      PREFECT_HOME: /tmp/prefect
       MLFLOW_TRACKING_URI: http://mlflow:5000
     command: ["python", "-m", "credit_risk.flows", "serve"]
     volumes:

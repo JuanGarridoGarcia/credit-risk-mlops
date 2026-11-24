@@ -36,7 +36,7 @@ Status of every step of the playbook. Updated in every pull request.
 | | 3.3 Model tests and promotion rules | Done | PR 2 | D-080, D-081, D-086, D-093 |
 | | 3.4 Model registry | Done | PR 2 | D-082, D-090 |
 | | 3.5 Explainability and model card | Done | PR 3 | D-083, D-095; buy rule, budget and business result D-084, D-085, D-096, D-097 |
-| F4 Automation | 4.1 Orchestrated training flow | In review | PR 1 of F4 | D-098 to D-105; E-037 to E-040; clock, cadence and alerts in PR 2 |
+| F4 Automation | 4.1 Orchestrated training flow | In review | PR 1 of F4 | D-098 to D-105; E-037 to E-041; clock, cadence and alerts in PR 2 |
 | | 4.2 Batch prediction flow | Moved to F5 | | Replaced by the replayer calling the API (D-008, D-098) |
 | F5 Deployment | 5.1 API | Pending | | |
 | | 5.2 Published image and CD | Pending | | |
@@ -754,4 +754,5 @@ Every decision of F4 was explained to Juan and taken by him one at a time on 202
 | E-038 | A dataclass parameter could not be rebuilt from JSON by the server; now a pydantic model |
 | E-039 | The first flow imported the simulator; T1.11 caught it; D-105 |
 | E-040 | T16.8 expected raw unchanged; raw keeps deliveries by design (D-044) |
+| E-041 | Prefect could not create its home folder in the image (users without home); `PREFECT_HOME=/tmp/prefect` |
 
