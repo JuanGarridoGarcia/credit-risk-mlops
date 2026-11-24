@@ -510,3 +510,12 @@ Tests approved by Juan before any code is written. They enter `docs/tests.md` wi
 | T8.2 | A run with a small artefact survives recreating the MLflow container. Marked `destructive`, like B4 |
 | T8.3 | No run without its required fields: one function logs every run and refuses, naming the field, if the commit, snapshot hash, seed, library versions or metrics with intervals are missing (one case per field); a small real training read back from the server carries all of them |
 | T8.4 | The model is rebuilt from what a run records (snapshot version, seed, hyperparameters) and gives the same predictions as the stored model |
+
+**T9 Model comparison** (approved 2026-11-24)
+
+| ID | What it checks |
+|---|---|
+| T9.1 | The paired bootstrap (D-075) on cases with a known answer: a clearly better model wins, an identical one does not (difference zero in every resample), a clearly worse one loses; every resample keeps the number of defaults; same seed, same interval; the sign is reversed for a metric where lower is better (Brier) |
+| T9.2 | The choice rule (D-068): LightGBM is chosen only if its interval against the logistic regression lies entirely above zero; if it touches zero the logistic regression wins, even with a higher mean AUC |
+| T9.3 | The segments (D-081): F and G merged, covered terms only, quarters of validation; a segment with 49 defaults is merged with its neighbour and one with 50 is not; a model better overall but clearly worse in grade A fails; a tie in a segment passes |
+| T9.4 | The signs (D-080): the nine coefficients of the logistic regression have the expected sign, and made-up data where a higher `int_rate` lowers risk make the check fail; LightGBM is trained with exactly the fixed list of constraints, logged in the run |
