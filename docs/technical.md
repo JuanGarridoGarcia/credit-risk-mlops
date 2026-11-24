@@ -598,6 +598,7 @@ promote: noise, segments (with margins, D-093), signs, battery (PD only)
 | `battery.py` | The behavioural battery (D-086) |
 | `explain.py` | The explanation of each PD: base value, one contribution per feature, the four main reasons (D-083); global importance |
 | `card.py` | The model card of every registered version (D-095) |
+| `business.py` | Buy rule, budget, choice of the minimum and realised return (D-084, D-085, D-096) |
 | `tracking.py` | Run records and their check (D-079); the MLflow server of compose |
 | `registry.py` | Storing, registering, promotion, alert and rollback (D-082, D-090) |
 | `pipeline.py` | `make train T=YYYY-MM`: the newest training set version at T, both targets, register and promote |
@@ -675,3 +676,19 @@ Then Platt scaling (`a x raw + b`) multiplies every contribution by `a` and turn
 #### Model cards
 
 Every version registered by `make train` gets a `model_card.md` in its run (D-095), built by `credit_risk.card` from what the run recorded and from the stored model: the model and its training set, intended and not intended uses, counts, metrics with intervals, the promotion verdict, segments, battery, global importance (mean absolute SHAP contribution on validation), features left out on purpose and known limits. The runs now also record the counts of loans and defaults of each split (`rows.*`, `defaults.*`). The cards of the T0 champions are in [`docs/model_cards/`](model_cards/): the logistic regression for the PD and the grade-only baseline for the LGD.
+
+**T15 Buy rule and business metric** (approved 2026-11-24)
+
+| ID | What it checks |
+|---|---|
+| T15.1 | Scheduled interest with the amortisation formula, by hand: 36 months at 7% gives 0.111 and at 20% gives 0.338 (the examples of D-084); a rate of 0% gives 0 |
+| T15.2 | Expected return = (1 - PD) x scheduled interest - PD x LGD, by hand on the two examples of D-084 (0.083 and 0.103); a loan with no PD (term not covered) is never bought |
+| T15.3 | Budget (D-085): K is 10% of the loans listed the month before, rounded down; loans that pass are bought in listing order until K and the rest are skipped; one 25 dollar note per loan |
+| T15.4 | Realised return by hand: a paid loan, a defaulted one with recoveries and collection fee, and idle money counted as zero; return = (received - invested) / budget |
+| T15.5 | The minimum is chosen on validation only, from a fixed grid, as the one with the highest realised return under the same budget (a tie goes to the smallest); the ids used are recorded |
+| T15.6 | On made-up data where our PD is informative and the baseline's is not, our investor earns more with exactly the same budget every month |
+| T15.7 | Data test (D-096): the T0 champions against the baseline on the loans listed from 2014-02 to 2015-01, with their final outcomes; records realised default rate, loss and net return at caps of 5%, 10% and 20%; fixes no winner; checks the same budget, that everything bought is covered and listed in that year, and that nothing of that year chose the minimum |
+
+#### Buy rule and business metric
+
+`credit_risk.business` (D-084, D-085, D-096). For each loan, scheduled interest from `int_rate` and `term` (amortisation), expected return `(1 - PD) x scheduled interest - PD x LGD`. Each month at most K notes of 25 dollars, K = 10% of the loans listed the month before; loans with an expected return at or above the minimum are bought in listing order (the order of their ids) until K. A note receives its share of `total_pymnt` less the collection fee; the net return is (received - invested) over the money available, so idle money counts as zero. It is the total over the life of the loans, not annualised (all are 36-month loans). The minimum is chosen from a grid from -0.10 to 0.30 in steps of 0.005, on validation only; the realised return is measured on the loans listed in the 12 months after T0.
