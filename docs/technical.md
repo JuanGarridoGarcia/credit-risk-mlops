@@ -34,7 +34,7 @@ Status of every step of the playbook. Updated in every pull request.
 | | 3.2 Tracking and experiments | Done | #7, PR 2 | D-068, D-071 to D-079, D-087, D-088, D-091, D-092, D-094; E-027 to E-036 |
 | | 3.3 Model tests and promotion rules | Done | PR 2 | D-080, D-081, D-086, D-093 |
 | | 3.4 Model registry | Done | PR 2 | D-082, D-090 |
-| | 3.5 Explainability and model card | Designed | | D-083; buy rule and budget D-084, D-085 |
+| | 3.5 Explainability and model card | Done | PR 3 | D-083, D-095; buy rule, budget and business result D-084, D-085, D-096, D-097 |
 | F4 Automation | 4.1 Orchestrated training flow | Pending | | |
 | | 4.2 Batch prediction flow | Pending | | Replaced by the replayer calling the API (D-008) |
 | F5 Deployment | 5.1 API | Pending | | |
@@ -692,3 +692,16 @@ Every version registered by `make train` gets a `model_card.md` in its run (D-09
 #### Buy rule and business metric
 
 `credit_risk.business` (D-084, D-085, D-096). For each loan, scheduled interest from `int_rate` and `term` (amortisation), expected return `(1 - PD) x scheduled interest - PD x LGD`. Each month at most K notes of 25 dollars, K = 10% of the loans listed the month before; loans with an expected return at or above the minimum are bought in listing order (the order of their ids) until K. A note receives its share of `total_pymnt` less the collection fee; the net return is (received - invested) over the money available, so idle money counts as zero. It is the total over the life of the loans, not annualised (all are 36-month loans). The minimum is chosen from a grid from -0.10 to 0.30 in steps of 0.005, on validation only; the realised return is measured on the loans listed in the 12 months after T0.
+
+Measured at T0 by T15.7 (2026-11-24), loans listed from 2014-02 to 2015-01, same budget for both investors every month:
+
+| Cap | Investor | Minimum | Notes | Budget ($) | Default rate | Loss | Net return |
+|---|---|---|---|---|---|---|---|
+| 5% | model | +0.145 | 11,478 | 294,375 | 0.198 | 0.076 | +0.0899 |
+| 5% | baseline | +0.105 | 11,775 | 294,375 | 0.176 | 0.067 | +0.0895 |
+| 10% | model | +0.135 | 21,301 | 588,900 | 0.186 | 0.071 | +0.0846 |
+| 10% | baseline | +0.105 | 23,556 | 588,900 | 0.177 | 0.067 | +0.0895 |
+| 20% | model | +0.120 | 37,656 | 1,177,975 | 0.173 | 0.065 | +0.0749 |
+| 20% | baseline | +0.100 | 45,942 | 1,177,975 | 0.166 | 0.063 | +0.0870 |
+
+At T0 our model does not beat the grade baseline on realised return: about equal at 5%, worse at 10% and 20%. It picks a higher minimum on validation, buys fewer notes (idle money earns zero), and the notes it buys default more often, so the better ranking of the PD (AUC 0.677 against 0.636) does not turn into better choices under this rule. Juan chose to report it as measured and to review the rule in a later step (D-097).

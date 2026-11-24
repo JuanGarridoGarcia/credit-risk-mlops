@@ -1114,3 +1114,13 @@ Date: 2026-11-24 · Step: 3.5 (completes D-007, D-084, D-085) · Status: Active
 - **Alternatives considered**: (B) cross-fitting within validation: choose the minimum on four fifths and measure on the fifth left, five times; nothing after T0 is used, but only six months of loans; (C) validation alone: simplest, but optimistic.
 - **Why**: it is the honest answer to "would it have made more money?", with both investors under the same rules and budget (D-085).
 - **Consequences**: the measurement needs every delivery up to the end of those loans, so it is a data test (local). It is a single year with a single pair of models; F4 and F7 repeat it as the models are retrained.
+
+### D-097 The business result at T0 is reported as measured; improving the buy rule is a later decision
+
+Date: 2026-11-24 · Step: 3.5 (follows D-096) · Status: Active
+
+- **Context**: T15.7 measured the realised return at T0 (D-096) on the loans listed from 2014-02 to 2015-01, with the same budget for both investors. Our models do not beat the grade baseline: +8.99% against +8.95% at a cap of 5%, +8.46% against +8.95% at 10%, +7.49% against +8.70% at 20%. Our investor chooses a higher minimum on validation, buys fewer notes (idle money earns zero) and the notes it buys default more often. A better PD ranking (AUC 0.677 against 0.636) does not turn into better choices under this rule.
+- **Decision**: the result is reported as measured in the README, the technical document and the known limits of the model card, and the third pull request of F3 is opened with it. Looking for the cause and changing the buy rule is a separate decision, with its own tests, after this pull request.
+- **Alternatives considered**: (B) investigate the cause before opening the pull request; (C) change the buy rule now (for example, rank by expected return and fill the cap), with new tests.
+- **Why**: the measurement was designed before the result was known and is closed; changing the rule after seeing the answer, on the same year, would fit the rule to that year. A negative result stated plainly is worth more than one fixed without evidence.
+- **Consequences**: the claim of the project at T0 is that the models rank and are calibrated better than the baseline, not that they earn more. The buy rule is open for review in a later step; any new rule is measured on loans it was not chosen on.

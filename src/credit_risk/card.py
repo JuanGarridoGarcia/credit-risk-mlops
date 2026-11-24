@@ -73,6 +73,9 @@ LIMITS: Final = (
     "Calibrated on validation (Platt for the PD, D-076; a level shift for the LGD, D-094); "
     "a trend after validation is not in the model and is watched by monitoring (F6).",
     "Reasons are contributions to the model's log-odds, not causes.",
+    "Ranking better than the grade baseline does not by itself earn more: at T0 the buy "
+    "rule with these models earned less than with the baseline at caps of 10% and 20% "
+    "(D-097).",
 )
 
 
