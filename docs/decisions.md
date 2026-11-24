@@ -95,6 +95,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-085](#d-085) | 2026-11-24 | 3.x (buy rule) | Budget: one 25 dollar note per loan, a monthly cap of 10% of last month's listings, idle cash earns nothing | Active |
 | [D-086](#d-086) | 2026-11-24 | 3.3 | Behavioural model tests: invariance, direction, minimum cases, prediction time, and bad models that must fail | Active |
 | [D-087](#d-087) | 2026-11-24 | 3.2 | LGD candidates: regularised linear regression and LightGBM against the mean by grade, with the PD machinery | Active |
+| [D-088](#d-088) | 2026-11-24 | 3.2 (changes step 2.3) | The LGD label is a column of the training file, computed when the snapshot is built | Active |
 
 ## Decisions
 
@@ -1009,3 +1010,14 @@ Date: 2026-11-24 · Step: 3.2 · Status: Active
 - **Alternatives considered**: (A) the baseline only, never challenged: simple, but a model that beats it with more data would never be found; (C) LGD-specific models (beta regression, two-stage models: does it recover anything, and how much): closer to the shape of LGD, but more complex, and they did not win in the research phase.
 - **Why**: it reuses every rule already decided, and lets the data of each date say when a model beats the mean by grade. A mean by grade as LGD champion at T0 is an honest result, not a failure.
 - **Consequences**: the champion/challenger logic must also accept a baseline as champion. The level by grade matters even with a low R², because expected loss multiplies it: a level error in one grade shifts the expected loss, and the buy decision, of every loan in that grade.
+
+<a id="d-088"></a>
+### D-088 The LGD label is a column of the training file, computed when the snapshot is built
+
+Date: 2026-11-24 · Step: 3.2 (changes step 2.3, D-060) · Status: Active (implementation in F3)
+
+- **Context**: a snapshot has two files (D-060): `features.parquet`, the only one training reads (features and the default label), and `evaluation.parquet`, with payments and recoveries, read only by evaluation. LGD is computed from payments and recoveries (data audit, section 4.5), so LGD training had no label.
+- **Decision**: `features.parquet` gets an `lgd` column, computed when the snapshot is built: `(EAD - principal repaid - (recoveries - collection fee)) / EAD`, with EAD the funded amount, only for loans charged off at least 12 months before T (D-017); empty for every other loan. Values outside [0, 1] are kept as computed and clipped by the model step.
+- **Alternatives considered**: (B) LGD training also reads `evaluation.parquet`: no change to F2, but it breaks the guarantee of D-060, since training code would have future payments at hand and a mistake could turn them into features; (C) a separate LGD snapshot: full separation, but two data versions per training to keep in step.
+- **Why**: the same reasoning as for the default label: a label may come from the future because it is what is predicted, never an input. The raw payment columns could be used as features by mistake; one derived number for the eligible loans only cannot.
+- **Consequences**: `sql/training_ids.sql` (or its companion query), the snapshot schema and test T5.5 change (test changes need Juan's approval); every snapshot gets a new content hash (only test snapshots exist so far). The rule of D-017 lives in one place, versioned with the snapshot.
