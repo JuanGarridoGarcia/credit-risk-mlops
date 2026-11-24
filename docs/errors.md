@@ -50,6 +50,10 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-040](#e-040) | 2026-11-24 | 4.1 | T16.8 expected raw unchanged after a failed validation | Minor |
 | [E-041](#e-041) | 2026-11-24 | 4.1 | The unit tests failed inside the test image: Prefect could not create its home folder | Minor |
 | [E-042](#e-042) | 2026-11-24 | 4.1 | The alert of a failed flow did not name the failed task | Minor |
+| [E-043](#e-043) | 2026-11-24 | 5.1 | The FastAPI test client failed to import: Starlette asks for a new HTTP client | Minor |
+| [E-044](#e-044) | 2026-11-24 | 5.1 | The load test missed the latency objective: 31 ms of work for a single loan | Major |
+| [E-045](#e-045) | 2026-11-24 | 5.1 | The first load test measured its own clients as much as the API | Minor |
+| [E-046](#e-046) | 2026-11-24 | 5.1 | The real-month test sent listings without their empty columns | Minor |
 
 ## Errors
 
@@ -455,3 +459,44 @@ Date: 2026-11-24 · Step: 4.1 · Severity: minor
 - **Cause**: Prefect 3 sends task states to the server as events, which the server records a moment later. The `on_failure` hook of the flow runs right after the flow fails and asked the server for the task runs before the failed state of `load` was recorded.
 - **Fix**: `flows.failed_tasks` asks again every half second, for up to 15 seconds, until it sees a failed task. A flow that failed before any task waits it out and records the alert without a task.
 - **Prevention**: T17.2 checks the task in the alert on a real (temporary) Prefect server, and T17.7 on the server of docker compose.
+
+<a id="e-043"></a>
+### E-043 The FastAPI test client failed to import: Starlette asks for a new HTTP client
+
+Date: 2026-11-24 · Step: 5.1 · Severity: minor
+
+- **Symptom**: collecting `tests/unit/test_api.py` failed: `StarletteDeprecationWarning: Using httpx with starlette.testclient is deprecated; install httpx2 instead`, an error because every warning is one.
+- **Cause**: Starlette 1.10 (in `uv.lock` through FastAPI) now prefers a new client package, `httpx2`, for its test client; `httpx` still works.
+- **Fix**: `httpx` (already in the lock through Prefect) in the `dev` group, and this one warning ignored by its exact message in the pytest settings. Adding a new, unreviewed package to the lock was not done in this pull request.
+- **Prevention**: the ignore names the message only, so any other warning still fails; it is revisited when the lock moves to `httpx2`.
+
+<a id="e-044"></a>
+### E-044 The load test missed the latency objective: 31 ms of work for a single loan
+
+Date: 2026-11-24 · Step: 5.1 · Severity: major
+
+- **Symptom**: T18.13 (20 clients without pause) gave p95 1,625 ms; one process answered about 14 requests a second.
+- **Cause**: two. (1) Scoring one loan took 31 ms: `Prepare.transform` and `cleaning.convert` call polars once per column (about 100 calls for one row), and the PD's model matrix was built three times (PD, explanation, and the LGD's own). (2) The measuring clients ran in the same Python process as the server (E-045).
+- **Fix**: `Prepare.transform` computes the numeric and gap columns in one polars call and the categories in numpy; `cleaning.convert` computes every mask in one call; the API builds the PD's matrix once and passes it to the PD and its explanation (`x` argument). Same values to the last bit (every model test unchanged and green). The LGD's linear model sums row by row, like the PD, so a loan gets exactly the same LGD alone or in a batch (T18.4). 12 ms of work a loan, 70 answers a second for one process. With 20 clients always waiting the p95 was still 364 ms: that test measured saturation, and Juan changed it to an open load (D-122).
+- **Prevention**: T18.13 runs in every CI and fails above 200 ms; it prints the capacity, recorded in technical.md.
+
+<a id="e-045"></a>
+### E-045 The first load test measured its own clients as much as the API
+
+Date: 2026-11-24 · Step: 5.1 · Severity: minor
+
+- **Symptom**: the first T18.13 served the API with uvicorn in a thread of the test process: 14 answers a second, against 70 once separated.
+- **Cause**: Python runs one thread at a time per process (the GIL). The 20 client threads and the server shared it, so the clients' own work counted as the API's latency.
+- **Fix**: T18.13 starts the API in a process of its own (`python -m credit_risk.api --port N`), as in compose.
+- **Prevention**: the test's docstring says why; a load test never shares a process with what it measures.
+
+<a id="e-046"></a>
+### E-046 The real-month test sent listings without their empty columns
+
+Date: 2026-11-24 · Step: 5.1 · Severity: minor
+
+- **Symptom**: T18.15 got 13,786 of 15,269 loans of 2014-02 refused: `mths_since_last_delinq: Field required`.
+- **Cause**: an error in the test, not in the API: it dropped the empty columns of each row before sending, and the columns the model reads must be present even when empty (D-116).
+- **Fix**: the test sends every column of the delivery, empty ones as null, as the replayer will.
+- **Prevention**: the replayer (second pull request) sends delivery rows as they are; T18.15 shows that a whole real month passes with no refusal.
+

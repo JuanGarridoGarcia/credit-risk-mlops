@@ -12,6 +12,7 @@ Related documents: [problem definition](problem.md), [data audit](data_audit.md)
 4. F2 Data (steps 2.1 to 2.4)
 5. F3 Model (steps 3.1 to 3.5)
 6. F4 Automation (step 4.1)
+7. F5 Deployment (step 5.1; old step 4.2 and step 5.2 to come)
 
 ---
 
@@ -36,9 +37,9 @@ Status of every step of the playbook. Updated in every pull request.
 | | 3.3 Model tests and promotion rules | Done | PR 2 | D-080, D-081, D-086, D-093 |
 | | 3.4 Model registry | Done | PR 2 | D-082, D-090 |
 | | 3.5 Explainability and model card | Done | PR 3 | D-083, D-095; buy rule, budget and business result D-084, D-085, D-096, D-097 |
-| F4 Automation | 4.1 Orchestrated training flow | In review | PR 1 (#10) and PR 2 of F4 | D-098 to D-108; E-037 to E-042; PR 2: clock, cadence and alerts |
-| | 4.2 Batch prediction flow | Moved to F5 | | Replaced by the replayer calling the API (D-008, D-098) |
-| F5 Deployment | 5.1 API | Pending | | |
+| F4 Automation | 4.1 Orchestrated training flow | Done | #10, #11 | D-098 to D-108; E-037 to E-042; #11: clock, cadence and alerts |
+| | 4.2 Batch prediction flow | Moved to F5 | | Replaced by the replayer calling the API (D-008, D-098); second pull request of F5 |
+| F5 Deployment | 5.1 API | In review | PR 1 of F5 | D-109 to D-122; E-043 to E-046; API, predictions table, buy rule in MLflow |
 | | 5.2 Published image and CD | Pending | | |
 | F6 Monitoring | 6.1 Drift and metrics | Pending | | |
 | | 6.2 Dashboard and alerts | Pending | | |
@@ -794,4 +795,90 @@ At the end of 2014 the PD champion is v5 and the LGD champion is still the mean 
 | Error | What happened |
 |---|---|
 | E-042 | The failure hook asked for the task runs before the server had recorded the failed task; it now asks again for up to 15 s |
+
+---
+
+## 7. F5 Deployment
+
+Every decision of F5 was explained to Juan and taken by him one at a time on 2026-11-24 (D-109 to D-122). Scope (D-109): step 5.1 (the API), the old step 4.2 as a replayer that sends each month to the API (D-098), and step 5.2 (a versioned image published by CD). Three pull requests: (1) the API and the predictions table; (2) the replayer in the simulated clock; (3) the published image.
+
+**The design in one page**
+
+| Topic | Decision |
+|---|---|
+| Models | The champions of the MLflow registry, by their alias `champion` (D-110) |
+| New champions | The flow notifies `POST /admin/reload` after a promotion; the API also polls the aliases every 60 s; PD, LGD and buy rule are swapped as a whole, and a failed load keeps the set in use and alerts (D-111) |
+| Answer | PD, LGD, expected loss in dollars (PD x LGD x EAD, EAD = amount funded) and as a rate, expected return, whether it passes the buy threshold, four main reasons, versions; the monthly cap stays with the investor (D-112) |
+| Predictions table | `serving.predictions`: one row per prediction, columns for what is filtered, JSONB for the request, the features and the SHAP vector (D-113) |
+| Duplicates | Unique (loan, PD version, LGD version); a repeat returns the stored answer (D-114) |
+| Request log | One JSON line per request on stdout and one row in `serving.requests`; refused requests keep their body and errors (D-115) |
+| Input | Listings as the provider delivers them (every column as text), cleaned with the code of the monthly load; 422 names the column (D-116) |
+| Batch | Up to 1,000 loans, a result per loan; only a malformed batch is refused whole (D-117) |
+| Access | API keys in `X-API-Key`, one list per permission (predict, admin), several valid at once; `/health` open (D-118) |
+| Installation | FastAPI 0.150 and uvicorn in the main dependencies, one lock (D-119) |
+| Buy threshold | The buy rule is registered in MLflow like a model, chosen again when the champion pair changes (D-120) |
+| Writing | Each prediction is written before it is answered, in the request's transaction; database down gives 503 (D-121) |
+| Load test | Open load of 20 requests a second, p95 under 200 ms; capacity measured apart (D-122) |
+
+### First pull request: the API and the predictions table
+
+```
+ monthly flow (Prefect)                                API (credit_risk.api, serve image)
+ load -> version -> train-pd -> train-lgd              POST /predict, /predict/batch  (predict key)
+                       |           |                     1. validate the listing (pydantic, strict)
+                       v           v                     2. clean + features (same code as the load)
+                    buy-rule (D-120): minimum on         3. PD, LGD, SHAP, EL, expected return,
+                    validation for the champion pair        threshold of the buy rule
+                       |                                 4. INSERT request + predictions, one
+                       v                                    transaction, ON CONFLICT do nothing
+                    reload: POST /admin/reload ------->  POST /admin/reload  (admin key)
+                    (if a champion or the rule moved)      loads pd + lgd + buy_rule by alias,
+                    failure -> ops.alerts reload_failed    swaps them in one assignment
+                                                         poll every 60 s: same, if an alias moved
+ MLflow registry: pd, lgd, buy_rule @champion  <-------  GET /health/live (process), /health (ready)
+```
+
+**The package.** `credit_risk.api` has five modules. `settings` reads the keys and options (`API_*`). `champions` keeps the set in use: `Holder.refresh()` loads PD, LGD and buy rule from the registry, checks their types, and replaces the set in one assignment under a lock, so a request reads one set from start to end (T18.9). `scoring` turns typed listings into answers with the functions of F3: `features.build_features`, `PDModel.predict_pd`, `LGDModel.predict_lgd`, `explain.explain` and `business.scheduled_interest`; the PD's model matrix is built once and shared with its explanation. `store` writes to Postgres through a pool of connections. `app` holds the endpoints, the key checks and the middleware that times each request, writes its log line and records refused requests. `python -m credit_risk.api` serves it with uvicorn, one process per container: a reload has to reach the process that serves, so the API grows by adding containers, never workers inside one.
+
+**Input (D-116).** The body is a listing with the columns of the delivery contract (`contracts.LISTING_COLUMNS`), every value as text or null, exactly as the replayer reads the monthly file. A pydantic model built from the contract refuses unknown fields and requires `id` and every column the model reads (`features.INPUTS`), even when empty. Then `cleaning.convert` applies the rules of the monthly load and `build_features` builds the 30 features; a value the cleaning cannot convert is a 422 naming its column. A term the PD does not cover is answered with `covered: false` and no risk (D-070), and stored.
+
+**The answer.**
+
+```json
+{
+  "request_id": "...",
+  "prediction": {
+    "loan_id": 12345, "covered": true, "note": null,
+    "pd": 0.143, "lgd": 0.83, "ead": 10000.0,
+    "expected_loss": 1186.9, "el_rate": 0.1187, "expected_return": 0.071,
+    "threshold": {"available": true, "minimum": 0.135, "passes": false},
+    "reasons": [{"feature": "grade", "value": "D", "contribution": 0.41}, "..."],
+    "versions": {"pd": "5", "lgd": "1", "buy_rule": "2", "api": "0.1.0"},
+    "stored_earlier": false
+  }
+}
+```
+
+If the buy rule in use was chosen for another PD and LGD pair, or there is none yet, the risk is served and `threshold.available` is false (T18.10). The batch endpoint answers `{"results": [...]}` in the order sent, each item either `prediction` or `errors`.
+
+**Tables** (migration `20261124180000`). `serving.requests`: one row per request (id, time, endpoint, client name, status, latency, number of loans, refused, versions; body and errors only when refused). `serving.predictions`: one row per loan and pair of models, linked to its request: versions, `covered`, PD, LGD, EAD, expected loss, rate and return, minimum and `passes`, base value, the SHAP vector of the 30 features, the four reasons, the features and the request as JSONB. Checks in the database: PD and LGD in [0, 1], and a covered row has PD, LGD and contributions. The unique constraint `predictions_once (loan_id, pd_version, lgd_version)` makes a repeat return the stored row, marked `stored_earlier` (T18.6). Request and predictions are written in one transaction before the answer leaves; if Postgres is down the answer is 503 and nothing is predicted (T18.7). Migration `20261124180100` adds the alert kinds `model_load_failed` (the API could not load a champion) and `reload_failed` (the flow could not notify the API).
+
+**Buy rule (D-120).** `credit_risk.buy_rule`: after training, the task `buy-rule` reads the champion pair; if no buy rule is registered for it (tags `pd_version`, `lgd_version`), it chooses the minimum expected return on the validation split of the current training set with `business.choose_minimum` (D-084), at the cap K of D-085, with a bootstrap interval of the net return, logs a run with the required fields (D-079), registers it as the model `buy_rule` and moves its alias; if one exists (a rollback to an earlier pair), the alias goes back to it. Then the task `reload` notifies the API when a champion or the rule moved. A failed notice does not fail the flow: it records `reload_failed` and polling catches up within 60 s (T19.2).
+
+**Keys (D-118).** `API_KEYS_PREDICT` and `API_KEYS_ADMIN` hold `name:key` pairs separated by commas; a key has at least 32 characters, compared in constant time; only the name reaches logs and tables. The flow sends `API_ADMIN_KEY`, the replayer `API_PREDICT_KEY`. Rotation by hand in compose, with no moment without a valid key: (1) add the new key to the list and restart the API (both valid); (2) give the client the new key; (3) remove the old one and restart. In AWS (F7) Secrets Manager does these steps on its own.
+
+**Health.** `/health/live` answers while the process runs (the compose healthcheck). `/health` answers 200 only when the champions are loaded and Postgres answers, with the versions in use and the time of the last load; otherwise 503 (T18.8).
+
+**Compose.** A new service `api` from the `serve` image, port `127.0.0.1:8000`, with Postgres and MLflow in its environment; the worker gets `API_URL=http://api:8000` and the admin key. The interactive documentation is at `http://localhost:8000/docs`.
+
+**Measured** (2026-11-24, cloud machine, one API process). Scoring one loan with its explanation and storing it: about 12 ms of work (31 ms before the changes of E-044). Open load of 20 requests a second for 60 s (T18.13): p95 30 ms. Capacity with 20 clients always waiting: about 70 answers a second per process. A batch of 1,000 loans: about 1 s. For scale, Lending Club listed at most about 40,000 loans a month in 2018, under one a minute. The real delivery of 2014-02 (15,269 loans, models trained at T0) through the API in batches of 1,000 gives exactly what scoring the month in process gives (T18.15): 10,943 covered (36 months), minimum expected return +0.135, 2,915 pass the threshold.
+
+**Tests** (T18 and T19, approved by Juan on 2026-11-24): the full answer (T18.1); uncovered terms (T18.2); invalid input (T18.3); batches (T18.4); keys (T18.5); duplicates (T18.6); synchronous writing (T18.7); start and readiness (T18.8); reload (T18.9); threshold of another pair (T18.10); what is stored (T18.11); logs (T18.12); load (T18.13, changed by D-122); compose and the `serve` image (T18.14); a real month (T18.15); the buy rule in the flow (T19.1) and the notice to the API (T19.2). T16.8 and T17.6 now expect the tasks `buy-rule` and `reload`.
+
+| Error | What happened |
+|---|---|
+| E-043 | Starlette's test client asks for `httpx2`; httpx kept and the warning ignored by its message |
+| E-044 | The load test missed its objective: 31 ms of work per loan; polars called once per column, the PD's matrix built three times |
+| E-045 | The first load test ran its clients in the server's process (the GIL) |
+| E-046 | The real-month test dropped empty columns; the API rightly refused the loans |
 
