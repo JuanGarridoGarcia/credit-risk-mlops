@@ -94,6 +94,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-084](#d-084) | 2026-11-24 | 3.x (buy rule, open since problem.md) | Buy rule: buy when the expected return beats a minimum chosen on validation | Active |
 | [D-085](#d-085) | 2026-11-24 | 3.x (buy rule) | Budget: one 25 dollar note per loan, a monthly cap of 10% of last month's listings, idle cash earns nothing | Active |
 | [D-086](#d-086) | 2026-11-24 | 3.3 | Behavioural model tests: invariance, direction, minimum cases, prediction time, and bad models that must fail | Active |
+| [D-087](#d-087) | 2026-11-24 | 3.2 | LGD candidates: regularised linear regression and LightGBM against the mean by grade, with the PD machinery | Active |
 
 ## Decisions
 
@@ -997,3 +998,14 @@ Date: 2026-11-24 · Step: 3.3 · Status: Active (each test approved by Juan befo
 - **Alternatives considered**: (A) direction and bad models only: quick, but batch against single scoring and the edge cases go untested; (C) the battery plus fairness tests by protected group: very relevant in credit, but the data hold no protected attributes, and proxies were handled in F0 (D-018); a separate decision if wanted.
 - **Why**: it covers what step 3.3 asks for and shows the tests catch something. A constant model at the mean PD is perfectly calibrated overall, so calibration alone would let it through; it is stopped by the comparison with the baseline (AUC 0.5), by the segment test against the champion and by the minimum cases (a good profile must score lower than a bad one).
 - **Consequences**: each test gets its ID in `docs/tests.md` and Juan's approval before it is written (D-057).
+
+<a id="d-087"></a>
+### D-087 LGD candidates: regularised linear regression and LightGBM against the mean by grade, with the PD machinery
+
+Date: 2026-11-24 · Step: 3.2 · Status: Active
+
+- **Context**: LGD is hard to predict loan by loan: in the research phase the best model (CatBoost) reached R² 0.064, while its mean level matched (52.2% predicted against 52.2% observed). What matters for expected loss is the level by segment. The baseline is the mean LGD by grade (D-005). At T0 there are about 1,400 matured defaults between training and validation.
+- **Decision**: the same machinery as the PD. Candidates: a **regularised linear regression** and a **LightGBM regressor**, tuned on the inner split (D-073, D-074), compared with the mean by grade on validation with the paired bootstrap of D-075 on RMSE, and with the calibration by segment of D-081 (mean predicted against mean observed LGD). Predictions are clipped to [0, 1]. Same split by term (D-069). If no candidate beats the baseline by more than the noise, the mean by grade is the LGD champion.
+- **Alternatives considered**: (A) the baseline only, never challenged: simple, but a model that beats it with more data would never be found; (C) LGD-specific models (beta regression, two-stage models: does it recover anything, and how much): closer to the shape of LGD, but more complex, and they did not win in the research phase.
+- **Why**: it reuses every rule already decided, and lets the data of each date say when a model beats the mean by grade. A mean by grade as LGD champion at T0 is an honest result, not a failure.
+- **Consequences**: the champion/challenger logic must also accept a baseline as champion. The level by grade matters even with a low R², because expected loss multiplies it: a level error in one grade shifts the expected loss, and the buy decision, of every loan in that grade.
