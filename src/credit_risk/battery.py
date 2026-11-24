@@ -23,8 +23,9 @@ from typing import Final, Protocol
 import numpy as np
 import polars as pl
 
+from credit_risk.explain import explain
 from credit_risk.features import FEATURES, FICO, build_features
-from credit_risk.model import MONOTONE
+from credit_risk.model import MONOTONE, PDModel
 
 #: D-086: one prediction, in process, at the 95th percentile.
 MAX_LATENCY_MS: Final = 50.0
@@ -143,6 +144,9 @@ def latency(model: Scorer, features: pl.DataFrame, result: BatteryResult) -> Non
         one = rows.slice(i, 1)
         start = time.perf_counter()
         model.predict_pd(one)
+        if isinstance(model, PDModel):
+            # The PD is served with its explanation (D-083), so both are timed.
+            explain(model, one)
         times.append((time.perf_counter() - start) * 1000)
     p95 = float(np.percentile(times, 95))
     result.checks["time: p95 under 50 ms"] = p95 < MAX_LATENCY_MS

@@ -596,6 +596,7 @@ promote: noise, segments (with margins, D-093), signs, battery (PD only)
 | `lgd.py` | The LGD procedure on the same machinery |
 | `compare.py` | Metrics, paired bootstrap (D-075), segments and their margins (D-081, D-093) |
 | `battery.py` | The behavioural battery (D-086) |
+| `explain.py` | The explanation of each PD: base value, one contribution per feature, the four main reasons (D-083) |
 | `tracking.py` | Run records and their check (D-079); the MLflow server of compose |
 | `registry.py` | Storing, registering, promotion, alert and rollback (D-082, D-090) |
 | `pipeline.py` | `make train T=YYYY-MM`: the newest training set version at T, both targets, register and promote |
@@ -632,3 +633,29 @@ Both share the `runtime` base, which adds the OpenMP runtime LightGBM needs (`li
 | LGD, validation RMSE | before the correction: ridge 0.2216, LightGBM 0.2241, baseline 0.2214; after: 0.2157, 0.2176, 0.2156 |
 | LGD, promotion | No candidate beats the baseline: the mean LGD by grade is the champion (D-087) |
 | Whole retrain (both targets, every search, MLflow) | about 40 seconds |
+
+### Third pull request: explanations and business
+
+Tests approved by Juan before any code was written; catalogued in [tests.md](tests.md).
+
+**T13 Explanations** (approved 2026-11-24)
+
+| ID | What it checks |
+|---|---|
+| T13.1 | Additivity for the logistic regression, LightGBM and the baseline: base value plus contributions equals the log-odds of the calibrated PD (relative and absolute tolerance 1e-9), on validation loans and odd rows (every optional field empty, an unseen category, extreme values) |
+| T13.2 | They are real SHAP values: our contributions equal those of the `shap` library (`LinearExplainer` with the training rows as background, `TreeExplainer`) within 1e-6. Runs where `shap` is installed (CI, the test and train images), never in `serve` |
+| T13.3 | One contribution per original feature: one-hot columns and "was missing" columns are summed into their feature; the vector has exactly the 30 features; a feature the model does not use contributes 0 (the baseline: everything but the grade) |
+| T13.4 | The four main reasons are the four largest contributions in absolute value, with their sign and the feature's value; ties keep the order of the features; a case by hand. A loan with no PD gets no reasons, and a feature with no contribution is no reason |
+| T13.5 | The reasons make sense: for the clearly bad profile of the battery the main reason raises the PD, for the clearly good one it lowers it, for both candidates |
+| T10.4 (changed) | One prediction **with** its explanation takes under 50 ms (p95) |
+
+#### How explanations work
+
+Each PD is explained as a base value plus one contribution per feature, in log-odds, computed without the `shap` library so that `serve` stays light (D-078, B7):
+
+| Model | Contribution of a column | Base value |
+|---|---|---|
+| Logistic regression, baseline | coefficient x (value - its mean on training) | intercept + coefficients x training means |
+| LightGBM | LightGBM's own `pred_contrib` (the tree algorithm of `shap.TreeExplainer`) | the last column of `pred_contrib` |
+
+Then Platt scaling (`a x raw + b`) multiplies every contribution by `a` and turns the base into `a x base + b`. The columns made from one feature (one-hot categories, the "was missing" column) are summed into that feature, so every explanation has the same 30 features and a feature the model does not use contributes 0. The four main reasons are the four largest contributions in absolute value; ties keep the order of the features, and a zero contribution is never a reason. For LightGBM the raw log-odds of the PD are now read directly from the model (`raw_score`), the exact sum of its contributions, instead of the log-odds of its probability.
