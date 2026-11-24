@@ -302,7 +302,7 @@ Date: 2026-11-24 · Step: 3.2 · Severity: minor
 
 - **Symptom**: building the images on Claude's cloud machine, `apt-get update` failed: first `405 Method Not Allowed`, then `403 Forbidden`, then `Could not load certificates from /run/secrets/extra_ca ... Permission denied`.
 - **Cause**: three things in a row. The machine's proxy only tunnels HTTPS, and Debian's sources use plain HTTP; `deb.debian.org` was not on the machine's list of allowed hosts; and apt downloads as its own unprivileged user `_apt`, which cannot read a build secret mounted with the default mode (readable by root only).
-- **Fix**: `deb.debian.org` added to the allowed hosts of the cloud environment (approved by Juan). In the Dockerfile, only when the `extra_ca` secret is present (E-008), apt goes over HTTPS through the proxy with that CA, the secret is mounted with mode `0444`, and the sources are restored to HTTP afterwards. Without the secret (CI, a normal PC) the step is the plain `apt-get install`.
+- **Fix**: `deb.debian.org` added to the allowed hosts of the cloud environment (approved by Juan). In the Dockerfile, only when the `extra_ca` secret is present (E-008), apt goes over HTTPS through the proxy with that CA, the secret is mounted with mode `0444` at `/run/extra_ca.pem` (outside `/run/secrets`: this step stays in the history of the shipped images, which B5 scans for secret words, and the CA is a public certificate), and the sources are restored to HTTP afterwards. Without the secret (CI, a normal PC) the step is the plain `apt-get install`.
 - **Prevention**: the comment in the Dockerfile explains the three parts.
 
 <a id="e-028"></a>
@@ -312,6 +312,6 @@ Date: 2026-11-24 · Step: 3.2 · Severity: moderate
 
 - **Symptom**: the first `serve` image measured 973 MB with `docker image inspect --format {{.Size}}` (the measure of B5), above its 800 MB budget (D-078), although its layers add up to 752 MB.
 - **Cause**: Docker reports `Size` differently by image store. With the containerd image store (the default of new Docker installs, used on Claude's cloud machine) it adds the compressed layers to the unpacked ones; with the classic store it is the unpacked size only. The same image gives two numbers, so a budget can pass in one place and fail in another. The 466 MB of the F2 image (D-052) was measured the first way: its layers add up to 356 MB.
-- **Fix**: pending Juan's approval of the change to B5: measure the unpacked size as the sum of the image's layers (`docker history`), the same on every machine.
+- **Fix**: B5 now measures the unpacked size as the sum of the image's layers (`docker history`), the same on every machine (change approved by Juan on 2026-11-24). Measured that way: `serve` 752 MB, `train` 1,229 MB, the F2 image 356 MB.
 - **Prevention**: B5 states which size it measures and why.
 

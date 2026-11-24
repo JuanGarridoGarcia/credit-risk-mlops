@@ -1,18 +1,20 @@
-"""B5: the application image runs unprivileged, carries no secrets and stays small."""
+"""B5: the application images run unprivileged, carry no secrets and stay small."""
 
 import json
 
 import pytest
 
 import credit_risk
-from tests.integration.conftest import docker
+from tests.integration.conftest import IMAGES, docker
 
 pytestmark = pytest.mark.integration
 
-# Measured at 211 MB on 2026-11-22 (F1) and 456 MB on 2026-11-23 after polars entered
-# (its binary alone is 170 MB, D-052). A jump above this means something that should not
-# be there (data, Jupyter, compilers) entered the image.
-MAX_IMAGE_SIZE_MB = 500
+# Budgets of D-078, on the unpacked size: the sum of the image's layers. It is the same on
+# every machine, unlike `docker image inspect`, whose Size also counts the compressed
+# layers under the containerd image store (E-028). Measured on 2026-11-24: serve 752 MB,
+# train 1,229 MB. A jump above a budget means something that should not be there (data,
+# Jupyter, compilers, training libraries in serve) entered the image.
+MAX_IMAGE_SIZE_MB = {IMAGES["serve"]: 800, IMAGES["train"]: 1_500}
 
 SECRET_MARKERS = ("PASSWORD", "SECRET", "TOKEN", "KAGGLE", "AWS_")
 
@@ -57,6 +59,7 @@ def test_image_default_command_works(image: str) -> None:
 
 
 def test_image_size_within_budget(image: str) -> None:
-    size_mb = int(docker("image", "inspect", image, "--format", "{{.Size}}")) / 1e6
+    layers = docker("history", "--human=false", "--format", "{{.Size}}", image)
+    size_mb = sum(int(size) for size in layers.split()) / 1e6
 
-    assert size_mb <= MAX_IMAGE_SIZE_MB, f"image is {size_mb:.0f} MB"
+    assert size_mb <= MAX_IMAGE_SIZE_MB[image], f"{image} is {size_mb:.0f} MB"

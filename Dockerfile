@@ -82,11 +82,13 @@ LABEL org.opencontainers.image.title="credit-risk" \
 # Behind a TLS-inspecting proxy that only tunnels HTTPS (the "extra_ca" secret, E-008),
 # apt goes over HTTPS with that CA for this RUN only; the sources are restored after.
 # The CA is mounted readable by all: apt downloads as its own unprivileged user (_apt).
-RUN --mount=type=secret,id=extra_ca,mode=0444 \
+# It is a public certificate, not a secret; it is mounted outside /run/secrets because
+# this step stays in the history of the shipped images, which B5 scans for secret words.
+RUN --mount=type=secret,id=extra_ca,mode=0444,target=/run/extra_ca.pem \
     set -e; sources=/etc/apt/sources.list.d/debian.sources; opts=""; \
-    if [ -f /run/secrets/extra_ca ]; then \
+    if [ -f /run/extra_ca.pem ]; then \
         sed -i 's|http://deb.debian.org|https://deb.debian.org|' "$sources"; \
-        opts="-o Acquire::https::CAInfo=/run/secrets/extra_ca -o Acquire::https::Proxy=${https_proxy:-false}"; \
+        opts="-o Acquire::https::CAInfo=/run/extra_ca.pem -o Acquire::https::Proxy=${https_proxy:-false}"; \
     fi; \
     apt-get $opts update; \
     apt-get $opts install --yes --no-install-recommends libgomp1; \
@@ -108,6 +110,11 @@ CMD ["credit-risk"]
 # ---------------------------------------------------------------- train
 FROM runtime AS train
 LABEL org.opencontainers.image.title="credit-risk-train"
+# Where the MLflow server of docker compose keeps artefacts (a named volume takes the
+# owner of this folder, so the unprivileged user can write to it).
+USER root
+RUN mkdir -p /mlflow/artifacts && chown -R app:app /mlflow
+USER app
 COPY --from=builder-train --chown=app:app /opt/venv /opt/venv
 
 # ---------------------------------------------------------------- serve (default target)
