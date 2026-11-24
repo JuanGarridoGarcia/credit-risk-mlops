@@ -92,6 +92,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-082](#d-082) | 2026-11-23 | 3.4 | Automatic promotion when every rule passes, with evidence, an alert and a tested rollback | Active |
 | [D-083](#d-083) | 2026-11-23 | 3.5 | The API returns the four main reasons of each prediction; the full SHAP vector is stored with it | Active |
 | [D-084](#d-084) | 2026-11-24 | 3.x (buy rule, open since problem.md) | Buy rule: buy when the expected return beats a minimum chosen on validation | Active |
+| [D-085](#d-085) | 2026-11-24 | 3.x (buy rule) | Budget: one 25 dollar note per loan, a monthly cap of 10% of last month's listings, idle cash earns nothing | Active |
 
 ## Decisions
 
@@ -973,3 +974,14 @@ Date: 2026-11-24 · Step: buy rule (left open in `problem.md` section 2 until F3
 - **Alternatives considered**: (A) buy when expected loss (PD x LGD) is below a threshold: simple, but it ignores the interest rate and refuses risky but well-paid loans, exactly what D-002 wanted to capture; (C) the same as the decision plus a prepayment model: more realistic, but a third model, outside the scope agreed in F0.
 - **Why**: it weighs risk against return, which is what an investor decides on. Example with LGD 60% and 36-month loans: grade A at 7% (scheduled interest about 11%) and PD 4% gives 0.96 x 0.111 - 0.04 x 0.6 = 0.083; grade E at 20% (about 34%) and PD 25% gives 0.75 x 0.338 - 0.25 x 0.6 = 0.103, a better purchase despite six times the PD.
 - **Consequences**: known simplifications, documented in the model card: prepayments (which cut interest) and the instalments a defaulted loan pays before default are ignored, so expected return is overstated, by more for riskier loans. Realised return (D-007) is measured on actual payments, so it is not affected. The budget and how it is spent are a separate decision.
+
+<a id="d-085"></a>
+### D-085 Budget: one 25 dollar note per loan, a monthly cap of 10% of last month's listings, idle cash earns nothing
+
+Date: 2026-11-24 · Step: buy rule · Status: Active
+
+- **Context**: D-007 compares portfolios "with the same budget" but does not say how much it is or how it is spent. On Lending Club an investor bought 25 dollar notes of each loan (a share of it), not whole loans. Loans are decided one by one as they are listed (D-008).
+- **Decision**: one **25 dollar note** per loan bought. Each month the investor can buy at most **K notes**, with K equal to 10% of the loans listed the month before (known at the time). Loans that pass the buy rule (D-084) are bought in listing order until K is reached. Money not invested counts with a return of zero. Our model and the baseline play by exactly the same rules.
+- **Alternatives considered**: (A) one note for every loan that passes, with no cap: simple, compares return per dollar, but the money invested differs, so a very selective rule looks better than it is; (C) amounts proportional to expected return: better use of capital, but it is portfolio management, outside the scope agreed in F0.
+- **Why**: the same money, spent the same way, by both investors. Counting idle money at zero stops a rule that buys one safe loan a month from looking excellent: idle cash has an opportunity cost.
+- **Consequences**: 10% is a judgement: enough room to be selective without running out of loans to buy; the business metric is also reported at 5% and 20% to show how sensitive it is. Loans out of coverage (D-070) are never bought by either investor.
