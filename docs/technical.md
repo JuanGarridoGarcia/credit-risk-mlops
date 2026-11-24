@@ -530,3 +530,13 @@ Tests approved by Juan before any code is written. They enter `docs/tests.md` wi
 | T10.4 | Time: one prediction takes under 50 ms (p95) in process. Measured without the explanation here; extending it to include SHAP in the third pull request needs Juan's approval |
 | T10.5 | Bad models fail: a constant model and a random model fail the battery |
 | T10.6 | Data test: the model trained at T0 on the real data passes the whole battery |
+
+**T11 Registry** (approved 2026-11-24). Integration tests against the MLflow of compose.
+
+| ID | What it checks |
+|---|---|
+| T11.1 | Only a challenger that passes every rule is promoted: the alias `champion` moves to it; one case per rule where only that rule fails (noise, a segment, a sign, the battery) leaves the alias where it was; the promotion function has no option to skip a rule |
+| T11.2 | Every decision leaves evidence in the challenger's run, promoted or not: intervals, segments, battery results and, if rejected, the reason. Small values as tags and metrics (Postgres), the 1,000 differences, segment table and battery report as artefacts |
+| T11.3 | Every promotion alerts: until Grafana (F6), a WARNING log message with the previous and new champion, plus a tag in MLflow |
+| T11.4 | Rollback in one command (`make rollback MODEL=pd`): the alias returns to the previous champion, read from the tag written on each promoted version; predictions are again exactly those of that model; the rollback leaves evidence and alerts; with no previous champion it fails clearly and changes nothing |
+| T11.5 | The first champion (D-090): with no champion, the chosen model is compared with the grade-only baseline under the same rules; if it does not beat it, the baseline is the champion |

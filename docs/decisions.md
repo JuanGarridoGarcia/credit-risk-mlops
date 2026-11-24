@@ -97,6 +97,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-087](#d-087) | 2026-11-24 | 3.2 | LGD candidates: regularised linear regression and LightGBM against the mean by grade, with the PD machinery | Active |
 | [D-088](#d-088) | 2026-11-24 | 3.2 (changes step 2.3) | The LGD label is a column of the training file, computed when the snapshot is built | Active |
 | [D-089](#d-089) | 2026-11-24 | F3 (cross-cutting) | F3 is delivered in three pull requests: data, training, explanation and business | Active |
+| [D-090](#d-090) | 2026-11-24 | 3.4 | With no PD champion yet, the first model must beat the grade-only baseline; otherwise the baseline is the champion | Active |
 
 ## Decisions
 
@@ -1033,3 +1034,15 @@ Date: 2026-11-24 · Step: F3 (cross-cutting; adjusts the one-pull-request-per-ph
 - **Alternatives considered**: (A) one pull request at the end, as in F2: one review, but thousands of lines at once, and a problem found early surfaces only at the end.
 - **Why**: each pull request makes sense on its own and carries its tests; reviews stay thorough; failures appear sooner. The data pull request goes first because training reads the snapshot it changes: training on the old split or without the LGD label would be work thrown away.
 - **Consequences**: three reviews and three CI runs. After each merge the work branch restarts from `main`.
+
+<a id="d-090"></a>
+### D-090 With no PD champion yet, the first model must beat the grade-only baseline; otherwise the baseline is the champion
+
+Date: 2026-11-24 · Step: 3.4 · Status: Active
+
+- **Context**: promotion (D-082) compares a challenger with the champion, but at the first training there is no champion. For the LGD, D-087 already lets the mean by grade be the champion. For the PD this was not written down. Found while proposing test T11.5.
+- **Decision**: when there is no PD champion, the chosen model is compared with the grade-only logistic regression (D-004) under the same rules as any promotion: paired bootstrap (D-075), segments (D-081), signs (D-080) and the behavioural battery (D-086). If it passes, it becomes the first champion. If not, the baseline is registered and becomes the champion, and the next retraining competes against it.
+- **Alternatives considered**: (A) the first model becomes champion without comparison: simple, but a model no better than the grade alone could start buying; (B) no champion until a model beats the baseline, so nothing is scored: the simulation stops buying for no reason, when the baseline is a valid model that the business metric already uses as reference (D-084).
+- **Why**: the same rule as the LGD (D-087) and as every later promotion; nothing enters production without beating what it replaces, and something always does the scoring.
+- **Consequences**: the baseline is trained, logged and registered like any model, with the same required fields (D-079). The battery for the baseline has to accept that its PD is constant inside a grade: the invariance and minimum-case tests apply as they are, and the direction test of D-086 only applies to features the model uses. Each promotion writes on the new model version a tag with the previous champion and the date, so that rollback (T11.4) and the history of champions do not depend on the registry alias, which keeps only the current one.
+
