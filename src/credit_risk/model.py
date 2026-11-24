@@ -18,6 +18,7 @@ from typing import Any, Final, Literal
 import numpy as np
 import numpy.typing as npt
 import polars as pl
+from scipy.special import expit
 
 from credit_risk.features import CATEGORICAL, FEATURES, FICO, HISTORY, SCHEMA
 
@@ -54,8 +55,8 @@ def logit(p: Matrix) -> Matrix:
 
 
 def sigmoid(z: Matrix) -> Matrix:
-    """Inverse of :func:`logit`."""
-    return np.asarray(1 / (1 + np.exp(-z)), dtype=np.float64)
+    """Inverse of :func:`logit`, without overflow for extreme values (T7.2)."""
+    return np.asarray(expit(z), dtype=np.float64)
 
 
 @dataclass

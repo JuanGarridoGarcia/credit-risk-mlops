@@ -100,6 +100,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-090](#d-090) | 2026-11-24 | 3.4 | With no PD champion yet, the first model must beat the grade-only baseline; otherwise the baseline is the champion | Active |
 | [D-091](#d-091) | 2026-11-24 | 3.2 | The MLflow server of docker compose runs from our `train` image | Active |
 | [D-092](#d-092) | 2026-11-24 | 3.2 | The logistic regression keeps the signs of D-080 by removing a wrong-signed feature and refitting | Active |
+| [D-093](#d-093) | 2026-11-24 | 3.3 | A key segment blocks a promotion only if it is clearly worse by more than a margin | Active |
 
 ## Decisions
 
@@ -1069,4 +1070,15 @@ Date: 2026-11-24 · Step: 3.2 (completes D-080) · Status: Active
 - **Alternatives considered**: (B) the same effect with an optimiser that bounds each coefficient (at least or at most zero), instead of scikit-learn: more code of our own to test and maintain; (C) let the logistic regression fail and write a rule for when the simpler model fails: a model a bank would never accept goes on being trained at every retraining.
 - **Why**: it is the standard practice in bank scorecards, it uses scikit-learn as it is, and it leaves on record which features left and why. It is the counterpart of the monotone constraints of LightGBM.
 - **Consequences**: the sign test of D-080 now checks the procedure (it must never return a wrong sign) as well as each model. A feature removed at one date may come back at the next retraining, with more data.
+
+<a id="d-093"></a>
+### D-093 A key segment blocks a promotion only if it is clearly worse by more than a margin
+
+Date: 2026-11-24 · Step: 3.3 (amends D-081) · Status: Active
+
+- **Context**: in the first retraining on the real data at T0 (2026-11-24), the logistic regression beat the grade-only baseline clearly in AUC (improvement +0.04, interval [+0.021, +0.062]) but D-081 rejected it: in the segment of grades D to G its calibration error was 0.66 points of PD against 0.11 for the baseline, an interval of the difference of [-0.97, -0.12] points. Statistically clear, practically tiny. The baseline is a rate per grade, so inside each grade it is calibrated almost perfectly by construction. Worse, intervals narrow as data grow (140,000 validation loans in 2018), so any difference of a tenth of a point would become "clear" and almost no promotion would pass.
+- **Decision**: a segment blocks only if the new model is worse for sure **and** by more than a margin: the whole 95% interval of the improvement lies below minus the margin. Margins: **0.01 of AUC** and **1 point of PD** in calibration error for the PD; **2 points of LGD** in calibration error for the LGD. The margins are fixed in code and logged with the evidence of every promotion.
+- **Alternatives considered**: (B) judge calibration in a segment in absolute terms: the model's mean PD must lie inside the interval of the observed default rate of the segment; purer, but with many loans those intervals are very narrow and it would fail for differences just as small; (C) keep D-081 as it was: at T0 the baseline would be champion, and with more data almost no model could be promoted.
+- **Why**: it separates what is statistically clear from what matters, which is how tolerances are set in model validation at banks. A real worsening still blocks.
+- **Consequences**: with the margins the logistic regression is promoted at T0. Test T9.3 checks the rule with a model clearly worse in grade A (blocked) and a tie (passes).
 
