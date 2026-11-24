@@ -93,6 +93,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-083](#d-083) | 2026-11-23 | 3.5 | The API returns the four main reasons of each prediction; the full SHAP vector is stored with it | Active |
 | [D-084](#d-084) | 2026-11-24 | 3.x (buy rule, open since problem.md) | Buy rule: buy when the expected return beats a minimum chosen on validation | Active |
 | [D-085](#d-085) | 2026-11-24 | 3.x (buy rule) | Budget: one 25 dollar note per loan, a monthly cap of 10% of last month's listings, idle cash earns nothing | Active |
+| [D-086](#d-086) | 2026-11-24 | 3.3 | Behavioural model tests: invariance, direction, minimum cases, prediction time, and bad models that must fail | Active |
 
 ## Decisions
 
@@ -985,3 +986,14 @@ Date: 2026-11-24 · Step: buy rule · Status: Active
 - **Alternatives considered**: (A) one note for every loan that passes, with no cap: simple, compares return per dollar, but the money invested differs, so a very selective rule looks better than it is; (C) amounts proportional to expected return: better use of capital, but it is portfolio management, outside the scope agreed in F0.
 - **Why**: the same money, spent the same way, by both investors. Counting idle money at zero stops a rule that buys one safe loan a month from looking excellent: idle cash has an opportunity cost.
 - **Consequences**: 10% is a judgement: enough room to be selective without running out of loans to buy; the business metric is also reported at 5% and 20% to show how sensitive it is. Loans out of coverage (D-070) are never bought by either investor.
+
+<a id="d-086"></a>
+### D-086 Behavioural model tests: invariance, direction, minimum cases, prediction time, and bad models that must fail
+
+Date: 2026-11-24 · Step: 3.3 · Status: Active (each test approved by Juan before it is written)
+
+- **Context**: the performance tests compare metrics (D-075, D-080, D-081). Behavioural tests check that the model acts with common sense on concrete cases, without looking at metrics. The playbook (3.3) asks for invariance, direction, minimum cases and prediction time, and for a deliberately bad model that fails.
+- **Decision**: the battery has five kinds. **Invariance**: changing fields the model does not use (`id`, `emp_title`, `addr_state`) leaves the PD unchanged, and a loan scored alone or inside a batch gets exactly the same PD. **Direction**: on real validation loans, raising each of the nine features of D-080 in its risk direction never lowers the PD (and the reverse for the protective ones). **Minimum cases**: a clearly good profile (grade A, FICO 800, `dti` 5, no delinquencies) gets a lower PD than a clearly bad one; every PD is between 0 and 1; a loan with empty optional fields is scored without error; a loan of a term out of coverage gets no PD (D-070). **Time**: one prediction with its explanation takes under 50 ms (p95) in process, so that the API keeps its 200 ms (`problem.md`). **Bad models**: a constant model and a random model must fail the full battery.
+- **Alternatives considered**: (A) direction and bad models only: quick, but batch against single scoring and the edge cases go untested; (C) the battery plus fairness tests by protected group: very relevant in credit, but the data hold no protected attributes, and proxies were handled in F0 (D-018); a separate decision if wanted.
+- **Why**: it covers what step 3.3 asks for and shows the tests catch something. A constant model at the mean PD is perfectly calibrated overall, so calibration alone would let it through; it is stopped by the comparison with the baseline (AUC 0.5), by the segment test against the champion and by the minimum cases (a good profile must score lower than a bad one).
+- **Consequences**: each test gets its ID in `docs/tests.md` and Juan's approval before it is written (D-057).
