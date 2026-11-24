@@ -46,9 +46,9 @@ Changing what an approved test checks needs Juan's approval again. B6 fails if a
 | T2 Cleaning | F2, step 2.1 | 11 | 2026-11-23 | [technical.md, step 2.1](technical.md#step-21-idempotent-ingestion) |
 | T3 Loading | F2, step 2.1 | 15 | 2026-11-23 (T3.14 and T3.15 on approval in step 2.2) | [technical.md, step 2.1](technical.md#step-21-idempotent-ingestion) |
 | T4 Validation | F2, step 2.2 | 16 | 2026-11-23 | [validation_rules.md](validation_rules.md), [technical.md, step 2.2](technical.md#step-22-data-validation) |
-| T5 Training set versions | F2, step 2.3 | 14 | 2026-11-23 | [technical.md, step 2.3](technical.md#step-23-data-versioning) |
+| T5 Training set versions | F2, step 2.3; F3 (D-069, D-088) | 15 | 2026-11-23; 2026-11-24 (T5.4, T5.5, T5.12, T5.13 changed, T5.15 added) | [technical.md, step 2.3](technical.md#step-23-data-versioning) |
 | T6 Features | F2, step 2.4 | 8 | 2026-11-23 | [technical.md, step 2.4](technical.md#step-24-features) |
-| **Total** | | **82** | | |
+| **Total** | | **83** | | |
 
 ## B Foundations
 
@@ -151,20 +151,21 @@ F2, step 2.3.
 
 | ID | What it checks | Functions | Kind | Runs in |
 |---|---|---|---|---|
-| T5.1 | A loan enters once term + 5 months have passed: 36 months at 41 yes and 40 no; 60 months at 65 yes and 64 no (D-040) | `tests/integration/test_snapshot.py::test_a_loan_enters_once_term_plus_five_months_have_passed` | Integration | CI |
+| T5.1 | A loan enters once term + 5 months have passed: 36 months at 41 yes and 40 no; 60 months at 65 yes and 64 no (D-040). Since D-069 a training loan is added so the set has both splits | `tests/integration/test_snapshot.py::test_a_loan_enters_once_term_plus_five_months_have_passed` | Integration | CI |
 | T5.2 | Label: Fully Paid 0; Charged Off and Default 1; both old-policy statuses left out and counted (D-013) | `tests/integration/test_snapshot.py::test_the_label_follows_d013_and_leaves_the_old_policy_out` | Integration | CI |
 | T5.3 | A matured loan whose outcome is not known at T (delivered later, or not yet) is left out and counted; no outcome after T is ever used | `tests/integration/test_snapshot.py::test_an_outcome_unknown_at_t_leaves_the_loan_out` | Integration | CI |
-| T5.4 | The last 6 listing months of the matured loans are validation, the rest train; no loan in both (D-042) | `tests/integration/test_snapshot.py::test_the_last_six_listing_months_are_validation` | Integration | CI |
-| T5.5 | `features.parquet` holds exactly the listing columns, the label and the split, and no outcome column; `evaluation.parquet` holds the outcome columns of the same loans (D-060) | `tests/integration/test_snapshot.py::test_training_sees_no_outcome_column` | Integration | CI |
+| T5.4 | Validation is taken per term (D-069): 36-month loans listed T-46 to T-41 and 60-month loans listed T-70 to T-65; earlier matured loans are train. Edges: 36 months at T-46 validation and T-47 train; 60 months at T-70 validation and T-71 train. No loan in both | `tests/integration/test_snapshot.py::test_validation_is_the_last_six_matured_months_of_each_term` | Integration | CI |
+| T5.5 | `features.parquet` holds exactly the listing columns, the label, the LGD label `lgd` (D-088) and the split, and no outcome column; `evaluation.parquet` holds the outcome columns of the same loans (D-060) | `tests/integration/test_snapshot.py::test_training_sees_no_outcome_column` | Integration | CI |
 | T5.6 | The build refuses when a month up to T is missing from clean or its last load failed, and names the month | `tests/integration/test_snapshot.py::test_a_month_missing_from_clean_stops_the_build` | Integration | CI |
 | T5.7 | The manifest records T, commit, counts, content hash, file checksums and the live clean load of every month and stream used (D-058) | `tests/integration/test_snapshot.py::test_the_manifest_records_where_the_version_came_from` | Integration | CI |
 | T5.8 | The same data in another row order or compression give the same content hash and other bytes; one changed value, type or name changes it (D-061) | `tests/unit/test_snapshot.py::test_content_hash_follows_the_data_not_the_file`<br>`tests/unit/test_snapshot.py::test_one_changed_value_changes_the_content_hash` | Unit | CI, image |
 | T5.9 | A rebuild with no change in clean gives the same version and writes nothing | `tests/integration/test_snapshot.py::test_a_rebuild_with_no_change_writes_nothing` | Integration | CI |
 | T5.10 | After a corrected month: a new version, the old one untouched, and the query of stale versions finds the old one | `tests/integration/test_snapshot.py::test_a_corrected_month_gives_a_new_version_and_flags_the_old` | Integration | CI |
 | T5.11 | A stored file that changed is refused by its checksum, on read and on rebuild | `tests/integration/test_snapshot.py::test_a_stored_file_that_changed_is_refused` | Integration | CI |
-| T5.12 | The SQL build equals the rule written again in polars, on 2,000 random loans with every case | `tests/integration/test_snapshot.py::test_the_sql_build_matches_an_independent_polars_version` | Integration | CI |
-| T5.13 | Real data at T0 = 2014-01: the counts known at T0 (train 7,733 with 1,019 defaults, validation 4,324 with 429), reconciled with the audit: the 21 and 4 loans resolved after T0, found in the later deliveries, give back 12,078 and 2,230 (E-022) | `tests/data/test_snapshot_data.py::test_the_first_training_set_has_the_audit_counts` | Data | Local |
+| T5.12 | The SQL build equals the rule written again in polars, on 2,000 random loans with every case, including the window per term (D-069, both terms in validation) and `lgd` (D-088, with amounts that give an LGD with no EAD) | `tests/integration/test_snapshot.py::test_the_sql_build_matches_an_independent_polars_version` | Integration | CI |
+| T5.13 | Real data at T0 = 2014-01: the counts known at T0 (train 7,733 with 1,019 defaults, validation 4,324 with 429), reconciled with the audit: the 21 and 4 loans resolved after T0, found in the later deliveries, give back 12,078 and 2,230 (E-022). Since F3: unchanged under the split per term (no 60-month loan matured at T0, D-069); 1,336 loans with `lgd` (992 train, 344 validation, D-088) | `tests/data/test_snapshot_data.py::test_the_first_training_set_has_the_audit_counts` | Data | Local |
 | T5.14 | Real data at T0: matured loans with no outcome known at T are measured and recorded in the manifest | `tests/data/test_snapshot_data.py::test_loans_without_a_known_outcome_are_measured` | Data | Local |
+| T5.15 | The LGD label (D-088): `(funded - principal repaid - (recoveries - collection fee)) / funded` on a hand-made case; filled only for bad loans resolved at least 12 months before T (12 yes, 11 empty, D-017); empty for good loans; a value outside [0, 1] kept as computed | `tests/integration/test_snapshot.py::test_the_lgd_label_follows_d017_and_d088` | Integration | CI |
 
 ## T6 Features
 
@@ -198,3 +199,5 @@ F2, step 2.4.
 | 2026-11-23 | T5.13 | Expected counts changed from the audit's (12,078; train 7,745; validation 4,333 with 432 defaults) to those known at T0, plus a reconciliation with the audit | The audit used outcomes resolved after T0 ([E-022](errors.md#e-022)); approved by Juan |
 | 2026-11-23 | T6.1 to T6.8 | Written (step 2.4) | Approved by Juan |
 | 2026-11-23 | T3.13, T3.15, T4.15 | The full real load moved to `tests/data/conftest.py`, done once per session and shared with T6.8. What each test checks is unchanged | Loading the 142 months takes about 6 minutes; doing it twice is waste |
+| 2026-11-24 | T5.4, T5.5, T5.12, T5.13, T5.15 | T5.13 also checks that T0 holds 36-month loans only and counts the loans with `lgd`; T5.4 checks the validation window per term; T5.5 expects the `lgd` column; T5.12 mirrors both rules in polars; T5.15 written | Approved by Juan ([D-069](decisions.md#d-069), [D-088](decisions.md#d-088)) |
+| 2026-11-24 | T5.1 | One training loan added to its data. What it checks is unchanged | Under D-069 its two loans are both validation, and a set with no training loan is refused |

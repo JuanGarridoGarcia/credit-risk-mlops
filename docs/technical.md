@@ -10,6 +10,7 @@ Related documents: [problem definition](problem.md), [data audit](data_audit.md)
 2. F0 Framing (steps 0.1, 0.2)
 3. F1 Foundations (steps 1.1 to 1.4)
 4. F2 Data (steps 2.1 to 2.4)
+5. F3 Model (steps 3.1 to 3.5)
 
 ---
 
@@ -25,15 +26,15 @@ Status of every step of the playbook. Updated in every pull request.
 | | 1.2 Docker and docker compose | Done | #2 | D-025 to D-027 |
 | | 1.3 Minimal CI | Done | #2 | D-028 to D-032, D-038. Lint-failure check done; branch protection set by Juan on 2026-11-22 |
 | | 1.4 Documentation skeleton | Done | #2 | D-033 to D-036 |
-| F2 Data | 2.1 Idempotent ingestion | In review | | D-039 to D-052; E-013 to E-019 |
-| | 2.2 Data validation | In review | | D-053 to D-057; E-020, E-021; rules in validation_rules.md; tests in tests.md |
-| | 2.3 Data versioning | In review | | D-058 to D-061; E-022 |
-| | 2.4 Features | In review | | D-062, D-063; cross-cutting: coverage minimum D-064, audit notebook in CI D-065 |
-| F3 Model | 3.1 Baseline | Pending | | |
-| | 3.2 Tracking and experiments | Pending | | |
-| | 3.3 Model tests and promotion rules | Pending | | |
-| | 3.4 Model registry | Pending | | |
-| | 3.5 Explainability and model card | Pending | | |
+| F2 Data | 2.1 Idempotent ingestion | Done | #5 | D-039 to D-052; E-013 to E-019 |
+| | 2.2 Data validation | Done | #5 | D-053 to D-057; E-020, E-021; rules in validation_rules.md; tests in tests.md |
+| | 2.3 Data versioning | Done | #5 | D-058 to D-061; E-022 |
+| | 2.4 Features | Done | #5 | D-062, D-063; cross-cutting: coverage minimum D-064, audit notebook in CI D-065 |
+| F3 Model | 3.1 Baseline | In progress | | Designed: D-067, D-069, D-070. Split per term (D-069) implemented in the data PR |
+| | 3.2 Tracking and experiments | Designed | | D-068, D-071 to D-079, D-087, D-088 (LGD label implemented in the data PR) |
+| | 3.3 Model tests and promotion rules | Designed | | D-080, D-081, D-086 |
+| | 3.4 Model registry | Designed | | D-082 |
+| | 3.5 Explainability and model card | Designed | | D-083; buy rule and budget D-084, D-085 |
 | F4 Automation | 4.1 Orchestrated training flow | Pending | | |
 | | 4.2 Batch prediction flow | Pending | | Replaced by the replayer calling the API (D-008) |
 | F5 Deployment | 5.1 API | Pending | | |
@@ -365,9 +366,9 @@ clean (every month up to T, checked) ──SQL──> loans of the set at T ─�
            known: write nothing, check the stored files against their checksums
 ```
 
-- **The set at T** (`sql/training_ids.sql`). Matured cohorts: listed at least `term + 5` months before T (D-040). The label comes only from outcomes delivered by T: Fully Paid 0, Charged Off and Default 1 (D-013); old-policy loans and matured loans with no outcome yet are left out and counted. The last 6 listing months are validation (D-042).
+- **The set at T** (`sql/training_ids.sql`). Matured cohorts: listed at least `term + 5` months before T (D-040). The label comes only from outcomes delivered by T: Fully Paid 0, Charged Off and Default 1 (D-013); old-policy loans and matured loans with no outcome yet are left out and counted. Validation is taken per term (D-069, which replaced D-042 in F3): the last 6 matured listing months of each term, 36-month loans listed T-46 to T-41 and 60-month loans T-70 to T-65; earlier matured loans are training. The LGD label `lgd` (D-088) is computed here: `(funded - principal repaid - (recoveries - collection fee)) / funded`, only for bad loans resolved at least 12 months before T (D-017), empty for every other loan.
 - **Before anything**, every month and stream from 2007-06 to T must have a live clean load whose last attempt did not fail; otherwise the build stops and names the months.
-- **Two files** (D-060). `features.parquet`: every column of `clean.listings`, `label` and `split`, with the types of the cleaning rules. `evaluation.parquet`: the outcome columns of the same loans and the month each was resolved. Training reads only the first.
+- **Two files** (D-060). `features.parquet`: every column of `clean.listings`, `label`, `lgd` (since F3) and `split`, with the types of the cleaning rules. `evaluation.parquet`: the outcome columns of the same loans and the month each was resolved. Training reads only the first.
 - **Two hashes** (D-061, `snapshot.content_hash`). The content hash is SHA-256 over the data in one fixed text form (rows sorted by `id`, column names and types, floats with 17 significant digits, text always quoted, missing values marked apart), so it changes only when the data change. The checksum of each file goes in the manifest and is checked on every read and rebuild.
 - **Store** (D-059, `storage.py`). A version is the folder `data/training_sets/<hash>/`, filled under a temporary name and renamed in one step; it is never overwritten. The S3 store comes with the AWS phase behind the same interface.
 - **Manifest** (D-058). `ops.training_sets`: version, cutoff, git commit (`-dirty` if the tree has changes; `CREDIT_RISK_COMMIT` in an image), path, counts, exclusions, checksums. `ops.training_set_loads`: the clean load of every month and stream used. `python -m credit_risk.snapshot stale` lists the versions built on a load that has since been replaced.
@@ -383,7 +384,7 @@ clean (every month up to T, checked) ──SQL──> loans of the set at T ─�
 |---|---|---|
 | T5 Training set versions (14) | `tests/unit/test_snapshot.py`, `tests/integration/test_snapshot.py`, `tests/data/test_snapshot_data.py` | 1 maturity at 41 and 65 months; 2 label and old policy; 3 outcome unknown at T left out; 4 last 6 months are validation; 5 no outcome column in the training file; 6 a missing or failed month stops the build; 7 manifest; 8 content hash follows the data, not the file; 9 a rebuild writes nothing; 10 a corrected month gives a new version and flags the old; 11 a changed file is refused; 12 SQL equals an independent polars version on 2,000 random loans; 13 and 14 real data at T0 |
 
-Every test, with its functions, is in [tests.md](tests.md). The SQL was also checked by mutation: moving the maturity by one month, reading outcomes after T, a 7-month validation window or another label mapping each make T5 tests fail.
+Every test, with its functions, is in [tests.md](tests.md). The SQL was also checked by mutation: moving the maturity by one month, reading outcomes after T, a 7-month validation window or another label mapping each make T5 tests fail. In F3 (2026-11-24) the same check for the new rules: a 7-month window, a window taken from the 36-month term for both terms, an LGD age of 11 months, or recoveries without the collection fee each make T5 tests fail.
 
 **Measurements** (2026-11-23, cloud machine, 4 CPUs; all 142 months in clean)
 
@@ -392,6 +393,16 @@ Every test, with its functions, is in [tests.md](tests.md). The SQL was also che
 | 2014-01 (T0) | 7,733 (1,019) | 4,324 (429) | 2,226 | 25 | 1.3 s | 2.6 MB |
 | 2016-01 | 34,613 (4,089) | 19,060 (2,700) | 2,587 | 9 | 2.6 s | 8.2 MB |
 | 2018-12 | 394,952 (56,404) | 127,952 (19,208) | 2,749 | 80 | 13.2 s | 67 MB |
+
+**Measurements after F3's split per term and LGD label** (2026-11-24, same machine; full load 371 s). By term: 36 / 60 months.
+
+| Cutoff | Train (defaults) | Validation (defaults) | With `lgd` (train / validation) | Mean `lgd` | Build | Size |
+|---|---|---|---|---|---|---|
+| 2014-01 (T0) | 7,733 (1,019): 36 only | 4,324 (429): 36 only | 992 / 344 | 0.605 | 1.4 s | 2.6 MB |
+| 2016-01 | 33,237 (3,795): 36 only | 20,436 (2,994): 19,060 (2,700) / 1,376 (294) | 3,731 / 2,509 | 0.589 | 2.5 s | 8.5 MB |
+| 2018-12 | 381,111 (52,877): 359,189 (47,339) / 21,922 (5,538) | 141,793 (22,735): 127,952 (19,208) / 13,841 (3,527) | 52,163 / 19,450 | 0.551 | 12.7 s | 70 MB |
+
+T0 is unchanged: no 60-month loan is matured then. At 2016-01 every matured 60-month loan falls in validation (the first ones were listed in 2010-05, inside the window T-70 to T-65), so 60-month loans have no training loan yet and stay out of coverage (D-070) until a cutoff of about 2016-04. Mean `lgd` falls with later cutoffs; the reason is studied with the LGD model (second F3 pull request).
 
 The version at T0 built from a database loaded only up to 2014-01 (data test) and from one loaded with all 142 months has the same hash: the build never reads past T. A rebuild at 2018-12 with no change takes 13.0 s and writes nothing. The audit's 12,078 loans at T0 included 21 resolved after T0 (E-022).
 
@@ -447,3 +458,32 @@ D-064 closes D-031. `make test-integration` runs the unit tests and the non-dest
 
 D-065 closes the open point of D-021. `make notebooks` runs `notebooks/00_data_audit.ipynb` top to bottom with nbconvert and fails if any file of `reports/data_audit` differs from the committed one: byte for byte with `git diff --exit-code`, except the PNG figures (E-024): a figure only draws a table that is compared, such as `loans_per_month.csv`. The notebook resets matplotlib to its built-in defaults, so a figure does not depend on the machine's settings. A failed run keeps its outputs as a workflow artifact for 14 days. The `Notebooks` workflow runs it every Monday at 05:00 UTC, by hand, and on pull requests that touch the notebook, its outputs, `uv.lock` or the workflow, with the secret `KAGGLE_API_TOKEN`, which must exist twice: as an Actions secret and as a Dependabot secret, because workflows started by Dependabot only see Dependabot secrets (E-026). Run here on 2026-11-23: 1 min 53 s, every output byte-identical.
 
+---
+
+## 5. F3 Model
+
+Every decision of F3 was explained to Juan and taken by him one at a time (2026-11-23 and 2026-11-24), D-066 to D-089. F3 is delivered in three pull requests (D-089): data, training, explanation and business.
+
+**The design in one page**
+
+| Topic | Decision |
+|---|---|
+| What F3 fixes | A training procedure, not a model, designed with the T0 snapshot only (D-067) |
+| Split | Validation per term: the last 6 matured months of each term (D-069, replaces D-042) |
+| Terms not yet seen | A term is scored only with at least 200 defaults in its training and 200 in its validation (D-070) |
+| PD candidates | Regularised logistic regression and LightGBM; within the noise the simpler wins (D-068, D-072) |
+| Features | The 30 v1 inputs; `installment` never; recomputed instalment and instalment to income as experiments (D-071) |
+| Tuning | On an inner time split of the training set; Optuna TPE with 50 seeded trials for LightGBM, a grid over `C` for the logistic regression (D-073, D-074) |
+| Better than another model | 95% paired bootstrap interval of the difference above zero (D-075) |
+| Calibration | Platt scaling fitted on validation; no refit on training plus validation (D-076, D-077) |
+| Images | `serve` (800 MB) and `train` (1.5 GB) from one Dockerfile (D-078) |
+| Tracking | MLflow server in compose, metadata in Postgres, artefacts in object storage (D-079) |
+| Model tests | Monotone constraints and signs (D-080); key segments (D-081); behavioural battery (D-086) |
+| Promotion | Automatic when every rule passes, with evidence, alert and tested rollback (D-082) |
+| Explanations | Four main reasons in the API; full SHAP vector stored (D-083) |
+| LGD | Linear and LightGBM against the mean by grade, same machinery (D-087); label computed in the snapshot (D-088) |
+| Buy rule | Expected return above a minimum chosen on validation; 25 dollar notes, monthly cap of 10% of last month's listings (D-084, D-085) |
+
+### First pull request: data
+
+The two changes to the training set that training depends on, in `sql/training_ids.sql`: the validation split per term (D-069) and the LGD label `lgd` in `features.parquet` (D-088). Both are described with step 2.3, where they live, together with their measurements on the real data. Tests: T5.4, T5.5, T5.12 and T5.13 changed, T5.15 added (approved by Juan on 2026-11-24).

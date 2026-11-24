@@ -3,8 +3,8 @@
 A version is the training set at a cutoff month T, built once in SQL from the clean layer
 and saved as two immutable Parquet files (D-060):
 
-- ``features.parquet``: what training may see. Every listing column, the label and the
-  split (train or validation).
+- ``features.parquet``: what training may see. Every listing column, the label, the LGD
+  label (D-088) and the split (train or validation, taken per term, D-069).
 - ``evaluation.parquet``: what only evaluation may see. The outcome columns of the same
   loans and the month each was resolved.
 
@@ -53,6 +53,7 @@ Connection = psycopg.Connection[tuple[Any, ...]]
 FEATURES: Final = "features.parquet"
 EVALUATION: Final = "evaluation.parquet"
 LABEL: Final = "label"
+LGD: Final = "lgd"
 SPLIT: Final = "split"
 RESOLVED: Final = "resolved_period"
 #: Where versions are stored locally (D-059); out of git with the rest of data/.
@@ -62,10 +63,15 @@ ROOT: Final = Path("data/training_sets")
 GOOD: Final = ("Fully Paid",)
 BAD: Final = ("Charged Off", "Default")
 OLD_POLICY: Final = tuple(sorted((GOOD_STATUSES | BAD_STATUSES) - {*GOOD, *BAD}))
+#: Validation: the last months of matured listings of each term (D-069).
+VALIDATION_MONTHS: Final = 6
+#: The LGD label waits this long after charge-off, for recoveries to arrive (D-017, D-088).
+LGD_AGE_MONTHS: Final = 12
 
 FEATURE_SCHEMA: Final[Mapping[str, pl.DataType]] = {
     **{c: DTYPES[LISTING_RULES[c]] for c in LISTING_COLUMNS},
     LABEL: pl.Int16(),
+    LGD: pl.Float64(),
     SPLIT: pl.String(),
 }
 EVALUATION_SCHEMA: Final[Mapping[str, pl.DataType]] = {
@@ -199,7 +205,14 @@ def build_frames(
     conn.execute(_query("create_training_ids"))
     conn.execute(
         _query("training_ids"),
-        {"cutoff": cutoff, "lag": CHARGE_OFF_LAG_MONTHS, "good": list(GOOD), "bad": list(BAD)},
+        {
+            "cutoff": cutoff,
+            "lag": CHARGE_OFF_LAG_MONTHS,
+            "window": VALIDATION_MONTHS,
+            "lgd_age": LGD_AGE_MONTHS,
+            "good": list(GOOD),
+            "bad": list(BAD),
+        },
     )
     row = conn.execute(_query("training_counts"), {"old_policy": list(OLD_POLICY)}).fetchone()
     if row is None:  # an aggregate always returns one row

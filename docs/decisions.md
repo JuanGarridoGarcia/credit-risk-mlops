@@ -806,7 +806,7 @@ Date: 2026-11-23 · Step: 3.2 · Status: Active
 <a id="d-069"></a>
 ### D-069 Validation split per term: the last 6 matured listing months of each term
 
-Date: 2026-11-23 · Step: 3.1 (supersedes D-042) · Status: Active (implementation in the F3 pull request)
+Date: 2026-11-23 · Step: 3.1 (supersedes D-042) · Status: Active (implemented in the first F3 pull request, data)
 
 - **Context**: D-042 takes the last 6 listing months of all matured loans as validation. A 60-month loan matures 24 months later than a 36-month one (D-040), so the last 6 matured months are always 36-month loans: the validation set never holds a 60-month loan, at any cutoff. Selection, calibration and the tests by segment would never see them, although 60-month loans were 25.5% of the loans listed in 2013 (34,000 of 134,800; information available at T0).
 - **Decision**: the window is taken **per term**. At cutoff T, validation holds the 36-month loans listed from T-46 to T-41 and the 60-month loans listed from T-70 to T-65; earlier matured loans of each term are training. Everything else of D-042 stays: out of time, metric noise by bootstrap on validation, nothing that learns or chooses may touch the test (the forward replay).
@@ -1015,7 +1015,7 @@ Date: 2026-11-24 · Step: 3.2 · Status: Active
 <a id="d-088"></a>
 ### D-088 The LGD label is a column of the training file, computed when the snapshot is built
 
-Date: 2026-11-24 · Step: 3.2 (changes step 2.3, D-060) · Status: Active (implementation in F3)
+Date: 2026-11-24 · Step: 3.2 (changes step 2.3, D-060) · Status: Active (implemented in the first F3 pull request, data)
 
 - **Context**: a snapshot has two files (D-060): `features.parquet`, the only one training reads (features and the default label), and `evaluation.parquet`, with payments and recoveries, read only by evaluation. LGD is computed from payments and recoveries (data audit, section 4.5), so LGD training had no label.
 - **Decision**: `features.parquet` gets an `lgd` column, computed when the snapshot is built: `(EAD - principal repaid - (recoveries - collection fee)) / EAD`, with EAD the funded amount, only for loans charged off at least 12 months before T (D-017); empty for every other loan. Values outside [0, 1] are kept as computed and clipped by the model step.
