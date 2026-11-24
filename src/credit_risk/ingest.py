@@ -549,6 +549,31 @@ def ingest(
     return {stream: [raw[stream], clean[stream]] for stream in STREAMS}
 
 
+def published_periods(landing: Path, until: date) -> list[date]:
+    """The months with a delivery folder in ``landing`` up to ``until``, oldest first."""
+    months = []
+    for folder in landing.glob("[0-9][0-9][0-9][0-9]-[0-9][0-9]"):
+        period = date.fromisoformat(f"{folder.name}-01")
+        if period <= until and folder.is_dir():
+            months.append(period)
+    return sorted(months)
+
+
+def catch_up(
+    conn: Connection, landing: Path, until: date, *, reports: Path | None = None
+) -> dict[date, dict[str, list[LoadResult]]]:
+    """Ingest every published month up to ``until``, oldest first (D-104).
+
+    A month already loaded from the same files is skipped by its hash (D-049); a
+    corrected delivery is loaded again, and a month that failed before is retried. The
+    first failure stops the catch-up, so nothing later is loaded over a gap.
+    """
+    months = published_periods(landing, until)
+    if not months or months[-1] != until:
+        raise FileNotFoundError(f"no delivery for {until:%Y-%m} in {landing}")
+    return {period: ingest(conn, landing, period, reports=reports) for period in months}
+
+
 def delete_period(conn: Connection, period: date, streams: tuple[str, ...] = STREAMS) -> None:
     """Remove a period from clean and raw; other periods are untouched."""
     _require_autocommit(conn)

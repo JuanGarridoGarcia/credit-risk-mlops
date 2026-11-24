@@ -13,7 +13,7 @@ DOCKER_BUILD_FLAGS ?=
 # Loads .env into the environment of a recipe line (the Python settings read it from there).
 LOAD_ENV := set -a && . ./.env && set +a
 
-.PHONY: help install lint format test build test-image up down test-integration clean audit check data publish test-data migrate ingest snapshot diff-cover notebooks train rollback
+.PHONY: help install lint format test build test-image up down test-integration clean audit check data publish test-data migrate ingest snapshot diff-cover notebooks train flow rollback
 
 help: ## List the available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -65,6 +65,10 @@ train: up ## Train, register and try to promote the PD and LGD models on the tra
 	@test -n "$(T)" || { echo "usage: make train T=YYYY-MM"; exit 1; }
 	$(LOAD_ENV) && $(UV) python -m credit_risk.pipeline $(T)
 
+flow: publish up ## Simulator publishes up to PERIOD (YYYY-MM), then the monthly flow runs on the Prefect server
+	@test -n "$(PERIOD)" || { echo "usage: make flow PERIOD=YYYY-MM"; exit 1; }
+	$(LOAD_ENV) && $(UV) prefect deployment run monthly/monthly --param period=$(PERIOD) --watch
+
 rollback: up ## Put back the champion before the current one of MODEL (pd or lgd) (D-090)
 	@test -n "$(MODEL)" || { echo "usage: make rollback MODEL=pd|lgd"; exit 1; }
 	$(LOAD_ENV) && $(UV) python -m credit_risk.registry rollback $(MODEL)
@@ -78,13 +82,13 @@ notebooks: ## Run the audit notebook top to bottom; fails if its outputs differ 
 
 build: ## Build the two application images, serve and train (D-078)
 	docker build $(DOCKER_BUILD_FLAGS) --target serve -t $(SERVE_IMAGE) .
-	docker build $(DOCKER_BUILD_FLAGS) --target train -t $(TRAIN_IMAGE) .
+	docker build $(DOCKER_BUILD_FLAGS) --target train --build-arg CREDIT_RISK_COMMIT=$$(git rev-parse HEAD) -t $(TRAIN_IMAGE) .
 
 test-image: ## Run the unit tests inside an image with the package installed as in production
 	docker build $(DOCKER_BUILD_FLAGS) --target test -t credit-risk:test .
 	docker run --rm credit-risk:test
 
-up: ## Start the services (Postgres, MLflow) and wait until they are healthy (run 'make build' first)
+up: ## Start the services (Postgres, MLflow, Prefect and its worker) and wait until they are healthy (run 'make build' first)
 	@test -f .env || { echo ".env missing: run 'make install' or copy .env.example"; exit 1; }
 	docker compose up -d --wait
 

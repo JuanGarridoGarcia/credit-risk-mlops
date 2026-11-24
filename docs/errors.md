@@ -44,6 +44,11 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-034](#e-034) | 2026-11-24 | 3.2 | `make lint` failed: the lock file was out of step | Minor |
 | [E-035](#e-035) | 2026-11-24 | 3.2 | The unit tests failed inside the test image: LightGBM could not load | Minor |
 | [E-036](#e-036) | 2026-11-24 | 3.2 | A logged LGD metric fell outside its own interval | Minor |
+| [E-037](#e-037) | 2026-11-24 | 4.1 | Unit tests with a local MLflow store failed on a SQLAlchemy warning | Minor |
+| [E-038](#e-038) | 2026-11-24 | 4.1 | A run sent through the Prefect server failed before starting: its parameter could not be read | Minor |
+| [E-039](#e-039) | 2026-11-24 | 4.1 | The first flow imported the simulator, against D-043 | Moderate |
+| [E-040](#e-040) | 2026-11-24 | 4.1 | T16.8 expected raw unchanged after a failed validation | Minor |
+| [E-041](#e-041) | 2026-11-24 | 4.1 | The unit tests failed inside the test image: Prefect could not create its home folder | Minor |
 
 ## Errors
 
@@ -394,3 +399,49 @@ Date: 2026-11-24 · Step: 3.2 · Severity: minor
 - **Cause**: two things. The level correction is fitted on validation, so the calibration error of the corrected model on validation is zero by construction and says nothing. And the calibration error is an absolute value, bounded at zero: when it is near zero, every bootstrap resample is above it, so a percentile interval can leave it out.
 - **Fix**: the calibration error of each LGD run is now cross-fitted, as D-076 does for the PD's Platt scaling: the correction is fitted on four fifths of validation and judged on the other fifth, five times. And `interval` widens the interval to hold the value when a metric bounded at zero sits below every resample.
 - **Prevention**: T8.3 keeps checking that every logged value lies inside its interval.
+
+### E-037 Unit tests with a local MLflow store failed on a SQLAlchemy warning
+
+Date: 2026-11-24 · Step: 4.1 · Severity: minor
+
+- **Symptom**: the first unit test of T16.3 failed with `SADeprecationWarning: The noload loader strategy is deprecated`.
+- **Cause**: the unit tests of T16 run MLflow on a local SQLite store (no Docker). MLflow's store uses a SQLAlchemy loader deprecated in SQLAlchemy 2.1, and the project turns every warning into an error (`filterwarnings = ["error"]`).
+- **Fix**: that one warning is ignored in `tests/unit/test_flows.py` only, with the reason next to it. It is MLflow's code, not ours; every other warning still fails.
+- **Prevention**: the ignore names the exact message and category, so a different warning, or this one from our own code, still fails.
+
+### E-038 A run sent through the Prefect server failed before starting: its parameter could not be read
+
+Date: 2026-11-24 · Step: 4.1 · Severity: minor
+
+- **Symptom**: T16.10 failed: the run sent through the deployment ended at once with `Validation of flow parameters failed with error: cannot specify both default and default_factory`. The same flow called in process worked.
+- **Cause**: the folders of the flow were a frozen dataclass. In process the object is passed as it is; through the server it arrives as JSON and Prefect must rebuild it, which failed for that dataclass.
+- **Fix**: `Paths` is a frozen pydantic model, which Prefect rebuilds from JSON natively.
+- **Prevention**: T16.10 sends a real run through the server, with a parameter given as JSON.
+
+### E-039 The first flow imported the simulator, against D-043
+
+Date: 2026-11-24 · Step: 4.1 · Severity: moderate
+
+- **Symptom**: the full unit suite failed T1.11, "system code never touches the simulator", after the flow was written.
+- **Cause**: the flow had a `publish` task that called the simulator. D-043 keeps the simulated world (the only code that opens the 2019 file) apart from the system.
+- **Fix**: Juan decided D-105: publishing is not a task of the system's flow; the simulator runs before it. The flow starts from the deliveries that have arrived.
+- **Prevention**: T1.11 did its job. New system modules are covered by it automatically, because it scans the whole installed package.
+
+### E-040 T16.8 expected raw unchanged after a failed validation
+
+Date: 2026-11-24 · Step: 4.1 · Severity: minor
+
+- **Symptom**: T16.8 failed: after the flow stopped on a critical validation failure, `raw.listings` and `raw.outcomes` had the rows of the bad month.
+- **Cause**: an error in the test, not in the system. By design (D-044) raw keeps every delivery as it came; validation runs between raw and clean and stops the bad month there.
+- **Fix**: T16.8 compares everything except raw: clean, the training sets, the runs, the registered versions and the champions must be unchanged, and clean must have no row of the bad month.
+- **Prevention**: recorded in the change history of the test catalogue.
+
+### E-041 The unit tests failed inside the test image: Prefect could not create its home folder
+
+Date: 2026-11-24 · Step: 4.1 · Severity: minor
+
+- **Symptom**: `make test-image` failed while collecting `tests/unit/test_flows.py`: `UserWarning: Failed to create the Prefect home directory at /nonexistent/.prefect`, an error because every warning is one.
+- **Cause**: Prefect creates its settings folder (`~/.prefect`) when it is imported. The image users (`nobody` in the test image, `app` in the others) have no home folder.
+- **Fix**: `PREFECT_HOME=/tmp/prefect` in the `test` and `train` stages of the Dockerfile, so every container of the image has it, inside compose or not.
+- **Prevention**: `make test-image` (also in CI) imports Prefect as the image user.
+

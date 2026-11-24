@@ -106,18 +106,26 @@ COPY pyproject.toml ./
 COPY tests ./tests
 COPY reports/data_audit/data_dictionary.csv ./reports/data_audit/data_dictionary.csv
 COPY docs/validation_rules.md docs/tests.md ./docs/
-ENV MPLCONFIGDIR=/tmp/matplotlib
+# Prefect writes its settings folder at import; the test user has no home (E-041).
+ENV MPLCONFIGDIR=/tmp/matplotlib \
+    PREFECT_HOME=/tmp/prefect
 USER nobody
 CMD ["pytest", "tests/unit", "-p", "no:cacheprovider"]
 
 # ---------------------------------------------------------------- train
 FROM runtime AS train
 LABEL org.opencontainers.image.title="credit-risk-train"
-# Where the MLflow server of docker compose keeps artefacts (a named volume takes the
-# owner of this folder, so the unprivileged user can write to it).
+# Where the MLflow server keeps artefacts and the flow writes its data (named volumes take
+# the owner of these folders, so the unprivileged user can write to them).
 USER root
-RUN mkdir -p /mlflow/artifacts && chown -R app:app /mlflow
+RUN mkdir -p /mlflow/artifacts /app/data && chown -R app:app /mlflow /app/data
 USER app
+# The commit of the code, recorded with every training set and model (D-079); the key of
+# a training (D-101). `make build` and CI pass it; without it, training stops with an error.
+ARG CREDIT_RISK_COMMIT=""
+# Prefect writes its settings folder at import; the app user has no home (E-041).
+ENV CREDIT_RISK_COMMIT=${CREDIT_RISK_COMMIT} \
+    PREFECT_HOME=/tmp/prefect
 COPY --from=builder-train --chown=app:app /opt/venv /opt/venv
 
 # ---------------------------------------------------------------- serve (default target)

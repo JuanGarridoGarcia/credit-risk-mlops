@@ -11,6 +11,7 @@ Related documents: [problem definition](problem.md), [data audit](data_audit.md)
 3. F1 Foundations (steps 1.1 to 1.4)
 4. F2 Data (steps 2.1 to 2.4)
 5. F3 Model (steps 3.1 to 3.5)
+6. F4 Automation (step 4.1)
 
 ---
 
@@ -35,8 +36,8 @@ Status of every step of the playbook. Updated in every pull request.
 | | 3.3 Model tests and promotion rules | Done | PR 2 | D-080, D-081, D-086, D-093 |
 | | 3.4 Model registry | Done | PR 2 | D-082, D-090 |
 | | 3.5 Explainability and model card | Done | PR 3 | D-083, D-095; buy rule, budget and business result D-084, D-085, D-096, D-097 |
-| F4 Automation | 4.1 Orchestrated training flow | Pending | | |
-| | 4.2 Batch prediction flow | Pending | | Replaced by the replayer calling the API (D-008) |
+| F4 Automation | 4.1 Orchestrated training flow | In review | PR 1 of F4 | D-098 to D-105; E-037 to E-041; clock, cadence and alerts in PR 2 |
+| | 4.2 Batch prediction flow | Moved to F5 | | Replaced by the replayer calling the API (D-008, D-098) |
 | F5 Deployment | 5.1 API | Pending | | |
 | | 5.2 Published image and CD | Pending | | |
 | F6 Monitoring | 6.1 Drift and metrics | Pending | | |
@@ -705,3 +706,53 @@ Measured at T0 by T15.7 (2026-11-24), loans listed from 2014-02 to 2015-01, same
 | 20% | baseline | +0.100 | 45,942 | 1,177,975 | 0.166 | 0.063 | +0.0870 |
 
 At T0 our model does not beat the grade baseline on realised return: about equal at 5%, worse at 10% and 20%. It picks a higher minimum on validation, buys fewer notes (idle money earns zero), and the notes it buys default more often, so the better ranking of the PD (AUC 0.677 against 0.636) does not turn into better choices under this rule. Juan chose to report it as measured and to review the rule in a later step (D-097).
+
+---
+
+## 6. F4 Automation
+
+Every decision of F4 was explained to Juan and taken by him one at a time on 2026-11-24 (D-098 to D-105). Scope (D-098): step 4.1 plus a simulated clock; step 4.2 moves to F5 as the replayer that calls the API (D-008). Two pull requests: (1) the flow and Prefect in docker compose; (2) the clock, the retraining cadence and the alerts.
+
+**The design in one page**
+
+| Topic | Decision |
+|---|---|
+| Orchestrator | Prefect 3: server and worker in compose (D-099) |
+| Installation | `train` dependency group; FastAPI, python-dateutil and python-slugify downgraded, no known vulnerability; server and worker from the `train` image (D-103) |
+| Tasks | Cut where the result is stored; only identifiers travel; PD and LGD apart (D-100) |
+| Publishing | Not a task of the system: the simulator runs before the flow (D-043, D-105) |
+| Loading | Catches up every delivered month up to the one asked (D-104) |
+| Idempotency | Key (model, training set version, commit) as tags of the registered versions; promotion in two phases (D-101) |
+| Retries | Only transient failures: 3 attempts after 10, 30 and 90 s; anything else stops the flow (D-102) |
+
+### First pull request: the flow
+
+```
+ simulator (simulated world, D-043)         system (Prefect flow "monthly", D-100)
+ make publish PERIOD=...                    load ---> version ---> train-pd ---> train-lgd
+   writes data/landing/YYYY-MM/*.csv.gz       |          |             |              |
+                                            Postgres   training      MLflow:         MLflow:
+                                            raw, clean sets +        runs, registry, same for
+                                            (D-104)    manifest      promotion       the LGD
+```
+
+`credit_risk.flows` holds only coordination: each task is one call to a function of `src/` (`ingest.catch_up`, `snapshot.build`, `pipeline.retrain_pd`, `pipeline.retrain_lgd`), and the tasks hand on a month, a training set version, a registered version and the covered terms. The flow's folders are a parameter (`Paths`, a pydantic model so the server can send it as JSON, E-038). `python -m credit_risk.flows run 2014-01` runs it in process; `serve` registers the deployment `monthly/monthly` and waits for runs (the `worker` service); `server` creates the database `prefect` and starts the Prefect server (the `prefect` service, web interface on `localhost:4200`). `make flow PERIOD=2014-01` publishes with the simulator and then sends a run through the server.
+
+**Compose.** Two services from the `train` image (D-103): `prefect` (server, metadata in the database `prefect` of our Postgres) and `worker` (environment pointing at `postgres`, `mlflow` and `prefect` inside the compose network). The worker reads the deliveries from `./data/landing`, read only, and writes reports and training sets to a volume of its own. The `train` image carries the commit of its code (`CREDIT_RISK_COMMIT`, a build argument passed by `make build` and CI), needed by the key of D-101.
+
+**Idempotency of training (D-101).** `pipeline.retrain_pd` and `retrain_lgd` first ask the registry for a challenger tagged with the same training set and commit. If there is one, nothing is trained: the version is reused and its promotion finished if needed. If not, any finished run of that key left by an earlier attempt is marked `FAILED` and `orphan`, and the model is trained. The baseline is registered before the challenger. `registry.promote` writes the verdict, evidence and what it was judged against first (`promotion.decision`), then moves the alias, then writes `promotion.outcome`; a second call returns the stored verdict.
+
+**Retries (D-102).** `flows.is_transient` decides: `psycopg.OperationalError`, and MLflow requests that got no answer, timed out or got a 5xx answer. Every task has `retries=3`, `retry_delay_seconds=[10, 30, 90]` and `retry_condition_fn` built on it.
+
+**Measured** (2026-11-24, cloud machine): on the made-up source of the tests (56 months, 3,300 matured loans, about 1,000 defaults), loading every month takes about 15 s, a second catch-up with nothing changed 0.2 s, PD and LGD with 3 search trials about 15 s; the whole flow about 30 s. The `train` image is 1,387 MB (budget 1,500 MB).
+
+**Tests** (T16, approved by Juan on 2026-11-24): retry classification and counts (T16.1, T16.2); the idempotency key, the orphan runs and the idempotent promotion (T16.3 to T16.5); PD and LGD apart give the same models (T16.6); the whole cycle on small data (T16.7); a critical validation failure stops the flow (T16.8); running again duplicates nothing (T16.9); the Prefect server, its database and a run through the deployment (T16.10). B7 also checks that `serve` cannot import Prefect. Unit tests run MLflow on a local SQLite store (E-037).
+
+| Error | What happened |
+|---|---|
+| E-037 | SQLAlchemy deprecation warning from MLflow's SQLite store, turned into an error; ignored for that message only |
+| E-038 | A dataclass parameter could not be rebuilt from JSON by the server; now a pydantic model |
+| E-039 | The first flow imported the simulator; T1.11 caught it; D-105 |
+| E-040 | T16.8 expected raw unchanged; raw keeps deliveries by design (D-044) |
+| E-041 | Prefect could not create its home folder in the image (users without home); `PREFECT_HOME=/tmp/prefect` |
+
