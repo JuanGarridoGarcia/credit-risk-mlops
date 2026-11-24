@@ -23,7 +23,7 @@ import numpy as np
 import polars as pl
 
 from credit_risk.features import FEATURES
-from credit_risk.model import Matrix, PDModel, Prepare
+from credit_risk.model import LGDModel, Matrix, PDModel, Prepare
 
 #: How many reasons the API returns with each PD (D-083).
 REASONS: Final = 4
@@ -63,30 +63,65 @@ def feature_of(column: str, prepare: Prepare) -> str:
     return column.split("=", 1)[0]
 
 
-def raw_contributions(model: PDModel, features: pl.DataFrame) -> tuple[float, Matrix]:
-    """Base value and one contribution per output column of the model, before Platt."""
+def raw_contributions(model: PDModel | LGDModel, features: pl.DataFrame) -> tuple[float, Matrix]:
+    """Base value and one contribution per output column of the model, before Platt.
+
+    Works for any model made of a ``prepare`` and an ``estimator``: the PD models, and the
+    LGD regressions for the importance of the model card (D-095).
+    """
+    if model.prepare is None:
+        raise ValueError(f"model {model.name} has no prepared columns to explain")
     x = model.prepare.transform(features)
     estimator = model.estimator
     if hasattr(estimator, "coef_"):
         coef = np.asarray(estimator.coef_, dtype=np.float64).ravel()
         means = np.asarray(model.prepare.column_means, dtype=np.float64)
-        base = float(estimator.intercept_[0] + (coef * means).sum())
+        intercept = float(np.ravel(estimator.intercept_)[0])
+        base = intercept + float((coef * means).sum())
         return base, np.asarray((x - means) * coef, dtype=np.float64)
     out = np.asarray(estimator.predict(x, pred_contrib=True), dtype=np.float64)
     base = float(out[0, -1]) if out.shape[0] else 0.0
     return base, out[:, :-1]
 
 
+def by_feature(model: PDModel | LGDModel, columns: Matrix) -> Matrix:
+    """Contributions per output column summed into the 30 features of FEATURES."""
+    if model.prepare is None:
+        raise ValueError(f"model {model.name} has no prepared columns to explain")
+    grouped = np.zeros((columns.shape[0], len(FEATURES)))
+    for j, column in enumerate(model.prepare.names):
+        grouped[:, FEATURES.index(feature_of(column, model.prepare))] += columns[:, j]
+    return grouped
+
+
 def explain(model: PDModel, features: pl.DataFrame) -> Explanation:
     """The explanation of every row's PD (D-083)."""
     base, columns = raw_contributions(model, features)
     a, b = model.platt
-    contributions = np.zeros((features.height, len(FEATURES)))
-    for j, column in enumerate(model.prepare.names):
-        contributions[:, FEATURES.index(feature_of(column, model.prepare))] += columns[:, j]
-    contributions *= a
+    contributions = a * by_feature(model, columns)
     contributions[~model.covered(features)] = math.nan
     return Explanation(a * base + b, contributions)
+
+
+def importance(model: PDModel | LGDModel, features: pl.DataFrame) -> dict[str, float]:
+    """Global importance (D-095): mean absolute contribution of each feature on ``features``,
+    largest first, features with no contribution left out.
+
+    PD: in log-odds after Platt scaling. LGD: in units of LGD; the grade-only baseline has
+    one feature, whose contribution is its grade mean minus the mean prediction.
+    """
+    rows = features.filter(pl.col("term").is_in(list(model.covered_terms)))
+    if isinstance(model, PDModel):
+        values = explain(model, rows).contributions
+    elif model.estimator is None:
+        predicted = model.predict_lgd(rows).to_numpy()
+        values = np.zeros((rows.height, len(FEATURES)))
+        values[:, FEATURES.index("grade")] = predicted - predicted.mean()
+    else:
+        values = by_feature(model, raw_contributions(model, rows)[1])
+    means = np.abs(values).mean(axis=0) if rows.height else np.zeros(len(FEATURES))
+    order = np.argsort(-means, kind="stable")
+    return {FEATURES[j]: float(means[j]) for j in order if means[j] > 0}
 
 
 def reasons(

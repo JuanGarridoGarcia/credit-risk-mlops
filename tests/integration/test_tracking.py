@@ -1,4 +1,5 @@
-"""T8.1, T8.3 and T8.4: the MLflow server of docker compose and what a run records (D-079).
+"""T8.1, T8.3, T8.4 and T14: the MLflow server of docker compose, what a run records
+(D-079) and the model card of every registered version (D-095).
 
 T8.2, which recreates the MLflow container, lives with B4 in ``test_persistence.py``.
 """
@@ -16,10 +17,10 @@ import psycopg
 import pytest
 from mlflow import MlflowClient
 
-from credit_risk import registry
+from credit_risk import card, registry
 from credit_risk.pipeline import retrain
 from credit_risk.settings import Settings
-from credit_risk.snapshot import FEATURES, SPLIT, content_hash
+from credit_risk.snapshot import FEATURES, LABEL, LGD, SPLIT, content_hash
 from credit_risk.tracking import DATABASE, LIBRARIES
 from credit_risk.train import prepare_frame, train_pd
 from tests.synthetic import CUTOFF, training_set
@@ -137,3 +138,71 @@ def test_the_model_is_rebuilt_from_what_its_run_recorded(
         assert np.array_equal(
             model.predict_pd(validation).to_numpy(), again.predict_pd(validation).to_numpy()
         ), name
+
+
+def _cards(prefix: str) -> dict[tuple[str, str], tuple[str, object]]:
+    """The card of every registered version, with its run: {(target, version): (text, run)}."""
+    client = MlflowClient()
+    cards = {}
+    for target in ("pd", "lgd"):
+        for v in client.search_model_versions(f"name='{prefix}{target}'"):
+            run_id = v.run_id or ""
+            assert card.CARD_FILE in [a.path for a in client.list_artifacts(run_id)], (target, v)
+            text = mlflow.artifacts.load_text(f"runs:/{run_id}/{card.CARD_FILE}")
+            cards[(target, v.version)] = (text, client.get_run(run_id))
+    return cards
+
+
+# T14.1
+def test_every_registered_version_has_its_model_card(
+    prefix: str, retrained: dict[str, registry.Verdict]
+) -> None:
+    cards = _cards(prefix)
+    # The chosen model and the baseline of each target (D-090), champion or not.
+    assert len(cards) == 4
+    for text, _ in cards.values():
+        positions = [text.index(f"\n## {s}\n") for s in card.SECTIONS]
+        assert positions == sorted(positions)
+
+
+# T14.3
+def test_the_numbers_of_the_card_are_those_of_the_run(
+    prefix: str, retrained: dict[str, registry.Verdict], training: tuple[pl.DataFrame, str]
+) -> None:
+    listings, snapshot = training
+    frame = prepare_frame(listings).filter(pl.col("term") == 36)
+    lgd = frame.filter(pl.col(LGD).is_not_null())
+    by_hand: dict[str, dict[str, tuple[int, int]]] = {"pd": {}, "lgd": {}}
+    for split in ("train", "validation"):
+        part = frame.filter(pl.col(SPLIT) == split)
+        by_hand["pd"][split] = (part.height, int(part[LABEL].sum()))
+        rows = lgd.filter(pl.col(SPLIT) == split).height
+        by_hand["lgd"][split] = (rows, rows)  # every LGD row is a default
+    for (target, _), (text, run) in _cards(prefix).items():
+        tags, metrics = run.data.tags, run.data.metrics
+        assert f"- Training set version: `{snapshot}`" in text
+        assert f"- Run: `{run.info.run_id}`" in text
+        for name in (m for m in metrics if "." not in m):
+            row = (
+                f"| {name} | {metrics[name]:.4f} | {metrics[f'{name}.low']:.4f} "
+                f"| {metrics[f'{name}.high']:.4f} |"
+            )
+            assert row in text, (target, name)
+        for split in ("train", "validation"):
+            rows, defaults = by_hand[target][split]
+            assert (tags[f"rows.{split}"], tags[f"defaults.{split}"]) == (str(rows), str(defaults))
+            assert f"| {split} | {rows} | {defaults} |" in text
+
+
+# T14.5
+def test_the_card_carries_what_is_particular_to_each_model(
+    prefix: str, retrained: dict[str, registry.Verdict]
+) -> None:
+    for (target, _), (text, run) in _cards(prefix).items():
+        tags = run.data.tags
+        if target == "pd":
+            line = f"- Features removed for a wrong sign (D-092): {tags['removed_features']}"
+        else:
+            line = f"- Level shift fitted on validation (D-094): {tags['level_shift']}"
+            assert float(tags["level_shift"]) != 0.0
+        assert line in text, target
