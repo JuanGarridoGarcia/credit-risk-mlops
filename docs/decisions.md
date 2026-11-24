@@ -96,6 +96,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-086](#d-086) | 2026-11-24 | 3.3 | Behavioural model tests: invariance, direction, minimum cases, prediction time, and bad models that must fail | Active |
 | [D-087](#d-087) | 2026-11-24 | 3.2 | LGD candidates: regularised linear regression and LightGBM against the mean by grade, with the PD machinery | Active |
 | [D-088](#d-088) | 2026-11-24 | 3.2 (changes step 2.3) | The LGD label is a column of the training file, computed when the snapshot is built | Active |
+| [D-089](#d-089) | 2026-11-24 | F3 (cross-cutting) | F3 is delivered in three pull requests: data, training, explanation and business | Active |
 
 ## Decisions
 
@@ -1021,3 +1022,14 @@ Date: 2026-11-24 · Step: 3.2 (changes step 2.3, D-060) · Status: Active (imple
 - **Alternatives considered**: (B) LGD training also reads `evaluation.parquet`: no change to F2, but it breaks the guarantee of D-060, since training code would have future payments at hand and a mistake could turn them into features; (C) a separate LGD snapshot: full separation, but two data versions per training to keep in step.
 - **Why**: the same reasoning as for the default label: a label may come from the future because it is what is predicted, never an input. The raw payment columns could be used as features by mistake; one derived number for the eligible loans only cannot.
 - **Consequences**: `sql/training_ids.sql` (or its companion query), the snapshot schema and test T5.5 change (test changes need Juan's approval); every snapshot gets a new content hash (only test snapshots exist so far). The rule of D-017 lives in one place, versioned with the snapshot.
+
+<a id="d-089"></a>
+### D-089 F3 is delivered in three pull requests: data, training, explanation and business
+
+Date: 2026-11-24 · Step: F3 (cross-cutting; adjusts the one-PR-per-phase default of D-037) · Status: Active
+
+- **Context**: F3 is far larger than F2: snapshot changes, PD and LGD training, MLflow, two images, model tests, registry, explainability, model card and buy rule. Juan reviews every pull request.
+- **Decision**: three pull requests, in order. (1) **Data**: validation split per term (D-069) and the `lgd` label (D-088). (2) **Training**: PD and LGD, MLflow, the `serve` and `train` images, model tests, registry and promotion. (3) **Explanation and business**: SHAP, the model card, the buy rule and the business metric. The tests of each pull request are proposed to Juan, group by group, just before they are written.
+- **Alternatives considered**: (A) one pull request at the end, as in F2: one review, but thousands of lines at once, and a problem found early surfaces only at the end.
+- **Why**: each pull request makes sense on its own and carries its tests; reviews stay thorough; failures appear sooner. The data pull request goes first because training reads the snapshot it changes: training on the old split or without the LGD label would be work thrown away.
+- **Consequences**: three reviews and three CI runs. After each merge the work branch restarts from `main`.
