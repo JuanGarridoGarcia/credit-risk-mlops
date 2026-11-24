@@ -17,7 +17,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any, Final
+from typing import Any
 
 import polars as pl
 import psycopg
@@ -38,11 +38,16 @@ from credit_risk.snapshot import (
 )
 from credit_risk.storage import LocalStore
 from credit_risk.tracking import Interval, RunRecord, library_versions, log_run
-from credit_risk.train import SEED, PDTraining, Search, prepare_frame, train_pd
+from credit_risk.train import (
+    LIGHTGBM_TRIALS,
+    SEED,
+    PDTraining,
+    Search,
+    prepare_frame,
+    train_pd,
+)
 
 log = logging.getLogger(__name__)
-
-EXPERIMENT: Final = {"pd": "pd", "lgd": "lgd"}
 
 
 def newest_version(conn: psycopg.Connection[Any], cutoff: date) -> str:
@@ -82,6 +87,9 @@ class Context:
     version: str
     commit: str
     seed: int
+    #: Put before the experiment and registered model names (``pd``, ``lgd``); tests use
+    #: it to keep their runs and models apart.
+    prefix: str = ""
 
 
 def _log_pd(
@@ -94,7 +102,7 @@ def _log_pd(
         files = _searches_file(Path(folder), training.searches if model.name != "baseline" else {})
         run_id = log_run(
             RunRecord(
-                experiment=EXPERIMENT["pd"],
+                experiment=f"{context.prefix}pd",
                 name=f"pd {model.name} {training.cutoff:%Y-%m}",
                 commit=context.commit,
                 snapshot=context.version,
@@ -131,7 +139,7 @@ def _log_lgd(
         files = _searches_file(Path(folder), training.searches if model.name != "baseline" else {})
         run_id = log_run(
             RunRecord(
-                experiment=EXPERIMENT["lgd"],
+                experiment=f"{context.prefix}lgd",
                 name=f"lgd {model.name} {training.cutoff:%Y-%m}",
                 commit=context.commit,
                 snapshot=context.version,
@@ -156,49 +164,59 @@ def _log_lgd(
 
 
 def _register_and_promote(
+    context: Context,
     target: registry.Target,
     runs: dict[str, str],
     chosen: str,
     validation: pl.DataFrame,
-    seed: int,
 ) -> registry.Verdict:
-    def version_of(name: str) -> str:
-        source = f"runs:/{runs[name]}/{registry.MODEL_DIR}"
-        return registry.register(target, runs[name], source)
+    name = f"{context.prefix}{target}"
+
+    def version_of(model: str) -> str:
+        source = f"runs:/{runs[model]}/{registry.MODEL_DIR}"
+        return registry.register(name, runs[model], source)
 
     challenger = version_of(chosen)
-    baseline = version_of("baseline") if registry.champion(target) is None else None
-    return registry.promote(target, challenger, validation, baseline_version=baseline, seed=seed)
+    baseline = version_of("baseline") if registry.champion(name) is None else None
+    return registry.promote(
+        name, challenger, validation, target=target, baseline_version=baseline, seed=context.seed
+    )
 
 
 def retrain(
-    training_set: pl.DataFrame, cutoff: date, version: str, *, seed: int = SEED
+    training_set: pl.DataFrame,
+    cutoff: date,
+    version: str,
+    *,
+    seed: int = SEED,
+    prefix: str = "",
+    trials: int = LIGHTGBM_TRIALS,
 ) -> dict[str, registry.Verdict]:
     """Train, log, register and promote the PD and the LGD of one training set version."""
-    context = Context(version, git_commit(), seed)
+    context = Context(version, git_commit(), seed, prefix)
     frame = prepare_frame(training_set)
     validation_listings = training_set.filter(pl.col(SPLIT) == "validation")
     validation = frame.filter(pl.col(SPLIT) == "validation")
 
-    pd_training = train_pd(frame, cutoff, seed)
+    pd_training = train_pd(frame, cutoff, seed, trials=trials)
     pd_runs = {
         m.name: _log_pd(context, m, pd_training, validation)
         for m in (pd_training.logistic, pd_training.lightgbm, pd_training.baseline)
     }
     verdicts = {
         "pd": _register_and_promote(
-            "pd", pd_runs, pd_training.chosen.name, validation_listings, seed
+            context, "pd", pd_runs, pd_training.chosen.name, validation_listings
         )
     }
 
-    lgd_training = train_lgd(frame, cutoff, pd_training.covered_terms, seed)
+    lgd_training = train_lgd(frame, cutoff, pd_training.covered_terms, seed, trials=trials)
     lgd_validation = lgd_rows(validation)
     lgd_runs = {
         m.name: _log_lgd(context, m, lgd_training, lgd_validation)
         for m in (lgd_training.ridge, lgd_training.lightgbm, lgd_training.baseline)
     }
     verdicts["lgd"] = _register_and_promote(
-        "lgd", lgd_runs, lgd_training.chosen.name, lgd_rows(validation_listings), seed
+        context, "lgd", lgd_runs, lgd_training.chosen.name, lgd_rows(validation_listings)
     )
     return verdicts
 

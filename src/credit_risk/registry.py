@@ -73,7 +73,7 @@ def log_model(run_id: str, model: object) -> str:
     return f"{client.get_run(run_id).info.artifact_uri}/{MODEL_DIR}"
 
 
-def register(name: Target, run_id: str, source: str) -> str:
+def register(name: str, run_id: str, source: str) -> str:
     """Register the model at ``source`` as a new version of ``name``; return the version."""
     client = MlflowClient()
     try:
@@ -84,7 +84,7 @@ def register(name: Target, run_id: str, source: str) -> str:
     return str(client.create_model_version(name, source, run_id=run_id).version)
 
 
-def load(name: Target, version: str) -> Any:
+def load(name: str, version: str) -> Any:
     """Load a registered model version.
 
     The file is a pickle: it is only ever read from this project's own registry.
@@ -94,7 +94,7 @@ def load(name: Target, version: str) -> Any:
     return joblib.load(Path(folder) / MODEL_FILE)
 
 
-def champion(name: Target) -> str | None:
+def champion(name: str) -> str | None:
     """The version the alias ``champion`` points to, or None."""
     try:
         return str(MlflowClient().get_model_version_by_alias(name, CHAMPION).version)
@@ -218,7 +218,7 @@ def _record(run_id: str, verdict: Verdict, outcome: str) -> None:
     client.log_dict(run_id, verdict.evidence, "promotion/evidence.json")
 
 
-def _move(name: Target, version: str, previous: str | None, event: str) -> None:
+def _move(name: str, version: str, previous: str | None, event: str) -> None:
     client = MlflowClient()
     client.set_registered_model_alias(name, CHAMPION, version)
     now = datetime.now(UTC).isoformat(timespec="seconds")
@@ -230,10 +230,11 @@ def _move(name: Target, version: str, previous: str | None, event: str) -> None:
 
 
 def promote(
-    name: Target,
+    name: str,
     version: str,
     validation: pl.DataFrame,
     *,
+    target: Target,
     baseline_version: str | None = None,
     seed: int = 0,
     resamples: int = 1_000,
@@ -250,7 +251,7 @@ def promote(
     if against is None:
         raise RegistryError(f"no champion of {name} and no baseline to compare with")
     verdict = judge(
-        name, load(name, version), load(name, against), validation, seed=seed,
+        target, load(name, version), load(name, against), validation, seed=seed,
         resamples=resamples,
     )  # fmt: skip
     run_id = str(client.get_model_version(name, version).run_id)
@@ -265,7 +266,7 @@ def promote(
     return verdict
 
 
-def rollback(name: Target) -> tuple[str, str]:
+def rollback(name: str) -> tuple[str, str]:
     """Point ``champion`` back to the champion before the current one."""
     client = MlflowClient()
     current = champion(name)

@@ -53,7 +53,8 @@ ESSENTIAL: Final = ("loan_amnt", "term", "int_rate", "grade", "sub_grade")
 class Scorer(Protocol):
     """What the battery needs from a model."""
 
-    covered_terms: tuple[int, ...]
+    @property
+    def covered_terms(self) -> tuple[int, ...]: ...
 
     def predict_pd(self, features: pl.DataFrame) -> pl.Series: ...
 
