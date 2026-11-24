@@ -540,3 +540,11 @@ Tests approved by Juan before any code is written. They enter `docs/tests.md` wi
 | T11.3 | Every promotion alerts: until Grafana (F6), a WARNING log message with the previous and new champion, plus a tag in MLflow |
 | T11.4 | Rollback in one command (`make rollback MODEL=pd`): the alias returns to the previous champion, read from the tag written on each promoted version; predictions are again exactly those of that model; the rollback leaves evidence and alerts; with no previous champion it fails clearly and changes nothing |
 | T11.5 | The first champion (D-090): with no champion, the chosen model is compared with the grade-only baseline under the same rules; if it does not beat it, the baseline is the champion |
+
+**Images** (approved 2026-11-24), in group B where the image already lives.
+
+| ID | What it checks |
+|---|---|
+| B5 (changed) | Both images, each against its own budget: `serve` at most 800 MB, `train` at most 1.5 GB (D-078); the rest of B5 (non-root, no `.env`, no secrets, right version) applies to both. If the measured images do not fit, the budgets go back to Juan first |
+| B7 | `serve` carries nothing of training: importing Optuna, SHAP or the full MLflow server fails inside it |
+| B8 | A small model trained in `train`, saved and loaded in `serve` gives identical predictions |
