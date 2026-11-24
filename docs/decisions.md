@@ -91,6 +91,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-081](#d-081) | 2026-11-23 | 3.3 | Key segments: grade, covered term and listing quarter; a new model fails if it is clearly worse in any of them | Active |
 | [D-082](#d-082) | 2026-11-23 | 3.4 | Automatic promotion when every rule passes, with evidence, an alert and a tested rollback | Active |
 | [D-083](#d-083) | 2026-11-23 | 3.5 | The API returns the four main reasons of each prediction; the full SHAP vector is stored with it | Active |
+| [D-084](#d-084) | 2026-11-24 | 3.x (buy rule, open since problem.md) | Buy rule: buy when the expected return beats a minimum chosen on validation | Active |
 
 ## Decisions
 
@@ -961,3 +962,14 @@ Date: 2026-11-23 · Step: 3.5 · Status: Active
 - **Alternatives considered**: (A) explanations only in reports: the investor sees a PD without knowing why, and a single decision cannot be audited later; (C) the full vector in the API response: hard to read, and the detail is stored anyway.
 - **Why**: every decision is explained and can be audited years later, as regulated credit requires (reasons for a refusal), without flooding the user.
 - **Consequences**: slightly larger responses and about 30 numbers more per stored prediction. A model test checks, for every model, that base value plus contributions equals the prediction (playbook 3.5).
+
+<a id="d-084"></a>
+### D-084 Buy rule: buy when the expected return beats a minimum chosen on validation
+
+Date: 2026-11-24 · Step: buy rule (left open in `problem.md` section 2 until F3) · Status: Active (implemented after the LGD model)
+
+- **Context**: the buy rule turns PD and LGD into "buy / do not buy", and the business metric (D-007) is measured on what it buys. Each loan is decided when it is listed (D-008), so the rule must be a threshold, not "the best of the month".
+- **Decision**: buy a loan when its **expected return** is at least a minimum: `expected return = (1 - PD) x scheduled interest - PD x LGD`, where scheduled interest is the total interest of the loan as a share of its amount, from `int_rate` and `term` with the amortisation formula. The minimum is chosen on the validation set. The baseline uses the same rule with its own PD and LGD by grade (D-004, D-005).
+- **Alternatives considered**: (A) buy when expected loss (PD x LGD) is below a threshold: simple, but it ignores the interest rate and refuses risky but well-paid loans, exactly what D-002 wanted to capture; (C) the same as the decision plus a prepayment model: more realistic, but a third model, outside the scope agreed in F0.
+- **Why**: it weighs risk against return, which is what an investor decides on. Example with LGD 60% and 36-month loans: grade A at 7% (scheduled interest about 11%) and PD 4% gives 0.96 x 0.111 - 0.04 x 0.6 = 0.083; grade E at 20% (about 34%) and PD 25% gives 0.75 x 0.338 - 0.25 x 0.6 = 0.103, a better purchase despite six times the PD.
+- **Consequences**: known simplifications, documented in the model card: prepayments (which cut interest) and the instalments a defaulted loan pays before default are ignored, so expected return is overstated, by more for riskier loans. Realised return (D-007) is measured on actual payments, so it is not affected. The budget and how it is spent are a separate decision.
