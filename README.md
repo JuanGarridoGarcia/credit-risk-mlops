@@ -45,7 +45,15 @@ First training, at T0 = January 2014 (36-month loans; validation: 4,324 loans, 4
 | Probability of default | AUC 0.677 for the logistic regression against 0.636 for the baseline; LightGBM (0.680) is not better by more than the noise, so the simpler model wins ([D-068](docs/decisions.md#d-068)) | Logistic regression promoted |
 | Loss given default | No candidate beats the mean by grade (RMSE 0.216); every model was 5 points too low because losses rise year after year, so the level is now set on the most recent period ([D-094](docs/decisions.md#d-094)) | Baseline stays |
 
-The business result (realised return of the buy rule) comes with the third part of F3. Details in the [technical document](docs/technical.md#5-f3-model).
+Business result: an investor using the T0 models for the next 12 months (loans listed from February 2014 to January 2015, final outcomes, same budget each month) did not earn more than one using the grade alone.
+
+| Cap (share of last month's loans) | Our models | Grade baseline |
+|---|---|---|
+| 5% | +8.99% | +8.95% |
+| 10% | +8.46% | +8.95% |
+| 20% | +7.49% | +8.70% |
+
+Our investor is more selective, so more money stays idle, and the notes it buys do not default less. Better ranking did not become better choices under this buy rule; the result is reported as measured and the rule will be reviewed in a later step ([D-097](docs/decisions.md#d-097)). Details in the [technical document](docs/technical.md#5-f3-model).
 
 ## Key decisions
 

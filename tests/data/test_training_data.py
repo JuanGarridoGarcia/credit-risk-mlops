@@ -1,19 +1,25 @@
-"""T10.6 and T12.6: the training procedures on the real first training set, at T0.
+"""T10.6, T12.6 and T14.6: the training procedures on the real first training set, at T0.
 
 Needs the deliveries in ``data/landing`` (``make publish PERIOD=2019-03``) and the
-compose Postgres (``make up``). The training set comes from the fixtures of
+compose Postgres and MLflow (``make up``). The training set comes from the fixtures of
 ``conftest.py``, shared with the snapshot data tests.
 """
 
+import os
+import uuid
 from dataclasses import replace
+from pathlib import Path
 
+import mlflow
 import numpy as np
 import polars as pl
 import pytest
+from mlflow import MlflowClient
 
-from credit_risk import battery, registry
+from credit_risk import battery, card, registry
 from credit_risk.compare import interval
 from credit_risk.lgd import lgd_rows, train_lgd
+from credit_risk.pipeline import retrain
 from credit_risk.snapshot import FEATURES, LGD, SPLIT, Manifest
 from credit_risk.storage import LocalStore
 from credit_risk.train import prepare_frame, train_pd
@@ -24,6 +30,8 @@ pytestmark = pytest.mark.data
 RESAMPLES = 1_000
 #: Largest level correction (D-094) T12.6 accepts without a look (drift at T0: 0.05).
 MAX_SHIFT = 0.10
+#: The cards of the T0 champions kept for readers of the repository (D-095).
+CARDS = Path(__file__).resolve().parents[2] / "docs" / "model_cards"
 
 
 @pytest.fixture(scope="module")
@@ -82,3 +90,38 @@ def test_the_lgd_at_t0_is_on_the_level_of_the_observed_lgd(listings: pl.DataFram
     # measured at T0 (about 0.05) and must be looked at before going on.
     assert abs(predicted - float(y.mean())) < 0.005
     assert all(abs(shift) <= MAX_SHIFT for shift in shifts.values()), shifts
+
+
+def _comparable(text: str) -> list[str]:
+    """The card without what differs from one run to another: title, run, commit."""
+    varying = ("# Model card:", "- Run:", "- Commit:")
+    return [line for line in text.splitlines() if not line.startswith(varying)]
+
+
+# T14.6
+def test_the_cards_in_docs_are_those_of_the_t0_champions(
+    listings: pl.DataFrame, first: Manifest
+) -> None:
+    mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5000"))
+    prefix = f"test-cards-{uuid.uuid4().hex[:8]}-"
+    validation = listings.filter(pl.col(SPLIT) == "validation")
+    try:
+        retrain(listings, T0, first.version, prefix=prefix)
+        targets: tuple[tuple[registry.Target, pl.DataFrame], ...] = (
+            ("pd", validation),
+            ("lgd", lgd_rows(validation)),
+        )
+        for target, rows in targets:
+            name = f"{prefix}{target}"
+            text = card.build(name, registry.champion(name) or "", target, rows)
+            stored = (CARDS / f"{target}_t0.md").read_text()
+            assert _comparable(text) == _comparable(stored), target
+    finally:
+        client = MlflowClient()
+        for target in ("pd", "lgd"):
+            for v in client.search_model_versions(f"name='{prefix}{target}'"):
+                client.delete_model_version(f"{prefix}{target}", v.version)
+            if client.search_registered_models(f"name='{prefix}{target}'"):
+                client.delete_registered_model(f"{prefix}{target}")
+        for experiment in client.search_experiments(filter_string=f"name LIKE '{prefix}%'"):
+            client.delete_experiment(experiment.experiment_id)

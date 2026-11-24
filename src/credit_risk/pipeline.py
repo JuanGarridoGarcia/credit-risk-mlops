@@ -23,7 +23,7 @@ import numpy as np
 import polars as pl
 import psycopg
 
-from credit_risk import registry
+from credit_risk import card, registry
 from credit_risk.compare import interval
 from credit_risk.lgd import LGDTraining, fit_level, lgd_rows, train_lgd
 from credit_risk.model import MONOTONE, LGDModel, PDModel
@@ -93,8 +93,25 @@ class Context:
     prefix: str = ""
 
 
+def _counts(frame: pl.DataFrame, label: str, terms: tuple[int, ...]) -> dict[str, str]:
+    """Loans and defaults of each split on the covered terms, recorded as run tags (D-095)."""
+    rows = frame.filter(pl.col("term").is_in(list(terms)))
+    tags: dict[str, str] = {}
+    for split in ("train", "validation"):
+        part = rows.filter(pl.col(SPLIT) == split)
+        tags[f"rows.{split}"] = str(part.height)
+        # Every row of the LGD is a default; for the PD the label says which.
+        defaults = part.height if label == LGD else int(part[label].sum())
+        tags[f"defaults.{split}"] = str(defaults)
+    return tags
+
+
 def _log_pd(
-    context: Context, model: PDModel, training: PDTraining, validation: pl.DataFrame
+    context: Context,
+    model: PDModel,
+    training: PDTraining,
+    validation: pl.DataFrame,
+    counts: dict[str, str],
 ) -> str:
     rows = validation.filter(pl.col("term").is_in(list(model.covered_terms)))
     y = rows[LABEL].cast(pl.Float64).to_numpy()
@@ -122,6 +139,7 @@ def _log_pd(
                     "removed_features": ",".join(model.params.get("removed", ())) or "none",
                     "monotone": json.dumps(MONOTONE),
                     "platt": json.dumps(model.platt),
+                    **counts,
                 },
                 files=files,
             )
@@ -152,7 +170,11 @@ def cross_fitted_lgd(model: LGDModel, rows: pl.DataFrame, seed: int) -> np.ndarr
 
 
 def _log_lgd(
-    context: Context, model: LGDModel, training: LGDTraining, validation: pl.DataFrame
+    context: Context,
+    model: LGDModel,
+    training: LGDTraining,
+    validation: pl.DataFrame,
+    counts: dict[str, str],
 ) -> str:
     rows = validation.filter(pl.col("term").is_in(list(model.covered_terms)))
     y = rows[LGD].cast(pl.Float64).to_numpy()
@@ -183,6 +205,7 @@ def _log_lgd(
                     "chosen": str(model is training.chosen),
                     "covered_terms": ",".join(map(str, model.covered_terms)),
                     "level_shift": f"{model.shift:.6f}",
+                    **counts,
                 },
                 files=files,
             )
@@ -206,9 +229,14 @@ def _register_and_promote(
 
     challenger = version_of(chosen)
     baseline = version_of("baseline") if registry.champion(name) is None else None
-    return registry.promote(
+    verdict = registry.promote(
         name, challenger, validation, target=target, baseline_version=baseline, seed=context.seed
     )
+    # Every registered version gets its card, built once its evidence is stored (D-095).
+    for version in (challenger, baseline):
+        if version is not None:
+            card.write(name, version, target, validation)
+    return verdict
 
 
 def retrain(
@@ -227,8 +255,9 @@ def retrain(
     validation = frame.filter(pl.col(SPLIT) == "validation")
 
     pd_training = train_pd(frame, cutoff, seed, trials=trials)
+    pd_counts = _counts(frame, LABEL, pd_training.covered_terms)
     pd_runs = {
-        m.name: _log_pd(context, m, pd_training, validation)
+        m.name: _log_pd(context, m, pd_training, validation, pd_counts)
         for m in (pd_training.logistic, pd_training.lightgbm, pd_training.baseline)
     }
     verdicts = {
@@ -239,8 +268,9 @@ def retrain(
 
     lgd_training = train_lgd(frame, cutoff, pd_training.covered_terms, seed, trials=trials)
     lgd_validation = lgd_rows(validation)
+    lgd_counts = _counts(lgd_rows(frame), LGD, lgd_training.covered_terms)
     lgd_runs = {
-        m.name: _log_lgd(context, m, lgd_training, lgd_validation)
+        m.name: _log_lgd(context, m, lgd_training, lgd_validation, lgd_counts)
         for m in (lgd_training.ridge, lgd_training.lightgbm, lgd_training.baseline)
     }
     verdicts["lgd"] = _register_and_promote(

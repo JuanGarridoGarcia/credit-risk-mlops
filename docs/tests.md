@@ -20,17 +20,20 @@ Every test of the project, what it checks, where it lives and where it runs. Jua
 - [T10 Behaviour](#t10-behaviour)
 - [T11 Registry](#t11-registry)
 - [T12 LGD](#t12-lgd)
+- [T13 Explanations](#t13-explanations)
+- [T14 Model card](#t14-model-card)
+- [T15 Buy rule and business metric](#t15-buy-rule-and-business-metric)
 - [Change history](#change-history)
 
 ## How tests are organised
 
-Tests are grouped by the piece they check. Group B holds the foundations (package, settings, Postgres, images); groups T1 to T6 belong to the steps of F2 and T7 to T12 to the training of F3. Every test has an ID; a test can be one or more pytest functions.
+Tests are grouped by the piece they check. Group B holds the foundations (package, settings, Postgres, images); groups T1 to T6 belong to the steps of F2 and T7 to T15 to the model of F3. Every test has an ID; a test can be one or more pytest functions.
 
 | Kind | Folder | pytest marker | Needs | Command | Runs in |
 |---|---|---|---|---|---|
 | Unit | `tests/unit/` | none | Nothing | `make test`, `make test-image` | CI (job `tests`), and inside the image (job `integration`) |
 | Integration | `tests/integration/` | `integration` (`destructive` for B4 and T8.2) | Docker: compose Postgres and MLflow, or the built images | `make test-integration` | CI (job `integration`) |
-| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15, T5.13, T5.14, T6.8, T10.6, T12.6) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
+| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15, T5.13, T5.14, T6.8, T10.6, T12.6, T14.6, T15.7; MLflow for T14.6) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
 
 Integration and data tests never skip: if what they need is missing, they fail.
 
@@ -57,10 +60,13 @@ Changing what an approved test checks needs Juan's approval again. B6 fails if a
 | T7 Training | F3, second pull request | 5 | 2026-11-24 | [technical.md, F3](technical.md#second-pull-request-training) |
 | T8 Tracking | F3, second pull request | 4 | 2026-11-24 | [technical.md, F3](technical.md#second-pull-request-training) |
 | T9 Model comparison | F3, second pull request | 4 | 2026-11-24 (T9.3 margin case added the same day) | [technical.md, F3](technical.md#second-pull-request-training) |
-| T10 Behaviour | F3, second pull request | 6 | 2026-11-24 | [technical.md, F3](technical.md#second-pull-request-training) |
+| T10 Behaviour | F3, second pull request | 6 | 2026-11-24 (T10.4 changed in the third pull request) | [technical.md, F3](technical.md#second-pull-request-training) |
 | T11 Registry | F3, second pull request | 5 | 2026-11-24 | [technical.md, F3](technical.md#second-pull-request-training) |
 | T12 LGD | F3, second pull request | 7 | 2026-11-24 (T12.6 changed and T12.7 added the same day, D-094) | [technical.md, F3](technical.md#second-pull-request-training) |
-| **Total** | | **116** | | |
+| T13 Explanations | F3, third pull request | 5 | 2026-11-24 | [technical.md, F3](technical.md#third-pull-request-explanations-and-business) |
+| T14 Model card | F3, third pull request | 6 | 2026-11-24 | [technical.md, F3](technical.md#third-pull-request-explanations-and-business) |
+| T15 Buy rule and business metric | F3, third pull request | 7 | 2026-11-24 | [technical.md, F3](technical.md#third-pull-request-explanations-and-business) |
+| **Total** | | **134** | | |
 
 ## B Foundations
 
@@ -239,7 +245,7 @@ F3, second pull request. The battery (D-086) is a function run on every model be
 | T10.1 | Invariance: changing fields the model does not use (`id`, `emp_title`, `addr_state`) leaves the PD unchanged; a loan scored alone or in a batch gets exactly the same PD | `tests/unit/test_battery.py::test_unused_fields_and_batch_size_do_not_move_the_pd` | Unit | CI, image |
 | T10.2 | Direction: on real validation loans, raising each of the nine features of D-080 in its risk direction never lowers the PD, and the reverse for the protective ones | `tests/unit/test_battery.py::test_raising_a_risk_feature_never_lowers_the_pd` | Unit | CI, image |
 | T10.3 | Minimum cases: a clearly good profile (grade A, FICO 800, `dti` 5, no delinquencies) gets a lower PD than a clearly bad one; every PD is between 0 and 1; empty optional fields are scored without error; an uncovered term gets no PD | `tests/unit/test_battery.py::test_the_minimum_cases` | Unit | CI, image |
-| T10.4 | Time: one prediction takes under 50 ms (p95) in process. Measured without the explanation here; extending it to include SHAP in the third pull request needs Juan's approval | `tests/unit/test_battery.py::test_one_prediction_takes_under_50_ms` | Unit | CI, image |
+| T10.4 | Time: one prediction with its explanation (D-083) takes under 50 ms (p95) in process | `tests/unit/test_battery.py::test_one_prediction_takes_under_50_ms` | Unit | CI, image |
 | T10.5 | Bad models fail: a constant model and a random model fail the battery | `tests/unit/test_battery.py::test_a_constant_and_a_random_model_fail` | Unit | CI, image |
 | T10.6 | Data test: the model trained at T0 on the real data passes the whole battery | `tests/data/test_training_data.py::test_the_model_trained_at_t0_passes_the_battery` | Data | Local |
 
@@ -269,6 +275,45 @@ F3, second pull request (D-087, D-088, D-094).
 | T12.6 | Data test at T0: trained on the 992 training rows, level corrected (D-094) and validated on the 344; logs the RMSE with intervals, the interval against the baseline, the champion, the level shift of each model and the gap before the correction; fixes no winner; the champion's mean predicted LGD in validation is within 0.005 of the observed mean, and no shift exceeds 0.10 | `tests/data/test_training_data.py::test_the_lgd_at_t0_is_on_the_level_of_the_observed_lgd` | Data | Local |
 | T12.7 | The level correction of D-094 on made-up data whose validation LGD is 0.10 above training: the shift equals the observed mean minus the mean predicted, by hand; only validation sets it; the order of predictions is unchanged; every prediction stays in [0, 1]; every model, the baseline included, gets its own shift | `tests/unit/test_lgd.py::test_the_level_is_corrected_on_validation_only` | Unit | CI, image |
 
+## T13 Explanations
+
+F3, third pull request (D-083).
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T13.1 | Additivity for the logistic regression, LightGBM and the baseline: base value plus contributions equals the log-odds of the calibrated PD (relative and absolute tolerance 1e-9), on validation loans and odd rows (every optional field empty, an unseen category, extreme values) | `tests/unit/test_explain.py::test_base_plus_contributions_is_the_prediction` | Unit | CI, image |
+| T13.2 | They are real SHAP values: our contributions equal those of the `shap` library (`LinearExplainer` with the training rows as background, `TreeExplainer`) within 1e-6. Runs where `shap` is installed (CI, the test and train images), never in `serve` | `tests/unit/test_explain.py::test_the_contributions_are_shap_values` | Unit | CI, image |
+| T13.3 | One contribution per original feature: one-hot columns and "was missing" columns are summed into their feature; the vector has exactly the 30 features; a feature the model does not use contributes 0 (the baseline: everything but the grade) | `tests/unit/test_explain.py::test_one_contribution_per_original_feature` | Unit | CI, image |
+| T13.4 | The four main reasons are the four largest contributions in absolute value, with their sign and the feature's value; ties keep the order of the features; a case by hand. A loan with no PD gets no reasons, and a feature with no contribution is no reason | `tests/unit/test_explain.py::test_the_four_main_reasons_by_hand` | Unit | CI, image |
+| T13.5 | The reasons make sense: for the clearly bad profile of the battery the main reason raises the PD, for the clearly good one it lowers it, for both candidates | `tests/unit/test_explain.py::test_the_reasons_make_sense` | Unit | CI, image |
+
+## T14 Model card
+
+F3, third pull request (D-095).
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T14.1 | Every registered version has its `model_card.md` in the artefacts of its run, champion or not (the chosen model and the baseline of each target), with every section in order | `tests/integration/test_tracking.py::test_every_registered_version_has_its_model_card` | Integration | CI |
+| T14.2 | A card missing any of its sections is refused, naming the section | `tests/unit/test_card.py::test_a_card_without_a_section_is_refused_by_name` | Unit | CI, image |
+| T14.3 | The numbers of the card are those of the run: metrics with intervals, training set version, run, and the counts of loans and defaults, which also match a count by hand | `tests/integration/test_tracking.py::test_the_numbers_of_the_card_are_those_of_the_run` | Integration | CI |
+| T14.4 | The global importance is the mean absolute contribution on validation, by hand on a small case (covered terms only), largest first | `tests/unit/test_card.py::test_the_importance_is_the_mean_absolute_contribution_by_hand` | Unit | CI, image |
+| T14.5 | Each card carries what is particular to its model: the features removed by D-092 for the PD, the level shift of D-094 for the LGD | `tests/integration/test_tracking.py::test_the_card_carries_what_is_particular_to_each_model` | Integration | CI |
+| T14.6 | Data test: the cards in `docs/model_cards/` are those of the T0 champions, generated by the same function (title, run and commit aside) | `tests/data/test_training_data.py::test_the_cards_in_docs_are_those_of_the_t0_champions` | Data | Local |
+
+## T15 Buy rule and business metric
+
+F3, third pull request (D-084, D-085, D-096, D-007).
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T15.1 | Scheduled interest with the amortisation formula, by hand: 36 months at 7% gives 0.111 and at 20% gives 0.338 (the examples of D-084); a rate of 0% gives 0 | `tests/unit/test_business.py::test_scheduled_interest_by_hand` | Unit | CI, image |
+| T15.2 | Expected return = (1 - PD) x scheduled interest - PD x LGD, by hand on the two examples of D-084 (0.083 and 0.103); a loan with no PD (term not covered) is never bought | `tests/unit/test_business.py::test_expected_return_by_hand_and_no_pd_is_never_bought` | Unit | CI, image |
+| T15.3 | Budget (D-085): K is 10% of the loans listed the month before, rounded down; loans that pass are bought in listing order until K and the rest are skipped; one 25 dollar note per loan | `tests/unit/test_business.py::test_the_monthly_cap_and_the_listing_order` | Unit | CI, image |
+| T15.4 | Realised return by hand: a paid loan, a defaulted one with recoveries and collection fee, and idle money counted as zero; return = (received - invested) / budget | `tests/unit/test_business.py::test_realised_return_by_hand` | Unit | CI, image |
+| T15.5 | The minimum is chosen on validation only, from a fixed grid, as the one with the highest realised return under the same budget (a tie goes to the smallest); the ids used are recorded | `tests/unit/test_business.py::test_the_minimum_is_chosen_on_validation_only` | Unit | CI, image |
+| T15.6 | On made-up data where our PD is informative and the baseline's is not, our investor earns more with exactly the same budget every month | `tests/unit/test_business.py::test_an_informative_pd_earns_more_with_the_same_budget` | Unit | CI, image |
+| T15.7 | Data test (D-096): the T0 champions against the baseline on the loans listed from 2014-02 to 2015-01, with their final outcomes; records realised default rate, loss and net return at caps of 5%, 10% and 20%; fixes no winner; checks the same budget, that everything bought is covered and listed in that year, and that nothing of that year chose the minimum | `tests/data/test_business_data.py::test_the_t0_models_against_the_baseline_on_the_next_year` | Data | Local |
+
 ## Change history
 
 | Date | Test | Change | Why |
@@ -293,3 +338,7 @@ F3, second pull request (D-087, D-088, D-094).
 | 2026-11-24 | T9.3 | Case added: clearly worse in a segment but within the margin passes | The margins of [D-093](decisions.md#d-093); approved by Juan |
 | 2026-11-24 | T5.13, T5.14 | The load up to T0 moved from `tests/data/test_snapshot_data.py` to `tests/data/conftest.py`, shared with T10.6 and T12.6. What each test checks is unchanged | The load takes minutes; doing it twice is waste |
 | 2026-11-24 | T12.6, T12.7 | T12.6 no longer checks that the mean predicted LGD lies inside the interval of the observed mean (true by construction after D-094): it checks the mean after the correction and that no shift exceeds 0.10, and logs the gap before. T12.7 written | The LGD was 5 points too low at T0 and its level is now corrected on validation ([D-094](decisions.md#d-094)); approved by Juan |
+| 2026-11-24 | T13.1 to T13.5 | Written (F3, third pull request) | Approved by Juan |
+| 2026-11-24 | T10.4 | Times each prediction together with its explanation | The PD is served with its reasons ([D-083](decisions.md#d-083)); approved by Juan |
+| 2026-11-24 | T14.1 to T14.6 | Written (F3, third pull request) | Approved by Juan |
+| 2026-11-24 | T15.1 to T15.7 | Written (F3, third pull request) | Approved by Juan |

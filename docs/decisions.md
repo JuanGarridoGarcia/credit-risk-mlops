@@ -102,6 +102,8 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-092](#d-092) | 2026-11-24 | 3.2 | The logistic regression keeps the signs of D-080 by removing a wrong-signed feature and refitting | Active |
 | [D-093](#d-093) | 2026-11-24 | 3.3 | A key segment blocks a promotion only if it is clearly worse by more than a margin | Active |
 | [D-094](#d-094) | 2026-11-24 | 3.2 | The level of every LGD model is corrected on validation, like Platt scaling for the PD | Active |
+| [D-095](#d-095) | 2026-11-24 | 3.5 | A model card is generated for every registered version and stored with it | Active |
+| [D-096](#d-096) | 2026-11-24 | 3.5 | The realised return is measured on the 12 months after T0; validation only chooses the minimum of the buy rule | Active |
 
 ## Decisions
 
@@ -1092,3 +1094,33 @@ Date: 2026-11-24 · Step: 3.2 (amends D-087) · Status: Active
 - **Alternatives considered**: (B) give more weight to recent years in training: reduces the lag but does not remove it, and adds a weight to choose; (C) leave the model as it is, record the failing check as expected and let the monitoring of F6 watch the level.
 - **Why**: it is the same logic Juan chose for the PD (D-076): the shape is learned on training and the level is set on the most recent period with known outcomes. One number keeps it simple and cannot change the order of predictions.
 - **Consequences**: at T0 the shifts are +0.050 (ridge), +0.054 (LightGBM) and +0.050 (baseline); validation RMSE goes from 0.221 to 0.216 for each; no candidate beats the baseline, which stays champion. On validation the mean predicted equals the observed mean by construction, so it can no longer be a check of the level: T12.6 changes, with Juan's approval. With a rising trend the model can still lag by the change between the validation window and the time it is used; the monitoring of F6 compares the predicted and observed LGD of each new group of resolved defaults.
+
+### D-095 A model card is generated for every registered version and stored with it
+
+Date: 2026-11-24 · Step: 3.5 · Status: Active
+
+- **Context**: a model card states what a model is for and not for, the data it was trained on, how it performs overall and by segment, its known limits and which features weigh most. It is the first document a model validator asks for. Models here are retrained and promoted automatically (D-082), so a document written by hand would be out of date after the first retraining.
+- **Decision**: every registered version gets a `model_card.md` in the artefacts of its run, built from what the run recorded: training set version and dates, counts, metrics with intervals, segment results, battery, signs and removed features (D-092), LGD level shift (D-094), global importance (mean absolute SHAP contribution on validation, D-083). The parts that do not come from data (intended use, uses not intended, features left out on purpose, known limits) are fixed text in the code, reviewed in every pull request. A copy of the card of the first champion (T0) is kept in `docs/`.
+- **Alternatives considered**: (B) a card written by hand in `docs/`: easier to read, stale at the first retraining; (C) only the model description in MLflow: no structure, no segments.
+- **Why**: each version that can become champion carries its own card, and the card can never disagree with the model it describes.
+- **Consequences**: one more artefact per run; its content is checked by tests.
+
+### D-096 The realised return is measured on the 12 months after T0; validation only chooses the minimum of the buy rule
+
+Date: 2026-11-24 · Step: 3.5 (completes D-007, D-084, D-085) · Status: Active
+
+- **Context**: the minimum expected return of the buy rule (D-084) is chosen on validation. Measuring the realised return (D-007) on the same loans would report a result fitted to them, so optimistic.
+- **Decision**: the business metric of F3 is measured on the loans listed in the 12 months after T0 (February 2014 to January 2015), with their final outcomes from the later deliveries, as an investor using the T0 models for a year would have earned. Validation only chooses the minimum, for our models and for the baseline alike. The later outcomes are used to measure, never to design or choose anything.
+- **Alternatives considered**: (B) cross-fitting within validation: choose the minimum on four fifths and measure on the fifth left, five times; nothing after T0 is used, but only six months of loans; (C) validation alone: simplest, but optimistic.
+- **Why**: it is the honest answer to "would it have made more money?", with both investors under the same rules and budget (D-085).
+- **Consequences**: the measurement needs every delivery up to the end of those loans, so it is a data test (local). It is a single year with a single pair of models; F4 and F7 repeat it as the models are retrained.
+
+### D-097 The business result at T0 is reported as measured; improving the buy rule is a later decision
+
+Date: 2026-11-24 · Step: 3.5 (follows D-096) · Status: Active
+
+- **Context**: T15.7 measured the realised return at T0 (D-096) on the loans listed from 2014-02 to 2015-01, with the same budget for both investors. Our models do not beat the grade baseline: +8.99% against +8.95% at a cap of 5%, +8.46% against +8.95% at 10%, +7.49% against +8.70% at 20%. Our investor chooses a higher minimum on validation, buys fewer notes (idle money earns zero) and the notes it buys default more often. A better PD ranking (AUC 0.677 against 0.636) does not turn into better choices under this rule.
+- **Decision**: the result is reported as measured in the README, the technical document and the known limits of the model card, and the third pull request of F3 is opened with it. Looking for the cause and changing the buy rule is a separate decision, with its own tests, after this pull request.
+- **Alternatives considered**: (B) investigate the cause before opening the pull request; (C) change the buy rule now (for example, rank by expected return and fill the cap), with new tests.
+- **Why**: the measurement was designed before the result was known and is closed; changing the rule after seeing the answer, on the same year, would fit the rule to that year. A negative result stated plainly is worth more than one fixed without evidence.
+- **Consequences**: the claim of the project at T0 is that the models rank and are calibrated better than the baseline, not that they earn more. The buy rule is open for review in a later step; any new rule is measured on loans it was not chosen on.

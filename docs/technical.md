@@ -34,7 +34,7 @@ Status of every step of the playbook. Updated in every pull request.
 | | 3.2 Tracking and experiments | Done | #7, PR 2 | D-068, D-071 to D-079, D-087, D-088, D-091, D-092, D-094; E-027 to E-036 |
 | | 3.3 Model tests and promotion rules | Done | PR 2 | D-080, D-081, D-086, D-093 |
 | | 3.4 Model registry | Done | PR 2 | D-082, D-090 |
-| | 3.5 Explainability and model card | Designed | | D-083; buy rule and budget D-084, D-085 |
+| | 3.5 Explainability and model card | Done | PR 3 | D-083, D-095; buy rule, budget and business result D-084, D-085, D-096, D-097 |
 | F4 Automation | 4.1 Orchestrated training flow | Pending | | |
 | | 4.2 Batch prediction flow | Pending | | Replaced by the replayer calling the API (D-008) |
 | F5 Deployment | 5.1 API | Pending | | |
@@ -596,6 +596,9 @@ promote: noise, segments (with margins, D-093), signs, battery (PD only)
 | `lgd.py` | The LGD procedure on the same machinery |
 | `compare.py` | Metrics, paired bootstrap (D-075), segments and their margins (D-081, D-093) |
 | `battery.py` | The behavioural battery (D-086) |
+| `explain.py` | The explanation of each PD: base value, one contribution per feature, the four main reasons (D-083); global importance |
+| `card.py` | The model card of every registered version (D-095) |
+| `business.py` | Buy rule, budget, choice of the minimum and realised return (D-084, D-085, D-096) |
 | `tracking.py` | Run records and their check (D-079); the MLflow server of compose |
 | `registry.py` | Storing, registering, promotion, alert and rollback (D-082, D-090) |
 | `pipeline.py` | `make train T=YYYY-MM`: the newest training set version at T, both targets, register and promote |
@@ -632,3 +635,73 @@ Both share the `runtime` base, which adds the OpenMP runtime LightGBM needs (`li
 | LGD, validation RMSE | before the correction: ridge 0.2216, LightGBM 0.2241, baseline 0.2214; after: 0.2157, 0.2176, 0.2156 |
 | LGD, promotion | No candidate beats the baseline: the mean LGD by grade is the champion (D-087) |
 | Whole retrain (both targets, every search, MLflow) | about 40 seconds |
+
+### Third pull request: explanations and business
+
+Tests approved by Juan before any code was written; catalogued in [tests.md](tests.md).
+
+**T13 Explanations** (approved 2026-11-24)
+
+| ID | What it checks |
+|---|---|
+| T13.1 | Additivity for the logistic regression, LightGBM and the baseline: base value plus contributions equals the log-odds of the calibrated PD (relative and absolute tolerance 1e-9), on validation loans and odd rows (every optional field empty, an unseen category, extreme values) |
+| T13.2 | They are real SHAP values: our contributions equal those of the `shap` library (`LinearExplainer` with the training rows as background, `TreeExplainer`) within 1e-6. Runs where `shap` is installed (CI, the test and train images), never in `serve` |
+| T13.3 | One contribution per original feature: one-hot columns and "was missing" columns are summed into their feature; the vector has exactly the 30 features; a feature the model does not use contributes 0 (the baseline: everything but the grade) |
+| T13.4 | The four main reasons are the four largest contributions in absolute value, with their sign and the feature's value; ties keep the order of the features; a case by hand. A loan with no PD gets no reasons, and a feature with no contribution is no reason |
+| T13.5 | The reasons make sense: for the clearly bad profile of the battery the main reason raises the PD, for the clearly good one it lowers it, for both candidates |
+| T10.4 (changed) | One prediction **with** its explanation takes under 50 ms (p95) |
+
+#### How explanations work
+
+Each PD is explained as a base value plus one contribution per feature, in log-odds, computed without the `shap` library so that `serve` stays light (D-078, B7):
+
+| Model | Contribution of a column | Base value |
+|---|---|---|
+| Logistic regression, baseline | coefficient x (value - its mean on training) | intercept + coefficients x training means |
+| LightGBM | LightGBM's own `pred_contrib` (the tree algorithm of `shap.TreeExplainer`) | the last column of `pred_contrib` |
+
+Then Platt scaling (`a x raw + b`) multiplies every contribution by `a` and turns the base into `a x base + b`. The columns made from one feature (one-hot categories, the "was missing" column) are summed into that feature, so every explanation has the same 30 features and a feature the model does not use contributes 0. The four main reasons are the four largest contributions in absolute value; ties keep the order of the features, and a zero contribution is never a reason. For LightGBM the raw log-odds of the PD are now read directly from the model (`raw_score`), the exact sum of its contributions, instead of the log-odds of its probability.
+
+**T14 Model card** (approved 2026-11-24)
+
+| ID | What it checks |
+|---|---|
+| T14.1 | Every registered version has its `model_card.md` in the artefacts of its run, champion or not (the chosen model and the baseline of each target), with every section in order |
+| T14.2 | A card missing any of its sections is refused, naming the section |
+| T14.3 | The numbers of the card are those of the run: metrics with intervals, training set version, run, and the counts of loans and defaults, which also match a count by hand |
+| T14.4 | The global importance is the mean absolute contribution on validation, by hand on a small case (covered terms only), largest first |
+| T14.5 | Each card carries what is particular to its model: the features removed by D-092 for the PD, the level shift of D-094 for the LGD |
+| T14.6 | Data test: the cards in `docs/model_cards/` are those of the T0 champions, generated by the same function (title, run and commit aside) |
+
+#### Model cards
+
+Every version registered by `make train` gets a `model_card.md` in its run (D-095), built by `credit_risk.card` from what the run recorded and from the stored model: the model and its training set, intended and not intended uses, counts, metrics with intervals, the promotion verdict, segments, battery, global importance (mean absolute SHAP contribution on validation), features left out on purpose and known limits. The runs now also record the counts of loans and defaults of each split (`rows.*`, `defaults.*`). The cards of the T0 champions are in [`docs/model_cards/`](model_cards/): the logistic regression for the PD and the grade-only baseline for the LGD.
+
+**T15 Buy rule and business metric** (approved 2026-11-24)
+
+| ID | What it checks |
+|---|---|
+| T15.1 | Scheduled interest with the amortisation formula, by hand: 36 months at 7% gives 0.111 and at 20% gives 0.338 (the examples of D-084); a rate of 0% gives 0 |
+| T15.2 | Expected return = (1 - PD) x scheduled interest - PD x LGD, by hand on the two examples of D-084 (0.083 and 0.103); a loan with no PD (term not covered) is never bought |
+| T15.3 | Budget (D-085): K is 10% of the loans listed the month before, rounded down; loans that pass are bought in listing order until K and the rest are skipped; one 25 dollar note per loan |
+| T15.4 | Realised return by hand: a paid loan, a defaulted one with recoveries and collection fee, and idle money counted as zero; return = (received - invested) / budget |
+| T15.5 | The minimum is chosen on validation only, from a fixed grid, as the one with the highest realised return under the same budget (a tie goes to the smallest); the ids used are recorded |
+| T15.6 | On made-up data where our PD is informative and the baseline's is not, our investor earns more with exactly the same budget every month |
+| T15.7 | Data test (D-096): the T0 champions against the baseline on the loans listed from 2014-02 to 2015-01, with their final outcomes; records realised default rate, loss and net return at caps of 5%, 10% and 20%; fixes no winner; checks the same budget, that everything bought is covered and listed in that year, and that nothing of that year chose the minimum |
+
+#### Buy rule and business metric
+
+`credit_risk.business` (D-084, D-085, D-096). For each loan, scheduled interest from `int_rate` and `term` (amortisation), expected return `(1 - PD) x scheduled interest - PD x LGD`. Each month at most K notes of 25 dollars, K = 10% of the loans listed the month before; loans with an expected return at or above the minimum are bought in listing order (the order of their ids) until K. A note receives its share of `total_pymnt` less the collection fee; the net return is (received - invested) over the money available, so idle money counts as zero. It is the total over the life of the loans, not annualised (all are 36-month loans). The minimum is chosen from a grid from -0.10 to 0.30 in steps of 0.005, on validation only; the realised return is measured on the loans listed in the 12 months after T0.
+
+Measured at T0 by T15.7 (2026-11-24), loans listed from 2014-02 to 2015-01, same budget for both investors every month:
+
+| Cap | Investor | Minimum | Notes | Budget ($) | Default rate | Loss | Net return |
+|---|---|---|---|---|---|---|---|
+| 5% | model | +0.145 | 11,478 | 294,375 | 0.198 | 0.076 | +0.0899 |
+| 5% | baseline | +0.105 | 11,775 | 294,375 | 0.176 | 0.067 | +0.0895 |
+| 10% | model | +0.135 | 21,301 | 588,900 | 0.186 | 0.071 | +0.0846 |
+| 10% | baseline | +0.105 | 23,556 | 588,900 | 0.177 | 0.067 | +0.0895 |
+| 20% | model | +0.120 | 37,656 | 1,177,975 | 0.173 | 0.065 | +0.0749 |
+| 20% | baseline | +0.100 | 45,942 | 1,177,975 | 0.166 | 0.063 | +0.0870 |
+
+At T0 our model does not beat the grade baseline on realised return: about equal at 5%, worse at 10% and 20%. It picks a higher minimum on validation, buys fewer notes (idle money earns zero), and the notes it buys default more often, so the better ranking of the PD (AUC 0.677 against 0.636) does not turn into better choices under this rule. Juan chose to report it as measured and to review the rule in a later step (D-097).

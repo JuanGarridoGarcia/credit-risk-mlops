@@ -78,6 +78,9 @@ class Prepare:
     gaps: tuple[str, ...] = ()
     categories: dict[str, tuple[str, ...]] = field(default_factory=dict)
     fitted: bool = False
+    #: Mean of every output column on training (``linear`` only): the reference point of
+    #: the explanations of a linear model (D-083).
+    column_means: tuple[float, ...] = ()
 
     @property
     def numeric(self) -> tuple[str, ...]:
@@ -105,6 +108,8 @@ class Prepare:
                 seen.append(_MISSING)
             self.categories[c] = tuple(str(v) for v in seen)
         self.fitted = True
+        if self.kind == "linear":
+            self.column_means = tuple(float(m) for m in self.transform(frame).mean(axis=0))
         return self
 
     @property
@@ -172,8 +177,8 @@ class PDModel:
         if hasattr(self.estimator, "coef_"):
             coef = np.asarray(self.estimator.coef_, dtype=np.float64).ravel()
             return np.asarray((x * coef).sum(axis=1) + self.estimator.intercept_[0])
-        proba = self.estimator.predict_proba(x)[:, 1]
-        return logit(np.asarray(proba, dtype=np.float64))
+        # LightGBM's own log-odds: the exact sum of its contributions (D-083).
+        return np.asarray(self.estimator.predict(x, raw_score=True), dtype=np.float64)
 
     def calibrated(self, raw: Matrix) -> Matrix:
         """Platt scaling (D-076) of raw log-odds."""
