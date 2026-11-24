@@ -36,7 +36,7 @@ from credit_risk.model import (
     covered_terms,
     monotone_constraints,
 )
-from credit_risk.snapshot import LABEL, SPLIT, VALIDATION_MONTHS
+from credit_risk.snapshot import LABEL, LGD, SPLIT, VALIDATION_MONTHS
 from credit_risk.validation.contract import CHARGE_OFF_LAG_MONTHS
 
 log = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ EARLY_STOPPING_ROUNDS: Final = 50
 THREADS: Final = 4
 
 #: Columns of the training set kept next to the features.
-KEEP: Final = ("id", "issue_d", LABEL, SPLIT)
+KEEP: Final = ("id", "issue_d", LABEL, LGD, SPLIT)
 
 Seen = Callable[[pl.Series], None]
 

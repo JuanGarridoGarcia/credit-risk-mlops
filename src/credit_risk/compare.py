@@ -27,6 +27,9 @@ RESAMPLES: Final = 1_000
 LEVEL: Final = 0.95
 #: D-081: a segment with fewer events than this is merged with its neighbour.
 MIN_SEGMENT_EVENTS: Final = 50
+#: D-093: how much worse a segment must be, for sure, to block a promotion.
+PD_MARGINS: Final = {"auc": 0.01, "calibration_error": 0.01}
+LGD_MARGINS: Final = {"calibration_error": 0.02}
 
 
 def auc(y: Array, score: Array) -> float:
@@ -91,7 +94,8 @@ class Comparison:
 
 
 def _resample(y: Array, rng: np.random.Generator, stratify: bool) -> npt.NDArray[np.intp]:
-    if not stratify:
+    # Stratifying only makes sense for a 0/1 label; a continuous one (LGD) is drawn plainly.
+    if not stratify or not np.isin(y, (0.0, 1.0)).all():
         return rng.integers(0, y.size, y.size)
     # Each resample keeps the number of defaults and of non-defaults (D-075).
     groups = [np.flatnonzero(y == value) for value in np.unique(y)]
@@ -136,12 +140,11 @@ def interval(
     y: Array, p: Array, metric: str, *, resamples: int = RESAMPLES, seed: int = 0
 ) -> tuple[float, float, float]:
     """A metric of one model with its 95% bootstrap interval: (value, low, high)."""
-    stratify = metric != "rmse"
     score = METRICS[metric]
     rng = np.random.default_rng(seed)
     values = np.empty(resamples)
     for i in range(resamples):
-        idx = _resample(y, rng, stratify)
+        idx = _resample(y, rng, stratify=True)
         values[i] = score(y[idx], p[idx])
     tail = (1 - LEVEL) / 2 * 100
     low, high = np.nanpercentile(values, [tail, 100 - tail])
@@ -199,6 +202,13 @@ def segments(
 class SegmentResult:
     segment: str
     comparison: Comparison
+    margin: float = 0.0
+
+    @property
+    def blocking(self) -> bool:
+        """Clearly worse by more than the margin (D-093): the whole interval of the
+        improvement lies below minus the margin."""
+        return self.comparison.high < -self.margin
 
 
 def segment_check(
@@ -208,6 +218,7 @@ def segment_check(
     masks: Mapping[str, Mask],
     metrics: tuple[str, ...] = ("auc", "calibration_error"),
     *,
+    margins: Mapping[str, float] | None = None,
     resamples: int = RESAMPLES,
     seed: int = 0,
     stratify: bool = True,
@@ -227,13 +238,15 @@ def segment_check(
                 seed=seed,
                 stratify=stratify,
             )
-            results.append(SegmentResult(name, comparison))
+            margin = (margins or {}).get(metric, 0.0)
+            results.append(SegmentResult(name, comparison, margin))
     return results
 
 
 def segments_pass(results: list[SegmentResult]) -> bool:
-    """D-081: the new model fails if it is clearly worse in any segment, on any metric."""
-    return not any(r.comparison.worse for r in results)
+    """D-081: the new model fails if it is clearly worse in any segment, on any metric, by
+    more than the margin of that metric (D-093)."""
+    return not any(r.blocking for r in results)
 
 
 def choose(lightgbm_vs_logistic: Comparison) -> str:

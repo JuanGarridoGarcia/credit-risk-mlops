@@ -36,6 +36,8 @@ from mlflow.exceptions import MlflowException
 
 from credit_risk import battery
 from credit_risk.compare import (
+    LGD_MARGINS,
+    PD_MARGINS,
     paired_bootstrap,
     segment_check,
     segments,
@@ -160,12 +162,14 @@ def judge(
         y = validation[LABEL].cast(pl.Float64).to_numpy()[keep]
         new = challenger.predict_pd(features).to_numpy()[keep]
         old = current.predict_pd(features).to_numpy()[keep]
-        metric, events, metrics, stratify = "auc", y, ("auc", "calibration_error"), True
+        metric, events, stratify, margins = "auc", y, True, PD_MARGINS
+        metrics: tuple[str, ...] = ("auc", "calibration_error")
     else:
         y = validation[LGD].cast(pl.Float64).to_numpy()[keep]
         new = challenger.predict_lgd(features).to_numpy()[keep]
         old = current.predict_lgd(features).to_numpy()[keep]
-        metric, events, metrics, stratify = "rmse", np.ones_like(y), ("calibration_error",), False
+        metric, events, stratify, margins = "rmse", np.ones_like(y), False, LGD_MARGINS
+        metrics = ("calibration_error",)
     overall = paired_bootstrap(
         y, new, old, metric, seed=seed, resamples=resamples, stratify=stratify
     )
@@ -176,17 +180,24 @@ def judge(
         {f"{metric}.new": overall.new, f"{metric}.current": overall.current,
          f"{metric}.improvement.low": overall.low, f"{metric}.improvement.high": overall.high}
     )  # fmt: skip
-    masks = segments(features.filter(pl.Series(keep)), events, common)
+    masks = segments(validation.filter(pl.Series(keep)), events, common)
     results = segment_check(
-        y, new, old, masks, metrics, seed=seed, resamples=resamples, stratify=stratify
-    )
+        y, new, old, masks, metrics, margins=margins, seed=seed, resamples=resamples,
+        stratify=stratify,
+    )  # fmt: skip
     verdict.rules["no key segment clearly worse"] = segments_pass(results)
     verdict.evidence["segments"] = [
-        {"segment": r.segment, **_comparison(r.comparison), "worse": r.comparison.worse}
+        {
+            "segment": r.segment,
+            **_comparison(r.comparison),
+            "margin": r.margin,
+            "blocking": r.blocking,
+        }
         for r in results
     ]
-    verdict.rules["signs and constraints"] = signs_hold(challenger)
     if target == "pd":
+        # D-080 is about the PD; the LGD has no fixed directions.
+        verdict.rules["signs and constraints"] = signs_hold(challenger)
         checks = run_battery(challenger, validation)
         verdict.rules["behavioural battery"] = checks.passed
         verdict.evidence["battery"] = {"checks": checks.checks, "details": checks.details}
@@ -242,15 +253,14 @@ def promote(
         name, load(name, version), load(name, against), validation, seed=seed,
         resamples=resamples,
     )  # fmt: skip
-    run_id = client.get_model_version(name, version).run_id
+    run_id = str(client.get_model_version(name, version).run_id)
     if verdict.passed:
         _record(run_id, verdict, "promoted")
         _move(name, version, current_version, "promoted")
     else:
         _record(run_id, verdict, "rejected")
         log.info("%s version %s rejected: %s", name, version, ", ".join(verdict.reasons))
-        if current_version is None:
-            assert baseline_version is not None
+        if current_version is None and baseline_version is not None:
             _move(name, baseline_version, None, "promoted")
     return verdict
 
@@ -262,9 +272,8 @@ def rollback(name: Target) -> tuple[str, str]:
     if current is None:
         raise RegistryError(f"{name} has no champion")
     previous = client.get_model_version(name, current).tags.get(PREVIOUS)
-    if previous in (None, "none"):
+    if previous is None or previous == "none":
         raise RegistryError(f"{name} version {current} has no previous champion")
-    assert previous is not None
     client.set_model_version_tag(name, current, "rolled_back_at", datetime.now(UTC).isoformat())
     _move(name, previous, current, "rolled back")
     return current, previous
