@@ -73,7 +73,7 @@ def test_image_size_within_budget(image: str) -> None:
 
 
 # B7
-@pytest.mark.parametrize("module", ["optuna", "shap", "mlflow.server"])
+@pytest.mark.parametrize("module", ["optuna", "shap", "mlflow.server", "prefect"])
 def test_serve_carries_nothing_of_training(module: str) -> None:
     # mlflow-skinny ships the module mlflow.server but not its dependencies, so the test
     # imports the module instead of only looking for it.

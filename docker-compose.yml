@@ -1,4 +1,5 @@
-# Services of the system (decision A9, D-027): Postgres, and MLflow since F3 (D-079).
+# Services of the system (decision A9, D-027): Postgres, MLflow since F3 (D-079), and the
+# Prefect server and the worker of the monthly flow since F4 (D-099, D-103).
 # The API enters in F5 and Grafana in F6, each with the step that uses it and its tests.
 # Credentials come from .env (git-ignored); see .env.example.
 
@@ -60,6 +61,61 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  prefect:
+    # Prefect server (API and web interface) of the monthly flow (D-099). Like MLflow it
+    # runs from our train image, so server and flow share the Prefect version of uv.lock
+    # (D-103); its metadata go to the database "prefect" of the same Postgres.
+    image: ${TRAIN_IMAGE:-credit-risk:train}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      PREFECT_HOME: /tmp/prefect
+      PREFECT_SERVER_ANALYTICS_ENABLED: "false"
+    command: ["python", "-m", "credit_risk.flows", "server"]
+    ports:
+      - "127.0.0.1:${PREFECT_PORT:-4200}:4200"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4200/api/health')"]
+      interval: 3s
+      timeout: 5s
+      retries: 60
+      start_period: 15s
+    restart: unless-stopped
+
+  worker:
+    # Serves the deployment monthly/monthly: runs what the Prefect server sends it, with
+    # the code of the train image (D-103). It only coordinates; the work is in src/.
+    image: ${TRAIN_IMAGE:-credit-risk:train}
+    depends_on:
+      prefect:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      PREFECT_API_URL: http://prefect:4200/api
+      PREFECT_HOME: /tmp/prefect
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    command: ["python", "-m", "credit_risk.flows", "serve"]
+    volumes:
+      # The deliveries the simulator wrote (D-043, D-105), read only: the provider's
+      # drop. What the flow writes (validation reports, training sets) lives in a volume
+      # of its own (S3 in AWS).
+      - ./data/landing:/app/data/landing:ro
+      - flowdata:/app/data
+    restart: unless-stopped
+
 volumes:
   pgdata:
   mlartifacts:
+  flowdata:

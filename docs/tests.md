@@ -23,6 +23,7 @@ Every test of the project, what it checks, where it lives and where it runs. Jua
 - [T13 Explanations](#t13-explanations)
 - [T14 Model card](#t14-model-card)
 - [T15 Buy rule and business metric](#t15-buy-rule-and-business-metric)
+- [T16 Orchestration](#t16-orchestration)
 - [Change history](#change-history)
 
 ## How tests are organised
@@ -50,7 +51,7 @@ Changing what an approved test checks needs Juan's approval again. B6 fails if a
 
 | Group | Phase and step | Tests | Approved by Juan | Where they are described |
 |---|---|---|---|---|
-| B Foundations | F1, steps 1.1 and 1.2; F3 (B5 changed, B7, B8) | 8 | 2026-11-22 (B1 to B5), 2026-11-23 (B6), 2026-11-24 (B5 changed, B7, B8) | [technical.md, F1](technical.md#3-f1-foundations) |
+| B Foundations | F1, steps 1.1 and 1.2; F3 (B5 changed, B7, B8); F4 (B7 changed) | 8 | 2026-11-22 (B1 to B5), 2026-11-23 (B6), 2026-11-24 (B5 changed, B7, B8; B7 changed in F4) | [technical.md, F1](technical.md#3-f1-foundations) |
 | T1 Simulator | F2, step 2.1 | 12 | 2026-11-23 | [technical.md, step 2.1](technical.md#step-21-idempotent-ingestion) |
 | T2 Cleaning | F2, step 2.1 | 11 | 2026-11-23 | [technical.md, step 2.1](technical.md#step-21-idempotent-ingestion) |
 | T3 Loading | F2, step 2.1 | 15 | 2026-11-23 (T3.14 and T3.15 on approval in step 2.2) | [technical.md, step 2.1](technical.md#step-21-idempotent-ingestion) |
@@ -66,7 +67,8 @@ Changing what an approved test checks needs Juan's approval again. B6 fails if a
 | T13 Explanations | F3, third pull request | 5 | 2026-11-24 | [technical.md, F3](technical.md#third-pull-request-explanations-and-business) |
 | T14 Model card | F3, third pull request | 6 | 2026-11-24 | [technical.md, F3](technical.md#third-pull-request-explanations-and-business) |
 | T15 Buy rule and business metric | F3, third pull request | 7 | 2026-11-24 | [technical.md, F3](technical.md#third-pull-request-explanations-and-business) |
-| **Total** | | **134** | | |
+| T16 Orchestration | F4, step 4.1, first pull request | 10 | 2026-11-24 | [technical.md, F4](technical.md#6-f4-automation) |
+| **Total** | | **144** | | |
 
 ## B Foundations
 
@@ -80,7 +82,7 @@ F1, steps 1.1 and 1.2; B7 and B8 come with the two images of F3 (D-078).
 | B4 | A random value in a table with a random name survives `docker compose down` + `up` (a new container); the table is dropped afterwards. Marked `destructive`: runs last and alone | `tests/integration/test_persistence.py::test_postgres_data_survives_container_recreation` | Integration | CI |
 | B5 | Each image (`serve`, `train`) runs as non-root, has no `.env*` file, no secret in its configuration or build history, prints the right version, and stays within its budget: `serve` 800 MB, `train` 1.5 GB, measured as the sum of its layers (D-078, E-028) | `tests/integration/test_image.py::test_image_runs_as_non_root`<br>`tests/integration/test_image.py::test_image_has_no_env_file`<br>`tests/integration/test_image.py::test_image_has_no_secrets_in_config`<br>`tests/integration/test_image.py::test_image_default_command_works`<br>`tests/integration/test_image.py::test_image_size_within_budget` | Integration | CI |
 | B6 | Every test marker in `tests/` is in this catalogue and the other way round, in the same file; every function named here exists; every test function in `tests/` is named here | `tests/unit/test_catalogue.py::test_markers_and_catalogue_agree` | Unit | CI, image |
-| B7 | `serve` carries nothing of training: importing Optuna, SHAP or the full MLflow server fails inside it | `tests/integration/test_image.py::test_serve_carries_nothing_of_training` | Integration | CI |
+| B7 | `serve` carries nothing of training: importing Optuna, SHAP, the full MLflow server or Prefect fails inside it | `tests/integration/test_image.py::test_serve_carries_nothing_of_training` | Integration | CI |
 | B8 | A small model trained in `train`, saved and loaded in `serve` gives identical predictions | `tests/integration/test_image.py::test_a_model_trained_in_train_predicts_the_same_in_serve` | Integration | CI |
 
 ## T1 Simulator
@@ -314,6 +316,23 @@ F3, third pull request (D-084, D-085, D-096, D-007).
 | T15.6 | On made-up data where our PD is informative and the baseline's is not, our investor earns more with exactly the same budget every month | `tests/unit/test_business.py::test_an_informative_pd_earns_more_with_the_same_budget` | Unit | CI, image |
 | T15.7 | Data test (D-096): the T0 champions against the baseline on the loans listed from 2014-02 to 2015-01, with their final outcomes; records realised default rate, loss and net return at caps of 5%, 10% and 20%; fixes no winner; checks the same budget, that everything bought is covered and listed in that year, and that nothing of that year chose the minimum | `tests/data/test_business_data.py::test_the_t0_models_against_the_baseline_on_the_next_year` | Data | Local |
 
+## T16 Orchestration
+
+F4, step 4.1, first pull request (D-099 to D-105). Unit tests use a local SQLite MLflow store; integration tests run the flow against the services of docker compose on a small made-up source (`tests/synthetic_source.py`).
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T16.1 | Which failures are retried (D-102): a lost connection to Postgres (`psycopg.OperationalError`) and an MLflow request with no answer, a timeout or a 5xx answer are; `ValidationFailed`, `DeliveryError`, `StoreError`, `SnapshotError`, `RegistryError`, other MLflow errors, a database constraint and an unknown exception are not | `tests/unit/test_flows.py::test_transient_errors_are_retried`<br>`tests/unit/test_flows.py::test_permanent_and_unknown_errors_are_not_retried` | Unit | CI, image |
+| T16.2 | Retries are 3, after 10, 30 and 90 seconds; a task that fails twice with a transient error succeeds on the third attempt; a task with a permanent error fails after one attempt (waits set to 0 in the test) | `tests/unit/test_flows.py::test_retries_three_times_on_transient_errors_only` | Unit | CI, image |
+| T16.3 | Idempotency key (D-101): training again with the same model, training set and commit reuses the registered version without calling the training; another commit or another training set trains again | `tests/unit/test_flows.py::test_the_same_key_twice_reuses_the_registered_version` | Unit | CI, image |
+| T16.4 | A training that logged its runs but never registered its model is not done: the next attempt trains again, and the runs left behind are marked `FAILED` and `orphan` | `tests/unit/test_flows.py::test_a_run_never_registered_is_trained_again_and_marked_failed` | Unit | CI, image |
+| T16.5 | Promoting the same version twice returns the stored verdict: no new judgement, no change of champion, tags or metrics, nothing added to the rollback chain; a promotion that stopped after deciding is carried out without judging again | `tests/unit/test_flows.py::test_promoting_the_same_version_twice_changes_nothing` | Unit | CI, image |
+| T16.6 | With the PD and the LGD as separate steps (D-100), the LGD receives the covered terms of the PD, and the registered models predict exactly what the training procedure gives on the same data and seed | `tests/unit/test_flows.py::test_the_lgd_gets_the_terms_of_the_pd_and_the_same_models` | Unit | CI, image |
+| T16.7 | The whole cycle on small data (the simulator publishes, then the flow loads, versions, trains the PD and the LGD) ends `Completed` with 56 months loaded, the 36-month term covered, one training set and a champion of each model | `tests/integration/test_flows.py::test_the_whole_flow_on_small_data_leaves_two_champions` | Integration | CI |
+| T16.8 | A critical validation failure stops the flow: the load task fails in a single attempt with `ValidationFailed`; versioning, PD and LGD never run; the flow is `Failed`; nothing new reaches clean, the training sets or the registry (raw keeps the delivery, by design, D-044) | `tests/integration/test_flows.py::test_a_critical_validation_failure_stops_the_flow` | Integration | CI |
+| T16.9 | Running the flow again for the same month ends `Completed` with nothing duplicated: same rows in raw and clean, same training sets, same MLflow runs and registered versions, same champions; PD and LGD report `reused` | `tests/integration/test_flows.py::test_running_the_same_month_again_duplicates_nothing` | Integration | CI |
+| T16.10 | The Prefect server of compose answers, keeps its metadata in the database `prefect` of our Postgres, and runs (with its worker) from the `train` image; the deployment `monthly/monthly` is on the server and a run sent through it is executed by the worker (with no deliveries at the given folder, it fails in the load task after one attempt) | `tests/integration/test_flows.py::test_the_prefect_server_runs_the_deployed_flow` | Integration | CI |
+
 ## Change history
 
 | Date | Test | Change | Why |
@@ -342,3 +361,7 @@ F3, third pull request (D-084, D-085, D-096, D-007).
 | 2026-11-24 | T10.4 | Times each prediction together with its explanation | The PD is served with its reasons ([D-083](decisions.md#d-083)); approved by Juan |
 | 2026-11-24 | T14.1 to T14.6 | Written (F3, third pull request) | Approved by Juan |
 | 2026-11-24 | T15.1 to T15.7 | Written (F3, third pull request) | Approved by Juan |
+| 2026-11-24 | T16.1 to T16.10 | Written (F4, first pull request) | Approved by Juan |
+| 2026-11-24 | B7 | Also checks that `serve` cannot import Prefect | Prefect enters the `train` group ([D-103](decisions.md#d-103)); approved by Juan with T16 |
+| 2026-11-24 | T16.7, T16.10 | T16.7: the test publishes the deliveries with the simulator before the flow, which no longer has a publish task. T16.10: the failing run of the deployment fails in the load task (no deliveries) instead of the publish task | Publishing belongs to the simulated world, not to the system ([D-105](decisions.md#d-105)); approved by Juan with D-105 |
+| 2026-11-24 | T16.8 | Raw is left out of the "nothing new" comparison | Raw keeps every delivery as it came, by design ([D-044](decisions.md#d-044)); validation stops it at clean ([E-040](errors.md#e-040)) |

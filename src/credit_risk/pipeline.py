@@ -22,6 +22,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 import psycopg
+from mlflow import MlflowClient
 
 from credit_risk import card, registry
 from credit_risk.compare import interval
@@ -214,21 +215,40 @@ def _log_lgd(
     return run_id
 
 
+@dataclass(frozen=True)
+class Outcome:
+    """What one retraining of one target left in the registry."""
+
+    target: registry.Target
+    #: Registered version of the chosen model (the challenger).
+    version: str
+    covered_terms: tuple[int, ...]
+    verdict: registry.Verdict
+    #: True when the key of D-101 was already registered and nothing was trained.
+    reused: bool
+
+
 def _register_and_promote(
     context: Context,
     target: registry.Target,
     runs: dict[str, str],
     chosen: str,
     validation: pl.DataFrame,
-) -> registry.Verdict:
+    existing: dict[str, str],
+) -> tuple[str, registry.Verdict]:
     name = f"{context.prefix}{target}"
 
-    def version_of(model: str) -> str:
+    def version_of(model: str, role: str) -> str:
+        # A baseline registered by an attempt that stopped later is reused (D-101).
+        if role in existing:
+            return existing[role]
         source = f"runs:/{runs[model]}/{registry.MODEL_DIR}"
-        return registry.register(name, runs[model], source)
+        tags = registry.key_tags(context.version, context.commit, role)
+        return registry.register(name, runs[model], source, tags)
 
-    challenger = version_of(chosen)
-    baseline = version_of("baseline") if registry.champion(name) is None else None
+    # The baseline first: once the challenger is registered, everything it needs is too.
+    baseline = version_of("baseline", "baseline") if registry.champion(name) is None else None
+    challenger = version_of(chosen, "challenger")
     verdict = registry.promote(
         name, challenger, validation, target=target, baseline_version=baseline, seed=context.seed
     )
@@ -236,7 +256,98 @@ def _register_and_promote(
     for version in (challenger, baseline):
         if version is not None:
             card.write(name, version, target, validation)
-    return verdict
+    return challenger, verdict
+
+
+def _reuse(
+    context: Context, target: registry.Target, version: str, validation: pl.DataFrame
+) -> Outcome:
+    """D-101: the key is registered, so nothing is trained; finish the promotion if needed."""
+    name = f"{context.prefix}{target}"
+    run_id = str(MlflowClient().get_model_version(name, version).run_id)
+    tags = MlflowClient().get_run(run_id).data.tags
+    terms = tuple(int(t) for t in tags["covered_terms"].split(",") if t)
+    baseline = registry.trained(name, context.version, context.commit).get("baseline")
+    verdict = registry.promote(
+        name, version, validation, target=target, baseline_version=baseline, seed=context.seed
+    )
+    log.info("%s: training set %s at commit %s already trained", name, context.version[:12],
+             context.commit[:12])  # fmt: skip
+    return Outcome(target, version, terms, verdict, reused=True)
+
+
+def _existing(context: Context, target: registry.Target) -> dict[str, str]:
+    """Registered versions of this key; when unfinished, mark the runs left behind."""
+    name = f"{context.prefix}{target}"
+    existing = registry.trained(name, context.version, context.commit)
+    if "challenger" not in existing:
+        client = MlflowClient()
+        keep = {str(client.get_model_version(name, v).run_id) for v in existing.values()}
+        registry.fail_orphans(f"{context.prefix}{target}", context.version, context.commit, keep)
+    return existing
+
+
+def retrain_pd(
+    training_set: pl.DataFrame,
+    cutoff: date,
+    version: str,
+    *,
+    seed: int = SEED,
+    prefix: str = "",
+    trials: int = LIGHTGBM_TRIALS,
+) -> Outcome:
+    """Train, log, register and promote the PD of one training set version (D-100).
+
+    Idempotent (D-101): if this training set and this code commit already have a
+    registered PD, nothing is trained again.
+    """
+    context = Context(version, git_commit(), seed, prefix)
+    validation_listings = training_set.filter(pl.col(SPLIT) == "validation")
+    existing = _existing(context, "pd")
+    if "challenger" in existing:
+        return _reuse(context, "pd", existing["challenger"], validation_listings)
+    frame = prepare_frame(training_set)
+    validation = frame.filter(pl.col(SPLIT) == "validation")
+    training = train_pd(frame, cutoff, seed, trials=trials)
+    counts = _counts(frame, LABEL, training.covered_terms)
+    runs = {
+        m.name: _log_pd(context, m, training, validation, counts)
+        for m in (training.logistic, training.lightgbm, training.baseline)
+    }
+    challenger, verdict = _register_and_promote(
+        context, "pd", runs, training.chosen.name, validation_listings, existing
+    )
+    return Outcome("pd", challenger, training.covered_terms, verdict, reused=False)
+
+
+def retrain_lgd(
+    training_set: pl.DataFrame,
+    cutoff: date,
+    version: str,
+    covered_terms: tuple[int, ...],
+    *,
+    seed: int = SEED,
+    prefix: str = "",
+    trials: int = LIGHTGBM_TRIALS,
+) -> Outcome:
+    """Train, log, register and promote the LGD on the terms the PD covers (D-100, D-101)."""
+    context = Context(version, git_commit(), seed, prefix)
+    validation_listings = lgd_rows(training_set.filter(pl.col(SPLIT) == "validation"))
+    existing = _existing(context, "lgd")
+    if "challenger" in existing:
+        return _reuse(context, "lgd", existing["challenger"], validation_listings)
+    frame = prepare_frame(training_set)
+    validation = lgd_rows(frame.filter(pl.col(SPLIT) == "validation"))
+    training = train_lgd(frame, cutoff, covered_terms, seed, trials=trials)
+    counts = _counts(lgd_rows(frame), LGD, training.covered_terms)
+    runs = {
+        m.name: _log_lgd(context, m, training, validation, counts)
+        for m in (training.ridge, training.lightgbm, training.baseline)
+    }
+    challenger, verdict = _register_and_promote(
+        context, "lgd", runs, training.chosen.name, validation_listings, existing
+    )
+    return Outcome("lgd", challenger, training.covered_terms, verdict, reused=False)
 
 
 def retrain(
@@ -249,34 +360,10 @@ def retrain(
     trials: int = LIGHTGBM_TRIALS,
 ) -> dict[str, registry.Verdict]:
     """Train, log, register and promote the PD and the LGD of one training set version."""
-    context = Context(version, git_commit(), seed, prefix)
-    frame = prepare_frame(training_set)
-    validation_listings = training_set.filter(pl.col(SPLIT) == "validation")
-    validation = frame.filter(pl.col(SPLIT) == "validation")
-
-    pd_training = train_pd(frame, cutoff, seed, trials=trials)
-    pd_counts = _counts(frame, LABEL, pd_training.covered_terms)
-    pd_runs = {
-        m.name: _log_pd(context, m, pd_training, validation, pd_counts)
-        for m in (pd_training.logistic, pd_training.lightgbm, pd_training.baseline)
-    }
-    verdicts = {
-        "pd": _register_and_promote(
-            context, "pd", pd_runs, pd_training.chosen.name, validation_listings
-        )
-    }
-
-    lgd_training = train_lgd(frame, cutoff, pd_training.covered_terms, seed, trials=trials)
-    lgd_validation = lgd_rows(validation)
-    lgd_counts = _counts(lgd_rows(frame), LGD, lgd_training.covered_terms)
-    lgd_runs = {
-        m.name: _log_lgd(context, m, lgd_training, lgd_validation, lgd_counts)
-        for m in (lgd_training.ridge, lgd_training.lightgbm, lgd_training.baseline)
-    }
-    verdicts["lgd"] = _register_and_promote(
-        context, "lgd", lgd_runs, lgd_training.chosen.name, lgd_rows(validation_listings)
-    )
-    return verdicts
+    options: dict[str, Any] = {"seed": seed, "prefix": prefix, "trials": trials}
+    pd_ = retrain_pd(training_set, cutoff, version, **options)
+    lgd = retrain_lgd(training_set, cutoff, version, pd_.covered_terms, **options)
+    return {"pd": pd_.verdict, "lgd": lgd.verdict}
 
 
 def main(argv: list[str] | None = None) -> None:  # pragma: no cover - thin command line

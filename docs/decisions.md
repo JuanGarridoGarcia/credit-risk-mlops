@@ -104,6 +104,15 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-094](#d-094) | 2026-11-24 | 3.2 | The level of every LGD model is corrected on validation, like Platt scaling for the PD | Active |
 | [D-095](#d-095) | 2026-11-24 | 3.5 | A model card is generated for every registered version and stored with it | Active |
 | [D-096](#d-096) | 2026-11-24 | 3.5 | The realised return is measured on the 12 months after T0; validation only chooses the minimum of the buy rule | Active |
+| [D-097](#d-097) | 2026-11-24 | 3.5 | The business result at T0 is reported as measured; improving the buy rule is a later decision | Active |
+| [D-098](#d-098) | 2026-11-24 | F4 | Scope of F4: the orchestrated training flow and a simulated clock; batch prediction (step 4.2) moves to F5 | Active |
+| [D-099](#d-099) | 2026-11-24 | 4.1 | Orchestrator: Prefect 3 | Active |
+| [D-100](#d-100) | 2026-11-24 | 4.1 | Tasks are cut where their result is stored; only identifiers travel between them; PD and LGD apart | Active (amended by D-105) |
+| [D-101](#d-101) | 2026-11-24 | 4.1 | Training is idempotent by a key kept in MLflow: model, training set version and code commit | Active |
+| [D-102](#d-102) | 2026-11-24 | 4.1 | Only transient failures are retried: 3 attempts after 10, 30 and 90 seconds | Active |
+| [D-103](#d-103) | 2026-11-24 | 4.1 | Prefect in the `train` group, accepting three version downgrades; server and worker from the `train` image | Active |
+| [D-104](#d-104) | 2026-11-24 | 4.1 | The load task catches up every delivered month up to the one asked | Active |
+| [D-105](#d-105) | 2026-11-24 | 4.1 | Publishing deliveries is not a task of the system's flow (D-043 kept) | Active |
 
 ## Decisions
 
@@ -1124,3 +1133,84 @@ Date: 2026-11-24 · Step: 3.5 (follows D-096) · Status: Active
 - **Alternatives considered**: (B) investigate the cause before opening the pull request; (C) change the buy rule now (for example, rank by expected return and fill the cap), with new tests.
 - **Why**: the measurement was designed before the result was known and is closed; changing the rule after seeing the answer, on the same year, would fit the rule to that year. A negative result stated plainly is worth more than one fixed without evidence.
 - **Consequences**: the claim of the project at T0 is that the models rank and are calibrated better than the baseline, not that they earn more. The buy rule is open for review in a later step; any new rule is measured on loans it was not chosen on.
+
+### D-098 Scope of F4: the orchestrated training flow and a simulated clock; batch prediction (step 4.2) moves to F5
+
+Date: 2026-11-24 · Step: F4 · Status: Active
+
+- **Context**: the playbook puts two steps in F4: 4.1, an orchestrated training flow, and 4.2, a batch flow that scores each month with the champion. D-008 decided in F0 that the API is the only prediction path: a replayer sends each month's loans to the API, and no monthly batch scores them again. The API arrives in F5.
+- **Decision**: F4 is step 4.1 plus a simulated clock, a command that moves the system forward month by month (publish, load and validate, version and, when due, retrain and promote). Step 4.2 moves to F5 as the replayer that calls the API and stores the predictions. F4 is delivered in two pull requests: (1) the flow and the orchestrator in docker compose, with their tests; (2) the clock, the retraining cadence and the alerts.
+- **Alternatives considered**: (B) build the predictions table and score in process now, and switch to the API in F5: two prediction paths for a while, against D-008; (C) step 4.1 only, without the clock: a smaller pull request, but the system does not yet live through time.
+- **Why**: it keeps D-008 (a single prediction path) and closes F4 with a system that moves through time and retrains without anyone touching it.
+- **Consequences**: the tracking sheet marks 4.2 as replaced by the F5 replayer.
+
+### D-099 Orchestrator: Prefect 3
+
+Date: 2026-11-24 · Step: 4.1 · Status: Active
+
+- **Context**: step 4.1 asks for a flow that runs on its own, with retries, a schedule, a record of every run and alerts on failure. Cron only gives the schedule.
+- **Decision**: **Prefect 3**. Flows and tasks are plain Python functions with decorators; a server in docker compose keeps the history and the web interface; a worker runs our code.
+- **Alternatives considered**: (B) Airflow 3: the industry standard and the most asked for in job offers, but four or five more services (API server, scheduler, DAG processor, triggerer, a database migration job), at least 4 GB of memory, an image of its own over 1 GB, and either access to the Docker socket (whoever controls it controls the machine) or a second Python environment inside its image; (C) Dagster: its "assets" fit the versioning of F2 well, but a steeper learning curve and few job offers; (D) cron and make: no retries, history or interface.
+- **Why**: it covers everything step 4.1 asks for with little infrastructure, and a flow reads as Python, so the logic stays in `src/` and the flow only coordinates. Juan asked how much more infrastructure Airflow meant (the numbers above) before choosing.
+- **Consequences**: two more services in compose (server and worker); see D-103 for how Prefect is installed.
+
+### D-100 Tasks are cut where their result is stored; only identifiers travel between them; PD and LGD apart
+
+Date: 2026-11-24 · Step: 4.1 · Status: Active (amended by D-105: the publish task left the flow)
+
+- **Context**: a task is what Prefect retries, records and lets fail on its own. Every existing command already stores its result: `publish` (files), `ingest` (raw, validation, clean), `snapshot` (versioned training set), `train` (PD and LGD, registry, promotion).
+- **Decision**: one task per stored result, with the PD and the LGD as separate tasks. Between tasks only identifiers travel (a month, a training set version, a registered version, the covered terms), never data. `retrain()` is split into `retrain_pd()` and `retrain_lgd()`; the LGD receives the terms the PD covers, as before.
+- **Alternatives considered**: (A) four tasks, one per command: no change to `src/`, but a failure in the LGD retrains and registers the PD again; (C) about ten fine tasks: more detail, but it breaks transactions that are one on purpose (a month is validated and written to clean at once, D-049, D-055) or forces data between tasks.
+- **Why**: every cut matches something already persisted, so a retry is safe and cheap, and a failure of one model does not repeat the other.
+- **Consequences**: the flow of PR 1 has four tasks (`load`, `version`, `train-pd`, `train-lgd`, D-105). The retraining cadence (PR 2) decides when the last three run.
+
+### D-101 Training is idempotent by a key kept in MLflow: model, training set version and code commit
+
+Date: 2026-11-24 · Step: 4.1 · Status: Active
+
+- **Context**: with automatic retries a task can run twice, and the second run may come after the first did half its work. Publishing, loading and versioning were already idempotent (D-049, D-061). Training was not: running it again created new runs and registered another version of each model.
+- **Decision**: every registered version carries the tags `training_set`, `commit` and `role` (`challenger` or `baseline`). Before training, the task looks for a registered challenger with the same model, training set and commit; if found, nothing is trained and the registered version is reused. A training that logged runs but never registered its model does not count: it is trained again, and the runs left behind are marked `FAILED` and `orphan`. The promotion is idempotent too: the verdict, its evidence and what it was taken against are written first (`promotion.decision`), then the alias moves, then `promotion.outcome` is set; calling it again returns the stored verdict, and a promotion that stopped after deciding is carried out without judging again. The baseline is registered before the challenger, so a registered challenger means everything it needs is registered.
+- **Alternatives considered**: (B) Prefect's result cache on the task inputs: almost no code, but the truth would live in Prefect's database; if it were lost, or if someone ran `make train` without Prefect, models would be duplicated again; (C) accept duplicates and let the promotion reject identical models: the registry fills with copies and the playbook test "running again does not duplicate" fails.
+- **Why**: the guarantee lives with the models and in `src/`, works the same with or without the orchestrator, and is tested by unit tests.
+- **Consequences**: a change of code (a new commit) retrains on the same data, as it should: it is another procedure. Images carry their commit (`CREDIT_RISK_COMMIT`, passed by `make build` and CI), because the key needs it.
+
+### D-102 Only transient failures are retried: 3 attempts after 10, 30 and 90 seconds
+
+Date: 2026-11-24 · Step: 4.1 · Status: Active
+
+- **Context**: a failure is either transient (Postgres or MLflow do not answer for a moment; trying again usually works) or permanent (a critical validation failure, a malformed delivery, a checksum that does not match: trying again gives the same error, later). Retrying a permanent failure only delays the alert and, in training, spends minutes of computing again.
+- **Decision**: Prefect's `retry_condition_fn` lets each exception decide. Retried: `psycopg.OperationalError` and MLflow requests that got no answer, timed out or got a 5xx answer; 3 attempts after 10, 30 and 90 seconds. Anything else stops the flow at once, including an error nobody foresaw: a needless alert costs less than a blind retry. The list is in `credit_risk.flows.is_transient`, with its tests.
+- **Alternatives considered**: (A) the same retries for everything: simplest, but a validation failure is repeated three times and the alert comes late; (C) no retries: honest, but a one-second network cut at night leaves the month unprocessed until someone relaunches.
+- **Why**: the flow stops dead on bad data, as the playbook asks, and rides out short cuts without help.
+- **Consequences**: the alert on failure is designed in PR 2.
+
+### D-103 Prefect in the `train` group, accepting three version downgrades; server and worker from the `train` image
+
+Date: 2026-11-24 · Step: 4.1 · Status: Active
+
+- **Context**: Prefect 3.9.4 (the latest) was added to the `train` group in a trial. It brings 49 packages and forces three downgrades in the whole lock: FastAPI 0.165 to 0.150 (Prefect asks for `<0.151`; MLflow's server uses it now, and the API of F5 will be built on it), python-dateutil 4.0 to 2.9 (`<3`) and python-slugify 9.2.0 to 9.1.3. `pip-audit` on that lock found no known vulnerability.
+- **Decision**: Prefect goes into the `train` group and the downgrades are accepted. The Prefect server and the worker run from our `train` image, like the MLflow server (D-091); the server keeps its metadata in a database `prefect` of the project's Postgres, created at start-up if missing.
+- **Alternatives considered**: (B) Prefect isolated in its official image, with a Docker worker that starts our `train` container for each task: our lock is untouched, but the worker needs the Docker socket, the flow calls containers instead of Python, and tests are slower; (C) two Python environments in one image, Prefect's and ours, with tasks calling commands: isolation without the socket, but two locks to keep in step.
+- **Why**: minor downgrades with no known vulnerability, one environment, and the flow calls `src/` directly.
+- **Consequences**: the API of F5 starts on FastAPI 0.150 until Prefect relaxes its limit; Dependabot will show when it does. The `train` image grows to 1,387 MB of its 1,500 MB budget (B5). B7 checks that `serve` cannot import Prefect.
+
+### D-104 The load task catches up every delivered month up to the one asked
+
+Date: 2026-11-24 · Step: 4.1 · Status: Active
+
+- **Context**: the load task receives a month. It can load only that month, or also any earlier month that is missing or changed.
+- **Decision**: it goes through every delivered month up to the one asked, oldest first. A month already loaded from the same files is skipped by its hash (D-049); a corrected delivery is loaded again; a month that failed before is tried again, and if it fails again the flow stops before versioning. The history before T0 is loaded by the first run.
+- **Alternatives considered**: (A) only the month asked: more direct, but a month that failed and was never relaunched leaves a gap, the next month loads anyway and the training set is built over the gap; the history before T0 needs loading apart.
+- **Why**: a training set is never built over a gap or an old delivery, the silent error that costs most to find.
+- **Consequences**: each run writes about 280 `unchanged` lines in `ops.ingest_log` (about 17,000 over the five simulated years) and spends a fraction of a second per month on hashes (measured: 0.2 seconds for 56 unchanged months).
+
+### D-105 Publishing deliveries is not a task of the system's flow (D-043 kept)
+
+Date: 2026-11-24 · Step: 4.1 (amends D-100) · Status: Active
+
+- **Context**: the first version of the flow had a `publish` task that called the simulator. T1.11 failed: D-043 says only the simulator opens the 2019 file and system code never imports the simulator.
+- **Decision**: the system's flow has four tasks and starts from the deliveries that have arrived in the landing folder, as it would with a real provider. Publishing belongs to the simulated world: `make flow PERIOD=...` runs the simulator first, the clock of PR 2 will do the same, and the tests publish before running the flow. D-043 and T1.11 are unchanged.
+- **Alternatives considered**: (B) keep five tasks and relax D-043 so that the flow, and only the flow, may import the simulator: more convenient, but the system would be tied to something that would not exist in production, and T1.11 would change.
+- **Why**: it is what D-043 is for: if a real provider replaced the file, the simulator would be thrown away and the system's flow would not change.
+- **Consequences**: D-100 amended (four tasks in the system); T16.7 and T16.10 changed wording (the test publishes; the failing deployment run fails in `load`).
+

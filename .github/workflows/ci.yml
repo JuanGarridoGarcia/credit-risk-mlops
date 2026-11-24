@@ -111,6 +111,7 @@ jobs:
           context: .
           target: train
           tags: credit-risk:train
+          build-args: CREDIT_RISK_COMMIT=${{ github.sha }}
           load: true
           cache-from: type=gha,scope=train
           cache-to: type=gha,scope=train,mode=max

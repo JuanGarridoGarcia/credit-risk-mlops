@@ -73,7 +73,7 @@ def log_model(run_id: str, model: object) -> str:
     return f"{client.get_run(run_id).info.artifact_uri}/{MODEL_DIR}"
 
 
-def register(name: str, run_id: str, source: str) -> str:
+def register(name: str, run_id: str, source: str, tags: dict[str, str] | None = None) -> str:
     """Register the model at ``source`` as a new version of ``name``; return the version."""
     client = MlflowClient()
     try:
@@ -81,7 +81,65 @@ def register(name: str, run_id: str, source: str) -> str:
     except MlflowException as error:
         if error.error_code != "RESOURCE_ALREADY_EXISTS":
             raise
-    return str(client.create_model_version(name, source, run_id=run_id).version)
+    return str(client.create_model_version(name, source, run_id=run_id, tags=tags).version)
+
+
+# ---------------------------------------------------------------- idempotency (D-101)
+
+#: Tags of a registered version that make up its idempotency key, plus its role.
+TRAINING_SET: Final = "training_set"
+COMMIT: Final = "commit"
+ROLE: Final = "role"
+
+
+def key_tags(training_set: str, commit: str, role: str) -> dict[str, str]:
+    """The tags that identify what produced a registered version (D-101)."""
+    return {TRAINING_SET: training_set, COMMIT: commit, ROLE: role}
+
+
+def trained(name: str, training_set: str, commit: str) -> dict[str, str]:
+    """Registered versions of ``name`` with this key, by role (newest when repeated).
+
+    A model counts as trained only once it is registered: a run that was logged but
+    never registered is not a result (T16.4).
+    """
+    client = MlflowClient()
+    try:
+        client.get_registered_model(name)
+    except MlflowException:
+        return {}
+    found = client.search_model_versions(
+        f"name='{name}' and tags.{TRAINING_SET}='{training_set}' and tags.{COMMIT}='{commit}'"
+    )
+    roles: dict[str, str] = {}
+    for version in sorted(found, key=lambda v: int(v.version)):
+        roles[version.tags.get(ROLE, "")] = str(version.version)
+    return roles
+
+
+def fail_orphans(experiment: str, training_set: str, commit: str, keep: set[str]) -> list[str]:
+    """Mark as FAILED the finished runs of this key outside ``keep``; return their ids.
+
+    They come from a training that stopped before it registered its model: their
+    numbers are real, but no model of theirs is in use (T16.4).
+    """
+    client = MlflowClient()
+    found = client.get_experiment_by_name(experiment)
+    if found is None:
+        return []
+    runs = client.search_runs(
+        [found.experiment_id],
+        filter_string=(
+            f"tags.snapshot = '{training_set}' and tags.commit = '{commit}' "
+            "and attributes.status = 'FINISHED'"
+        ),
+    )
+    orphans = [run.info.run_id for run in runs if run.info.run_id not in keep]
+    for run_id in orphans:
+        client.set_tag(run_id, "orphan", "true")
+        client.set_terminated(run_id, "FAILED")
+        log.warning("run %s of %s never reached the registry: marked FAILED", run_id, experiment)
+    return orphans
 
 
 def load(name: str, version: str) -> Any:
@@ -207,15 +265,51 @@ def judge(
 # ---------------------------------------------------------------- promotion and rollback
 
 
-def _record(run_id: str, verdict: Verdict, outcome: str) -> None:
+#: Run tags of the promotion (D-082). The decision and what it was taken against are
+#: written first; the outcome only once the alias has moved, so a promotion that stopped
+#: half way is finished, never judged twice (D-101, T16.5).
+DECISION: Final = "promotion.decision"
+OUTCOME: Final = "promotion.outcome"
+AGAINST: Final = "promotion.previous"
+BASELINE: Final = "promotion.baseline"
+EVIDENCE: Final = "promotion/evidence.json"
+
+
+def _record(run_id: str, verdict: Verdict, current: str | None, baseline: str | None) -> None:
     client = MlflowClient()
-    client.set_tag(run_id, "promotion.outcome", outcome)
     client.set_tag(run_id, "promotion.reasons", ", ".join(verdict.reasons) or "none")
     for rule, ok in verdict.rules.items():
         client.set_tag(run_id, f"rule.{rule}", str(ok))
     for name, value in verdict.metrics.items():
         client.log_metric(run_id, f"promotion.{name}", value)
-    client.log_dict(run_id, verdict.evidence, "promotion/evidence.json")
+    client.log_dict(run_id, verdict.evidence, EVIDENCE)
+    client.set_tag(run_id, AGAINST, current or "none")
+    client.set_tag(run_id, BASELINE, baseline or "none")
+    client.set_tag(run_id, DECISION, "promoted" if verdict.passed else "rejected")
+
+
+def _stored(run_id: str) -> tuple[Verdict, dict[str, str]] | None:
+    """The verdict already taken on this run, with its tags, or None."""
+    run = MlflowClient().get_run(run_id)
+    tags = run.data.tags
+    if DECISION not in tags:
+        return None
+    verdict = Verdict(
+        rules={
+            k.removeprefix("rule."): v == "True" for k, v in tags.items() if k.startswith("rule.")
+        },
+        metrics={
+            k.removeprefix("promotion."): v
+            for k, v in run.data.metrics.items()
+            if k.startswith("promotion.")
+        },
+        evidence=mlflow.artifacts.load_dict(f"{run.info.artifact_uri}/{EVIDENCE}"),
+    )
+    return verdict, tags
+
+
+def _none(value: str | None) -> str | None:
+    return None if value in (None, "none") else value
 
 
 def _move(name: str, version: str, previous: str | None, event: str) -> None:
@@ -244,25 +338,39 @@ def promote(
     With no champion yet, the challenger is judged against ``baseline_version``; if it
     fails, the baseline becomes the champion (D-090). The verdict and its evidence are
     stored in the challenger's run whatever the outcome.
+
+    Calling it again for the same version returns the stored verdict and changes nothing
+    (D-101); if the first call stopped after deciding, the decision is carried out.
     """
     client = MlflowClient()
-    current_version = champion(name)
-    against = current_version or baseline_version
-    if against is None:
-        raise RegistryError(f"no champion of {name} and no baseline to compare with")
-    verdict = judge(
-        target, load(name, version), load(name, against), validation, seed=seed,
-        resamples=resamples,
-    )  # fmt: skip
     run_id = str(client.get_model_version(name, version).run_id)
-    if verdict.passed:
-        _record(run_id, verdict, "promoted")
-        _move(name, version, current_version, "promoted")
+    stored = _stored(run_id)
+    if stored is not None:
+        verdict, tags = stored
+        if OUTCOME in tags:
+            log.info("%s version %s already judged: %s", name, version, tags[OUTCOME])
+            return verdict
+        current_version, baseline_version = _none(tags[AGAINST]), _none(tags[BASELINE])
     else:
-        _record(run_id, verdict, "rejected")
+        current_version = champion(name)
+        against = current_version or baseline_version
+        if against is None:
+            raise RegistryError(f"no champion of {name} and no baseline to compare with")
+        verdict = judge(
+            target, load(name, version), load(name, against), validation, seed=seed,
+            resamples=resamples,
+        )  # fmt: skip
+        _record(run_id, verdict, current_version, baseline_version)
+    if verdict.passed:
+        if champion(name) != version:
+            _move(name, version, current_version, "promoted")
+    else:
         log.info("%s version %s rejected: %s", name, version, ", ".join(verdict.reasons))
-        if current_version is None and baseline_version is not None:
-            _move(name, baseline_version, None, "promoted")
+        # D-090: with no champion yet, the baseline becomes the champion.
+        fallback = baseline_version if current_version is None else None
+        if fallback is not None and champion(name) != fallback:
+            _move(name, fallback, None, "promoted")
+    client.set_tag(run_id, OUTCOME, "promoted" if verdict.passed else "rejected")
     return verdict
 
 
