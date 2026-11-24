@@ -487,3 +487,26 @@ Every decision of F3 was explained to Juan and taken by him one at a time (2026-
 ### First pull request: data
 
 The two changes to the training set that training depends on, in `sql/training_ids.sql`: the validation split per term (D-069) and the LGD label `lgd` in `features.parquet` (D-088). Both are described with step 2.3, where they live, together with their measurements on the real data. Tests: T5.4, T5.5, T5.12 and T5.13 changed, T5.15 added (approved by Juan on 2026-11-24).
+
+### Second pull request: training
+
+Tests approved by Juan before any code is written. They enter `docs/tests.md` with their code, because B6 fails on a catalogue row whose function does not exist yet; until then this list is the record of what was approved.
+
+**T7 Training** (approved 2026-11-24)
+
+| ID | What it checks |
+|---|---|
+| T7.1 | Learned preparation sees training only (D-062): the fill value of `dti` and the known categories of `purpose` equal what is computed by hand on training; extreme values in validation change nothing |
+| T7.2 | An odd row does not break prediction: an unseen category, every field empty and extreme values give a finite probability between 0 and 1, for both candidates |
+| T7.3 | The inner split for tuning (D-073) is the last 6 matured months of each term inside training, edges tested as in T5.4; the search never receives a validation id (every id used to fit or score a trial is recorded and checked) |
+| T7.4 | Same seed, same result (D-074): two trainings give the same hyperparameters and predictions; the budget is counted, 50 trials for LightGBM and 20 values of `C` for the logistic regression |
+| T7.5 | Coverage rule (D-070): 200 defaults in training and 200 in validation is covered; 199 in either is not; a loan of an uncovered term gets "not covered", never a PD |
+
+**T8 Tracking** (approved 2026-11-24)
+
+| ID | What it checks |
+|---|---|
+| T8.1 | The MLflow server starts in compose and answers; its metadata are in the `mlflow` database of our Postgres, not in a file inside the container |
+| T8.2 | A run with a small artefact survives recreating the MLflow container. Marked `destructive`, like B4 |
+| T8.3 | No run without its required fields: one function logs every run and refuses, naming the field, if the commit, snapshot hash, seed, library versions or metrics with intervals are missing (one case per field); a small real training read back from the server carries all of them |
+| T8.4 | The model is rebuilt from what a run records (snapshot version, seed, hyperparameters) and gives the same predictions as the stored model |
