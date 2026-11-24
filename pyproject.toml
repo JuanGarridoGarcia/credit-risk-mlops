@@ -104,6 +104,11 @@ module = "tests.*"
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
 
+[[tool.mypy.overrides]]
+# Libraries without type information (F3).
+module = ["sklearn.*", "lightgbm.*", "scipy.*", "optuna.*", "mlflow.*", "joblib.*", "shap.*"]
+ignore_missing_imports = true
+
 [tool.pydantic-mypy]
 init_forbid_extra = true
 warn_required_dynamic_aliases = true

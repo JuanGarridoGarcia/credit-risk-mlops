@@ -99,6 +99,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-089](#d-089) | 2026-11-24 | F3 (cross-cutting) | F3 is delivered in three pull requests: data, training, explanation and business | Active |
 | [D-090](#d-090) | 2026-11-24 | 3.4 | With no PD champion yet, the first model must beat the grade-only baseline; otherwise the baseline is the champion | Active |
 | [D-091](#d-091) | 2026-11-24 | 3.2 | The MLflow server of docker compose runs from our `train` image | Active |
+| [D-092](#d-092) | 2026-11-24 | 3.2 | The logistic regression keeps the signs of D-080 by removing a wrong-signed feature and refitting | Active |
 
 ## Decisions
 
@@ -1057,4 +1058,15 @@ Date: 2026-11-24 · Step: 3.2 (completes D-079) · Status: Active
 - **Alternatives considered**: (B) the official MLflow image, pinned by version and digest: an external image to keep up to date apart from `uv.lock`, and, as far as known, without a Postgres driver, so it would need a Dockerfile of its own to extend it (not checked: Claude's cloud machine cannot download from ghcr.io).
 - **Why**: the server and the client that logs the runs have the same MLflow version always, fixed in `uv.lock` and updated by Dependabot with everything else; no new image to pin and scan.
 - **Consequences**: `make up` needs the `train` image built first; CI builds it before starting compose. The server image is scanned by Trivy with the `train` image.
+
+<a id="d-092"></a>
+### D-092 The logistic regression keeps the signs of D-080 by removing a wrong-signed feature and refitting
+
+Date: 2026-11-24 · Step: 3.2 (completes D-080) · Status: Active
+
+- **Context**: in the first training on the real data at T0 (2026-11-24), the logistic regression gave two of the nine features of D-080 the wrong sign: `pub_rec` (-0.04 per standard deviation) and the length of credit history (+0.01). The first is almost surely collinearity: `pub_rec > 0` and having `mths_since_last_record` are nearly the same thing, and the indicator of that gap takes the effect (raw default rate 21% with one public record, 13% with none). The second is practically zero. Under D-080 the logistic regression would fail and could never be champion, while D-068 picks it on a tie: the two rules clashed.
+- **Decision**: the signs are enforced while fitting. While a feature of D-080 gets a coefficient with the wrong sign, the one with the largest wrong coefficient is removed and the model is fitted again, until every sign holds. The same procedure is used in the search (D-074) and in the final fit. The removed features are logged with the run.
+- **Alternatives considered**: (B) the same effect with an optimiser that bounds each coefficient (at least or at most zero), instead of scikit-learn: more code of our own to test and maintain; (C) let the logistic regression fail and write a rule for when the simpler model fails: a model a bank would never accept goes on being trained at every retraining.
+- **Why**: it is the standard practice in bank scorecards, it uses scikit-learn as it is, and it leaves on record which features left and why. It is the counterpart of the monotone constraints of LightGBM.
+- **Consequences**: the sign test of D-080 now checks the procedure (it must never return a wrong sign) as well as each model. A feature removed at one date may come back at the next retraining, with more data.
 
