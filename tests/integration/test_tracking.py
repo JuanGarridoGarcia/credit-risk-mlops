@@ -9,6 +9,7 @@ import urllib.request
 import uuid
 from collections.abc import Iterator
 from datetime import date
+from typing import Any
 
 import mlflow
 import numpy as np
@@ -140,7 +141,7 @@ def test_the_model_is_rebuilt_from_what_its_run_recorded(
         ), name
 
 
-def _cards(prefix: str) -> dict[tuple[str, str], tuple[str, object]]:
+def _cards(prefix: str) -> dict[tuple[str, str], tuple[str, Any]]:
     """The card of every registered version, with its run: {(target, version): (text, run)}."""
     client = MlflowClient()
     cards = {}

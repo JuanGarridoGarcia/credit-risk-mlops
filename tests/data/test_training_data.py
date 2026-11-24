@@ -107,7 +107,11 @@ def test_the_cards_in_docs_are_those_of_the_t0_champions(
     validation = listings.filter(pl.col(SPLIT) == "validation")
     try:
         retrain(listings, T0, first.version, prefix=prefix)
-        for target, rows in (("pd", validation), ("lgd", lgd_rows(validation))):
+        targets: tuple[tuple[registry.Target, pl.DataFrame], ...] = (
+            ("pd", validation),
+            ("lgd", lgd_rows(validation)),
+        )
+        for target, rows in targets:
             name = f"{prefix}{target}"
             text = card.build(name, registry.champion(name) or "", target, rows)
             stored = (CARDS / f"{target}_t0.md").read_text()
