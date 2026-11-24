@@ -5,5 +5,6 @@ CREATE TEMP TABLE training_ids (
     loan_status     text,
     resolved_period date,
     label           smallint CHECK (label IN (0, 1)),
+    lgd             double precision,
     split           text     CHECK (split IN ('train', 'validation'))
 ) ON COMMIT DROP;

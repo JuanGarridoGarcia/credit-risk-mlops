@@ -49,7 +49,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-039](#d-039) | 2026-11-23 | 2.1 | Simulated arrival: listings and outcomes as two separate streams | Active |
 | [D-040](#d-040) | 2026-11-23 | 2.3 (audit 9.4) | Training labels: matured cohorts only | Active |
 | [D-041](#d-041) | 2026-11-23 | 2.1 (audit 9.5) | Simulation window: first training 2014-01, replay 2014-01 to 2018-12 | Active |
-| [D-042](#d-042) | 2026-11-23 | 2.3 (audit 9.6) | Validation split: out-of-time, last 6 listing months | Active |
+| [D-042](#d-042) | 2026-11-23 | 2.3 (audit 9.6) | Validation split: out-of-time, last 6 listing months | Superseded by D-069 |
 | [D-043](#d-043) | 2026-11-23 | 2.1 | A separate simulator is the only code that reads the 2019 file | Active |
 | [D-044](#d-044) | 2026-11-23 | 2.1 | Two table layers: raw (text as delivered) and clean (typed) | Active |
 | [D-045](#d-045) | 2026-11-23 | 2.1 | Cleaning in one Python module; batch-only logic in SQL | Active |
@@ -59,7 +59,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-049](#d-049) | 2026-11-23 | 2.1 | Idempotent loads: replace the whole period in one transaction, plus a load log | Active |
 | [D-050](#d-050) | 2026-11-23 | 2.1 | Deliveries written as gzip-compressed CSV, all text | Active |
 | [D-051](#d-051) | 2026-11-23 | 2.1 | Cleaning is minimal and has no opinions | Active |
-| [D-052](#d-052) | 2026-11-23 | 2.1 | Image size budget raised from 300 to 500 MB | Active |
+| [D-052](#d-052) | 2026-11-23 | 2.1 | Image size budget raised from 300 to 500 MB | Superseded by D-078 |
 | [D-053](#d-053) | 2026-11-23 | 2.2 | Validation rules written with pandera on polars | Active |
 | [D-054](#d-054) | 2026-11-23 | 2.2 | Two severity levels: a critical rule stops the run, a warning is reported and stored | Active |
 | [D-055](#d-055) | 2026-11-23 | 2.2 | A critical failure stops the whole month; no row quarantine | Active |
@@ -74,6 +74,29 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-064](#d-064) | 2026-11-23 | F2 (cross-cutting) | Coverage: 85% of branches over unit and integration tests, 90% of the lines each pull request changes | Active |
 | [D-065](#d-065) | 2026-11-23 | F2 (cross-cutting) | The audit notebook runs in CI every week and on pull requests that touch it, and must reproduce its outputs | Active |
 | [D-066](#d-066) | 2026-11-23 | F3 (cross-cutting) | uv, the uv_build backend and the uv Docker image move together, to 0.13.9 | Active |
+| [D-067](#d-067) | 2026-11-23 | 3.1 | F3 fixes a training procedure, not a model, using only data available at T0 | Active |
+| [D-068](#d-068) | 2026-11-23 | 3.2 | PD candidates: logistic regression and one gradient boosting model; within the noise, the simpler wins | Active |
+| [D-069](#d-069) | 2026-11-23 | 3.1 | Validation split per term: the last 6 matured listing months of each term | Active |
+| [D-070](#d-070) | 2026-11-23 | 3.1 | Coverage rule: a term is scored only with at least 200 defaults in its training and 200 in its validation | Active |
+| [D-071](#d-071) | 2026-11-23 | 3.2 | `installment` never enters; a recomputed instalment and its ratio to income are F3 experiments | Active |
+| [D-072](#d-072) | 2026-11-23 | 3.2 | The gradient boosting candidate is LightGBM | Active |
+| [D-073](#d-073) | 2026-11-23 | 3.2 | Hyperparameters are tuned on an inner time split of the training set; validation stays clean | Active |
+| [D-074](#d-074) | 2026-11-23 | 3.2 | Search: Optuna TPE with 50 seeded trials for LightGBM, a grid over `C` for the logistic regression | Active |
+| [D-075](#d-075) | 2026-11-23 | 3.2 | "Better by more than the noise": the 95% paired bootstrap interval of the difference lies above zero | Active |
+| [D-076](#d-076) | 2026-11-23 | 3.2 | The PD is calibrated with Platt scaling fitted on the validation set | Active |
+| [D-077](#d-077) | 2026-11-23 | 3.2 | No refit on training plus validation: the deployed model is exactly the one measured | Active |
+| [D-078](#d-078) | 2026-11-23 | 3.2 | Two images from one Dockerfile: `serve` (budget 800 MB) and `train` (budget 1.5 GB) | Active |
+| [D-079](#d-079) | 2026-11-23 | 3.2 | Tracking: an MLflow server in docker compose, metadata in its own Postgres database, artefacts in object storage | Active |
+| [D-080](#d-080) | 2026-11-23 | 3.3 | Monotone constraints on nine features with an undisputed direction; sign test for the logistic regression | Active |
+| [D-081](#d-081) | 2026-11-23 | 3.3 | Key segments: grade, covered term and listing quarter; a new model fails if it is clearly worse in any of them | Active |
+| [D-082](#d-082) | 2026-11-23 | 3.4 | Automatic promotion when every rule passes, with evidence, an alert and a tested rollback | Active |
+| [D-083](#d-083) | 2026-11-23 | 3.5 | The API returns the four main reasons of each prediction; the full SHAP vector is stored with it | Active |
+| [D-084](#d-084) | 2026-11-24 | 3.x (buy rule, open since problem.md) | Buy rule: buy when the expected return beats a minimum chosen on validation | Active |
+| [D-085](#d-085) | 2026-11-24 | 3.x (buy rule) | Budget: one 25 dollar note per loan, a monthly cap of 10% of last month's listings, idle cash earns nothing | Active |
+| [D-086](#d-086) | 2026-11-24 | 3.3 | Behavioural model tests: invariance, direction, minimum cases, prediction time, and bad models that must fail | Active |
+| [D-087](#d-087) | 2026-11-24 | 3.2 | LGD candidates: regularised linear regression and LightGBM against the mean by grade, with the PD machinery | Active |
+| [D-088](#d-088) | 2026-11-24 | 3.2 (changes step 2.3) | The LGD label is a column of the training file, computed when the snapshot is built | Active |
+| [D-089](#d-089) | 2026-11-24 | F3 (cross-cutting) | F3 is delivered in three pull requests: data, training, explanation and business | Active |
 
 ## Decisions
 
@@ -495,7 +518,7 @@ Date: 2026-11-23 · Step: 2.1 (audit decision 9.5) · Status: Active
 <a id="d-042"></a>
 ### D-042 Validation split: out-of-time, last 6 listing months
 
-Date: 2026-11-23 · Step: 2.3 (audit decision 9.6) · Status: Active
+Date: 2026-11-23 · Step: 2.3 (audit decision 9.6) · Status: Superseded by D-069 (the window is now taken per term)
 
 - **Context**: the validation set is where everything the model does not learn by itself is chosen (hyperparameters, early stopping, candidate comparison, calibration, buy threshold, metric noise). The test is the forward replay (D-041), which does not exist yet at training time.
 - **Decision**: at every training, the **last 6 listing months** of the matured cohorts (D-040) are the validation set; the earlier months are the training set. First model: train 7,745 loans (2007-06 to 2010-02), validation 4,333 loans with 432 defaults (2010-03 to 2010-08). Metric noise is measured by bootstrap on the validation set.
@@ -605,7 +628,7 @@ Date: 2026-11-23 · Step: 2.1 · Status: Active
 <a id="d-052"></a>
 ### D-052 Image size budget raised from 300 to 500 MB
 
-Date: 2026-11-23 · Step: 2.1 (changes the threshold of test B5, D-025/D-026) · Status: Active
+Date: 2026-11-23 · Step: 2.1 (changes the threshold of test B5, D-025/D-026) · Status: Superseded by D-078 (two images with their own budgets)
 
 - **Context**: with polars in the package (D-046), the image grew from 211 MB to 456 MB and test B5 (at most 300 MB) failed. polars' compiled runtime alone takes 170 MB. The API needs polars to clean with the same code as the monthly load (D-045).
 - **Decision**: the budget of B5 becomes **500 MB**.
@@ -757,3 +780,256 @@ Date: 2026-11-23 · Step: F3 (cross-cutting, first task of F3) · Status: Active
 - **Alternatives considered**: (A) merge Dependabot PR #3 as it was: backend and frontend out of step, CI and the image would still build with 0.11; (B) stay on 0.11 until something breaks: the gap only grows and the jump gets harder.
 - **Why**: uv and `uv_build` are released together and tested together. One version everywhere means the machine, CI and the image build the package in exactly the same way. The upper bound `<0.14` keeps a future minor release from entering without a pull request, since uv is still before 1.0 and a minor release can change behaviour.
 - **Consequences**: `uv.lock` did not change (`uv lock --check` passes with 0.13.9). Checked here with uv 0.13.9: `make lint`, `make test` (139 tests), `uv build`, `make build`, `make test-image` and `make test-integration` (coverage 90%) all pass; image size unchanged (466 MB). Future uv updates follow the same rule: the three places in one pull request.
+
+<a id="d-067"></a>
+### D-067 F3 fixes a training procedure, not a model, using only data available at T0
+
+Date: 2026-11-23 · Step: 3.1 · Status: Active
+
+- **Context**: the whole file, up to 2018, is on disk. F3 designs what is trained at T0 = 2014-01 (D-041): 7,733 training loans and 4,324 validation loans (D-042, measured in step 2.3). The same design is run again at every retraining (F4, F6), on up to about 500,000 loans. Settings that suit 7,745 loans (shallow trees, strong regularisation) may not suit 500,000.
+- **Decision**: every design choice of F3 is made with the T0 snapshot only. What F3 fixes is a **procedure**: the candidate models, how their hyperparameters are searched, how the winner is chosen and calibrated. The search runs again at every retraining, on the training and validation sets of that date. Alternative models enter later as challengers, under the promotion rules of step 3.3.
+- **Alternatives considered**: (A) fix concrete values at T0 (for example depth 2 and 150 trees) and only refit them later: honest, but the values never adapt to more data; (B) design with snapshots of later dates (backtesting): the validation of a 2018 snapshot holds loans of 2015, inside the replay used as test (D-041), so the design would carry information from the future and the final business metric would be optimistic (data snooping).
+- **Why**: in a real system nobody at T0 knows the future, and nobody freezes hyperparameters forever: they automate how they are chosen. Each choice uses only what was known at its date, as already required by D-056.
+- **Consequences**: a retraining takes longer, because it includes the search; F3 must fix the search budget and the candidate list. Nothing in F3 reads a snapshot later than 2014-01.
+
+<a id="d-068"></a>
+### D-068 PD candidates: logistic regression and one gradient boosting model; within the noise, the simpler wins
+
+Date: 2026-11-23 · Step: 3.2 · Status: Active
+
+- **Context**: D-067 makes the candidate list part of the training procedure, so every candidate is searched again at every retraining. In the research phase, logistic regression (AUC 0.685) tied with three other models within the sampling error (about 0.003). At T0 the validation set has 429 defaults, so the error of the AUC is about ten times larger (roughly 0.015, to be measured by bootstrap in step 3.2).
+- **Decision**: two candidates for the PD: a **regularised logistic regression** on the 30 v1 features (with learned imputation, encoding and scaling inside its pipeline, D-062) and **one gradient boosting model** (library decided separately). If their difference on validation is within the metric noise, the logistic regression wins.
+- **Alternatives considered**: (A) logistic regression only: simplest, but it can never use interactions even when data grow; (C) six models as in the research phase: the search at every retraining costs about six times more, for models that did not win there.
+- **Why**: the two archetypes of tabular modelling. The logistic regression is stable with little data, transparent and the regulatory standard in scoring; gradient boosting finds interactions and non-linear effects and handles missing values natively, which pays off with more data. Under D-067 the data of each date decide between them. The tie rule prefers what is easier to explain, check and maintain when the data cannot tell them apart.
+- **Consequences**: two preparation pipelines to maintain and test. The exact form of "within the noise" is fixed with the promotion rules (step 3.3).
+
+<a id="d-069"></a>
+### D-069 Validation split per term: the last 6 matured listing months of each term
+
+Date: 2026-11-23 · Step: 3.1 (supersedes D-042) · Status: Active (implemented in the first F3 pull request, data)
+
+- **Context**: D-042 takes the last 6 listing months of all matured loans as validation. A 60-month loan matures 24 months later than a 36-month one (D-040), so the last 6 matured months are always 36-month loans: the validation set never holds a 60-month loan, at any cutoff. Selection, calibration and the tests by segment would never see them, although 60-month loans were 25.5% of the loans listed in 2013 (34,000 of 134,800; information available at T0).
+- **Decision**: the window is taken **per term**. At cutoff T, validation holds the 36-month loans listed from T-46 to T-41 and the 60-month loans listed from T-70 to T-65; earlier matured loans of each term are training. Everything else of D-042 stays: out of time, metric noise by bootstrap on validation, nothing that learns or chooses may touch the test (the forward replay).
+- **Alternatives considered**: (A) keep D-042: no 60-month loan in validation, ever; (C) one model per term: each one specialises, but it splits data that are already scarce and doubles what must be maintained and monitored.
+- **Why**: a small, local change that puts both terms into validation in their natural proportion, and keeps each term out of time on its own.
+- **Consequences**: the 60-month validation is two years older than the 36-month one. Across terms, the training set can hold 36-month loans listed after some 60-month validation loans (at 2018-12: 36-month training up to 2015-01, 60-month validation 2013-02 to 2013-07), so the period conditions the model learned from those later loans can make the 60-month validation slightly optimistic; accepted and documented. `sql/training_ids.sql`, its tests (T5.4 and the polars cross-check T5.12) and the measurements of step 2.3 change; the test changes need Juan's approval first. What to do while a term has no matured loans (60-month loans at T0) is a separate decision.
+
+<a id="d-070"></a>
+### D-070 Coverage rule: a term is scored only with at least 200 defaults in its training and 200 in its validation
+
+Date: 2026-11-23 · Step: 3.1 · Status: Active
+
+- **Context**: 60-month loans started in 2010-05 and mature 65 months later (D-040), so at T0 the model has not seen a single one, and `term` is constant in its training set. Yet they were 25.5% of the loans listed in 2013 (D-069), so about one in four loans of the replay would be scored by a model that never saw their kind. Counting dates only (no outcomes), 60-month loans get their own training and validation loans around 2016.
+- **Decision**: each model records the terms it **covers**: a term is covered when the model's training set holds at least **200 defaults** of that term and its validation set (D-069) at least **200**. A loan of a term the champion does not cover gets no PD: it is marked out of coverage and is not bought. A term becomes covered at the first retraining that meets the rule. The minimum may be revised once the metric noise is measured (step 3.2).
+- **Alternatives considered**: (A) score every loan anyway: a 36-month risk for a 60-month loan, almost surely too low, and the error flows into expected loss and the buy decision; (C) adjust 60-month risk with partial outcomes observed by T0: scores everything from the start, but uses incomplete outcomes, the bias D-040 ruled out, and is hard to validate.
+- **Why**: an investor buys only what their model can assess. With fewer than about 200 defaults the error of the AUC and of the calibration of a term is too large to rely on (at T0, with 429 validation defaults in all, the AUC error is about 0.015).
+- **Consequences**: until 60-month loans are covered, about a quarter of the listed loans is not bought. The API, the stored predictions and the buy rule must handle "out of coverage". The business metric (D-007) compares our portfolio and the baseline portfolio on the same eligible loans with the same budget, and the share of loans out of coverage is reported apart. The covered terms are stored with each model.
+
+<a id="d-071"></a>
+### D-071 `installment` never enters; a recomputed instalment and its ratio to income are F3 experiments
+
+Date: 2026-11-23 · Step: 3.2 (closes the open point of D-063) · Status: Active
+
+- **Context**: `installment` looks like listing data, but Lending Club computes it on the funded amount, not on the requested one (data audit, section 3): in the 2,062 resolved loans that were not fully funded (0.15%) it reveals something known only after listing. It is also an exact function of `loan_amnt`, `int_rate` and `term` (the amortisation formula), so a recomputed value adds no new information, only a combination of the three.
+- **Decision**: the `installment` column never enters a model. The instalment recomputed from `loan_amnt`, `int_rate` and `term`, and its ratio to monthly income (`instalment / (annual_inc / 12)`), are tested as engineered-feature experiments in F3, and enter only if they improve the metric by more than its noise (D-063).
+- **Alternatives considered**: (A) drop it for good, including any recomputed version: simplest, but it gives up the payment burden, a classic of credit scoring; (B) recompute it and add it to the base features now: no leak, but it is feature engineering without evidence, which D-063 left to experiments.
+- **Why**: the original column leaks; the recomputed one is engineering, and must earn its place like any other engineered feature. A logistic regression adds the effects of its inputs, so it cannot build the amortisation formula or a ratio to income by itself; the experiment tells whether giving it that combination helps.
+- **Consequences**: the recomputation is a fixed transformation, so if it enters it lives in `features.py` (D-062), with tests against the amortisation formula. The experiment runs on the T0 snapshot only (D-067).
+
+<a id="d-072"></a>
+### D-072 The gradient boosting candidate is LightGBM
+
+Date: 2026-11-23 · Step: 3.2 · Status: Active
+
+- **Context**: D-068 adds one gradient boosting candidate. The libraries differ in speed, handling of categories and missing values, SHAP support and weight; the image is at 466 MB of a 500 MB budget (D-052). Download sizes of the Linux wheels, measured on 2026-11-23: LightGBM 4.7.0 3.4 MB; XGBoost 3.4.1 55 MB plus NVIDIA NCCL on Linux; CatBoost 1.2.10 93 MB; scikit-learn's HistGradientBoosting nothing extra.
+- **Decision**: **LightGBM**.
+- **Alternatives considered**: XGBoost (as complete and mature, but brings GPU libraries we do not use, hundreds of MB); CatBoost (best with categories, used for the LGD in the research phase, but heavy and slower to train); HistGradientBoosting (no new dependency, but fewer options and more limited exact SHAP support).
+- **Why**: the standard for tabular credit scoring and the lightest option. It handles missing values natively (it learns which branch they go to, so "never delinquent" in `mths_since_last_delinq` is not turned into an invented value), supports monotone constraints, and computes exact SHAP contributions itself (step 3.5).
+- **Consequences**: the image needs the system library `libgomp1`. scikit-learn, scipy and numpy (needed by the logistic regression) will push the image past 500 MB: a separate decision.
+
+<a id="d-073"></a>
+### D-073 Hyperparameters are tuned on an inner time split of the training set; validation stays clean
+
+Date: 2026-11-23 · Step: 3.2 (closes part of the open point of D-042) · Status: Active
+
+- **Context**: tuning tries many settings and keeps the one that scores best on some set. The winner always looks better on that set than it is, because part of its lead is luck (the winner's curse), and the more settings tried and the smaller the set, the larger the bias. If the same set is then used to compare with the baseline, measure the metric noise and calibrate, all of these come out optimistic.
+- **Decision**: inside the training set, the last 6 listing months of each term (as in D-069) form an **inner validation set**; the earlier months form the inner training set. Each candidate's hyperparameters are tuned on this inner split; the candidate is then refitted on the whole training set with the chosen values. The validation set (D-069) is used only after tuning: comparison of candidates, comparison with the baseline and the champion, metric noise, calibration.
+- **Alternatives considered**: (A) tune on the validation set directly: simple, but it is then spent and every later comparison is optimistic; (C) time-series cross-validation inside training (several expanding windows): the most robust, but several times dearer at every retraining, and at T0 its first windows (2007 and 2008) hold very few defaults.
+- **Why**: the same time logic as the outer split, at little cost, and the validation set stays honest for the decisions that matter most.
+- **Consequences**: at T0 tuning works with little data: about 4,700 inner training and 3,000 inner validation loans (estimated from listing counts); it grows by itself at later retrainings. A term with no loans in the inner window is tuned on the other term only. Whether calibration needs its own part of validation, and whether to refit on training plus validation, are still open.
+
+<a id="d-074"></a>
+### D-074 Search: Optuna TPE with 50 seeded trials for LightGBM, a grid over `C` for the logistic regression
+
+Date: 2026-11-23 · Step: 3.2 · Status: Active
+
+- **Context**: the search runs at every retraining (D-067) on the inner split (D-073). LightGBM has about six hyperparameters that matter; the logistic regression has one, the strength of its regularisation `C`.
+- **Decision**: **LightGBM**: Bayesian search with Optuna's TPE sampler, **50 trials**, fixed seed, early stopping on the inner validation set (so the number of trees is chosen by the data). **Logistic regression**: a grid of about 20 values of `C` on a log scale. The budget is a number of trials, never a time limit.
+- **Alternatives considered**: (A) grid search for both: exhaustive, but the grid explodes with six hyperparameters; (B) random search with a fixed number of trials: simple and good, but it does not learn from earlier trials.
+- **Why**: TPE spends its trials where results are good and can stop bad trials early; Optuna records trials in a way MLflow can log (step 3.2). With a single hyperparameter, a grid is already the best search. A time budget depends on the machine's speed and load, so the same code, data and seed could give a different model; a fixed number of trials keeps the run reproducible (playbook 3.2: the same seed gives the same metrics).
+- **Consequences**: Optuna becomes a training dependency only, not needed to serve predictions. The 50 trials and the ranges searched are fixed in code and logged with every run; changing them is a new decision.
+
+<a id="d-075"></a>
+### D-075 "Better by more than the noise": the 95% paired bootstrap interval of the difference lies above zero
+
+Date: 2026-11-23 · Step: 3.2 (defines the noise rule used by D-042 and D-068) · Status: Active
+
+- **Context**: "better by more than the metric noise" decides three things: logistic regression against LightGBM (D-068), the chosen model against the baseline, and later a challenger against the champion. D-042 fixed that noise is measured by bootstrap on the validation set, but not how two models are compared.
+- **Decision**: **paired bootstrap of the difference**. The validation set is resampled with replacement 1,000 times, with a fixed seed, stratified by label (each resample keeps the number of defaults and non-defaults). In each resample both models are scored on the same loans and the difference of the metric (new minus current) is computed. The new model wins only if the 95% interval of the 1,000 differences lies entirely above zero (below zero for a metric where lower is better, such as the Brier score). Otherwise there is no clear winner and the simpler or the current model stays.
+- **Alternatives considered**: (A) a separate interval for each model, with a win only if they do not overlap: intuitive, but it counts the noise the two models share twice and misses real gains; (C) DeLong's test: a closed formula, but for AUC only.
+- **Why**: two models scored on the same loans move up and down together from one resample to the next; that shared movement is most of the noise of each AUC and cancels in the difference. A simulation with the size of the T0 validation set (4,324 loans, 429 defaults) and two models sharing most of their signal gave AUC 0.655 (95% interval 0.628 to 0.684) and 0.681 (0.655 to 0.707): the intervals overlap, but the paired difference, 0.026, had an interval from 0.012 to 0.040 (spread 0.007 against 0.014 for each model). The method works for any metric.
+- **Consequences**: one shared function computes the paired comparison for every use (candidates, baseline, champion and challenger). Its intervals and the 1,000 differences are logged with each run.
+
+<a id="d-076"></a>
+### D-076 The PD is calibrated with Platt scaling fitted on the validation set
+
+Date: 2026-11-23 · Step: 3.2 (closes part of the open point of D-042) · Status: Active
+
+- **Context**: AUC measures only ranking and does not change under any transformation that keeps the order, so a model can rank well with the wrong level. The PD multiplies into expected loss (D-002), so its level matters. At T0 the training set defaults at 13.2% (1,019 of 7,733, listed 2007 to 2010-02) and the more recent validation set at 9.9% (429 of 4,324): a model trained as is keeps the older level. Regularisation also pulls predictions towards the mean.
+- **Decision**: the chosen model's output is calibrated with **Platt scaling** (a logistic regression with two parameters on the model's log-odds) fitted on the validation set. The calibration quality reported for a model (Brier score and calibration by segment, D-006) is measured by 5-fold cross-fitting inside validation: the calibrator is fitted on four parts and measured on the fifth, five times.
+- **Alternatives considered**: (A) no calibration: the PD keeps the level of the training period and expected loss is inflated; (C) split validation into a selection half and a calibration half: clean, but more noise in both with 429 defaults. Isotonic regression instead of Platt: no fixed shape, but it overfits with a few hundred defaults.
+- **Why**: it moves the level to the most recent known period with only two parameters, stable with 429 defaults. Platt keeps the order, so the AUC and every paired AUC comparison of D-075 are not affected by it.
+- **Consequences**: the deployed model is the pair model plus calibrator. Isotonic calibration may enter later as a challenger once data are larger. Whether to refit the model on training plus validation is a separate decision.
+
+<a id="d-077"></a>
+### D-077 No refit on training plus validation: the deployed model is exactly the one measured
+
+Date: 2026-11-23 · Step: 3.2 (closes the open point of D-042) · Status: Active
+
+- **Context**: refitting the chosen model on training plus validation is common practice: at T0 validation adds 4,324 loans to 7,733, the most recent ones. But here validation compares candidates and the baseline (D-075) and fits the calibrator (D-076).
+- **Decision**: no refit. The deployed model is the one trained on the training set, with the calibrator fitted on validation: exactly the pair that was measured.
+- **Alternatives considered**: (B) refit and reuse the calibrator: more data, but the calibrator was fitted on the outputs of another model, and the deployed model was never measured; (C) refit and calibrate on out-of-sample predictions from time windows: uses everything, but far more complex, and the deployed model is still not measured directly.
+- **Why**: after a refit no clean data would remain to check that the final model beats the baseline: only the forward test, years later, after it had already been deciding purchases. In a regulated field such as credit, the artefact deployed is the artefact validated. The recent months are not lost: the calibrator moves the level to them, and the next retraining puts them in training.
+- **Consequences**: the ranking at each date is learned without the latest 6 matured months of each term. Option C may be tried later as a challenger.
+
+<a id="d-078"></a>
+### D-078 Two images from one Dockerfile: `serve` (budget 800 MB) and `train` (budget 1.5 GB)
+
+Date: 2026-11-23 · Step: 3.2 (supersedes D-052, changes test B5) · Status: Active (budgets to be confirmed by measuring the real images)
+
+- **Context**: the image is at 466 MB of a 500 MB budget (D-052). Installed size added by the F3 libraries, measured on 2026-11-23 in clean environments (approximate, they share some dependencies): scikit-learn and LightGBM 209 MB; plus mlflow-skinny 280 MB; scikit-learn, LightGBM, Optuna and full MLflow 643 MB; SHAP 252 MB. Serving needs only to load a model and predict; training also needs the search, tracking and reports.
+- **Decision**: two build targets of the same Dockerfile, from the same `uv.lock`. **`serve`**: the package with scikit-learn, LightGBM and mlflow-skinny, budget **800 MB**. **`train`**: everything in `serve` plus Optuna, full MLflow and SHAP, budget **1.5 GB**. The training-only libraries go into a `train` dependency group.
+- **Alternatives considered**: (A) one image with everything, budget about 1.5 GB: simple, but the API carries hundreds of MB it never uses; (C) no MLflow in serving, with a home-made model format: the smallest image, but custom code to save and load models, which MLflow already solves, and a source of errors.
+- **Why**: each image carries only what it uses. The serving image matters most: it is pulled at every deployment and every scale-out (start-up time and transfer cost), and it runs all the time exposed to the network, so every extra library is attack surface and more findings for Trivy. The training image runs now and then, as a batch job, exposed to nobody.
+- **Consequences**: CI builds, tests and scans two images. Test B5 checks each image against its own budget (the test change needs Juan's approval). Per-prediction SHAP values do not need the `shap` library in the API: LightGBM computes them itself and for the logistic regression they are coefficient times value. The budgets are set from the measured images in the F3 pull request.
+
+<a id="d-079"></a>
+### D-079 Tracking: an MLflow server in docker compose, metadata in its own Postgres database, artefacts in object storage
+
+Date: 2026-11-23 · Step: 3.2 · Status: Active
+
+- **Context**: every training produces what must be found months later: the hyperparameters tried, metrics and their bootstrap intervals (D-075), the commit, the snapshot hash (D-059), library versions and the model itself. The model registry is also what will name the champion (step 3.4). MLflow stores metadata (small and queryable) and artefacts (models, figures, reports).
+- **Decision**: an **MLflow tracking server** as a docker compose service. Metadata go to a separate database, `mlflow`, in the existing Postgres; artefacts go to object storage: a local folder (volume) now, an S3 bucket in AWS. Every run must carry a fixed list of required fields (commit, snapshot hash, seed, library versions, metrics with their intervals), and a test checks that no run is logged without them (playbook 3.2).
+- **Alternatives considered**: (A) MLflow without a server, in a local `mlruns/` folder: no infrastructure, but no reliable concurrent access, the model registry needs a database, and it looks nothing like production; (C) a managed service (Weights & Biases, Databricks): polished, nothing to run, but an external account, cost, data leaving the system, and the chosen cloud is AWS.
+- **Why**: the same split as D-059: large immutable files to object storage, queryable metadata to the database. Moving to AWS changes only the artefact address. Large binaries in Postgres would bloat its backups and pay for a database without using what makes it useful.
+- **Consequences**: one more service in compose and in the integration tests. The MLflow server image is pinned by version and digest like the others (D-030), and Dependabot watches it.
+
+<a id="d-080"></a>
+### D-080 Monotone constraints on nine features with an undisputed direction; sign test for the logistic regression
+
+Date: 2026-11-23 · Step: 3.3 · Status: Active
+
+- **Context**: some features have a clear direction of effect on risk. A flexible model such as LightGBM can learn stretches the wrong way through noise, above all with 7,733 training loans, which would give explanations such as "refused for having a higher FICO". A monotone constraint, applied with every other feature held equal, lets the prediction move in one direction only along that feature. LightGBM supports it; a logistic regression cannot enforce it, but the sign of its coefficients can be checked.
+- **Decision**: LightGBM is constrained on nine features. **Risk does not fall when these rise**: `int_rate`, `dti`, `revol_util`, `inq_last_6mths`, `delinq_2yrs`, `pub_rec`. **Risk does not rise when these rise**: the FICO midpoint, `annual_inc`, the length of credit history. For the logistic regression, a model test fails if any of these nine coefficients has the opposite sign. `grade` and `sub_grade` are categorical in v1 and are not constrained.
+- **Alternatives considered**: (A) no constraints, with a directional test that rejects the model if it fails: most flexible, but with little data it fails through noise and there is no fix short of changing the model; (C) constraints on every numeric feature: most interpretable, but it forces a made-up direction where none is clear (`total_acc`, `revol_bal`).
+- **Why**: consistent explanations, more robustness to changes in the data, and standard practice in regulated scoring, limited to where the direction is beyond dispute. The constraint holds everything else equal, so a borrower who earns more but borrows much more is still riskier, through `dti`. Before relaxing a constraint, an apparent reversal is checked against the number of loans in that range (bootstrap interval) and against `verification_status`, since high unverified incomes may be inflated.
+- **Consequences**: a small loss of AUC is possible if a real effect is not monotone; a constraint is removed only by a new decision with that evidence. The list is fixed in code and logged with every run.
+
+<a id="d-081"></a>
+### D-081 Key segments: grade, covered term and listing quarter; a new model fails if it is clearly worse in any of them
+
+Date: 2026-11-23 · Step: 3.3 · Status: Active
+
+- **Context**: a model can raise the global AUC while getting worse in one group, for example ranking grades A to C better (most loans) and grades E to G worse. Testing many segments has its own problem: with 20 segments and two equally good models, the chance that at least one fails by luck is about 40% (1 - 0.975^20).
+- **Decision**: blocking segments are `grade` (F and G merged), `term` (covered terms only, D-070) and the listing quarter inside validation; a segment with fewer than 50 defaults is merged with its neighbour. In each segment two things are compared with the paired bootstrap of D-075: the AUC inside the segment, and the calibration error (absolute difference between the mean predicted PD and the observed default rate). A new model **fails** if, in any segment, the 95% interval of the difference shows it clearly worse (AUC difference entirely below zero, or calibration error difference entirely above zero). It need not improve everywhere. `purpose`, `home_ownership` and `verification_status` are reported in the model card but do not block.
+- **Alternatives considered**: (A) global metrics only: a loss in one group goes unseen; (C) many segments: wide watch, but frequent false alarms.
+- **Why**: the blocking segments follow how the investor decides (grade, term) and how the world changes (time), with few false alarms.
+- **Consequences**: the baseline uses `grade` only, so it gives one PD per grade and its AUC inside a grade is 0.5; the segment test against the baseline is easy to pass, and does its real work for a challenger against the champion.
+
+<a id="d-082"></a>
+### D-082 Automatic promotion when every rule passes, with evidence, an alert and a tested rollback
+
+Date: 2026-11-23 · Step: 3.4 · Status: Active
+
+- **Context**: in F4 and F6 the simulation retrains unattended over five simulated years. The rules are strict: better than the champion by more than the noise (D-075), not clearly worse in any key segment (D-081), signs and monotonicity (D-080), and the behavioural tests of step 3.3.
+- **Decision**: a challenger that passes every rule becomes champion automatically: the registry alias `champion` moves to it. Safeguards: no rule can be skipped (there is no "force" option); every promotion stores its full evidence in MLflow (intervals, segments, test results); every promotion sends an alert; going back to the previous champion is one command, covered by a test (step 3.4).
+- **Alternatives considered**: (B) automatic up to "approved candidate", then a person confirms: human control, but the simulation stops at every retraining waiting, and such approvals tend to be given without looking; (C) shadow mode for some months before promotion: catches operational problems, but gives no evidence of better performance, because labels arrive years later.
+- **Why**: the rules are reviewed code, not a judgement made on the day; the simulation must run by itself; any promotion can be undone at once.
+- **Consequences**: a bank would add the human approval of B for regulatory reasons; this is a deliberate difference from real production, stated in the model card and the README. The quality of the rules is what makes this safe, so each rule has its own tests, including a deliberately bad model that must fail them (playbook 3.3).
+
+<a id="d-083"></a>
+### D-083 The API returns the four main reasons of each prediction; the full SHAP vector is stored with it
+
+Date: 2026-11-23 · Step: 3.5 · Status: Active
+
+- **Context**: SHAP explains one prediction as a base value (the model's mean prediction) plus one contribution per feature, in log-odds, and the contributions add up exactly to the prediction minus the base value. LightGBM computes them itself and for the logistic regression they are coefficient times value, so the API does not need the `shap` library (D-078); one loan takes milliseconds. Platt calibration (D-076) is a straight line in log-odds (`a x prediction + b`), so after it every contribution is multiplied by `a`, the base value becomes `a x base + b`, and the sum still holds.
+- **Decision**: the API returns, with each PD, its **four main reasons** (the four largest contributions, with sign). The full vector of contributions and the base value are stored with the prediction in the database.
+- **Alternatives considered**: (A) explanations only in reports: the investor sees a PD without knowing why, and a single decision cannot be audited later; (C) the full vector in the API response: hard to read, and the detail is stored anyway.
+- **Why**: every decision is explained and can be audited years later, as regulated credit requires (reasons for a refusal), without flooding the user.
+- **Consequences**: slightly larger responses and about 30 numbers more per stored prediction. A model test checks, for every model, that base value plus contributions equals the prediction (playbook 3.5).
+
+<a id="d-084"></a>
+### D-084 Buy rule: buy when the expected return beats a minimum chosen on validation
+
+Date: 2026-11-24 · Step: buy rule (left open in `problem.md` section 2 until F3) · Status: Active (implemented after the LGD model)
+
+- **Context**: the buy rule turns PD and LGD into "buy / do not buy", and the business metric (D-007) is measured on what it buys. Each loan is decided when it is listed (D-008), so the rule must be a threshold, not "the best of the month".
+- **Decision**: buy a loan when its **expected return** is at least a minimum: `expected return = (1 - PD) x scheduled interest - PD x LGD`, where scheduled interest is the total interest of the loan as a share of its amount, from `int_rate` and `term` with the amortisation formula. The minimum is chosen on the validation set. The baseline uses the same rule with its own PD and LGD by grade (D-004, D-005).
+- **Alternatives considered**: (A) buy when expected loss (PD x LGD) is below a threshold: simple, but it ignores the interest rate and refuses risky but well-paid loans, exactly what D-002 wanted to capture; (C) the same as the decision plus a prepayment model: more realistic, but a third model, outside the scope agreed in F0.
+- **Why**: it weighs risk against return, which is what an investor decides on. Example with LGD 60% and 36-month loans: grade A at 7% (scheduled interest about 11%) and PD 4% gives 0.96 x 0.111 - 0.04 x 0.6 = 0.083; grade E at 20% (about 34%) and PD 25% gives 0.75 x 0.338 - 0.25 x 0.6 = 0.103, a better purchase despite six times the PD.
+- **Consequences**: known simplifications, documented in the model card: prepayments (which cut interest) and the instalments a defaulted loan pays before default are ignored, so expected return is overstated, by more for riskier loans. Realised return (D-007) is measured on actual payments, so it is not affected. The budget and how it is spent are a separate decision.
+
+<a id="d-085"></a>
+### D-085 Budget: one 25 dollar note per loan, a monthly cap of 10% of last month's listings, idle cash earns nothing
+
+Date: 2026-11-24 · Step: buy rule · Status: Active
+
+- **Context**: D-007 compares portfolios "with the same budget" but does not say how much it is or how it is spent. On Lending Club an investor bought 25 dollar notes of each loan (a share of it), not whole loans. Loans are decided one by one as they are listed (D-008).
+- **Decision**: one **25 dollar note** per loan bought. Each month the investor can buy at most **K notes**, with K equal to 10% of the loans listed the month before (known at the time). Loans that pass the buy rule (D-084) are bought in listing order until K is reached. Money not invested counts with a return of zero. Our model and the baseline play by exactly the same rules.
+- **Alternatives considered**: (A) one note for every loan that passes, with no cap: simple, compares return per dollar, but the money invested differs, so a very selective rule looks better than it is; (C) amounts proportional to expected return: better use of capital, but it is portfolio management, outside the scope agreed in F0.
+- **Why**: the same money, spent the same way, by both investors. Counting idle money at zero stops a rule that buys one safe loan a month from looking excellent: idle cash has an opportunity cost.
+- **Consequences**: 10% is a judgement: enough room to be selective without running out of loans to buy; the business metric is also reported at 5% and 20% to show how sensitive it is. Loans out of coverage (D-070) are never bought by either investor.
+
+<a id="d-086"></a>
+### D-086 Behavioural model tests: invariance, direction, minimum cases, prediction time, and bad models that must fail
+
+Date: 2026-11-24 · Step: 3.3 · Status: Active (each test approved by Juan before it is written)
+
+- **Context**: the performance tests compare metrics (D-075, D-080, D-081). Behavioural tests check that the model acts with common sense on concrete cases, without looking at metrics. The playbook (3.3) asks for invariance, direction, minimum cases and prediction time, and for a deliberately bad model that fails.
+- **Decision**: the battery has five kinds. **Invariance**: changing fields the model does not use (`id`, `emp_title`, `addr_state`) leaves the PD unchanged, and a loan scored alone or inside a batch gets exactly the same PD. **Direction**: on real validation loans, raising each of the nine features of D-080 in its risk direction never lowers the PD (and the reverse for the protective ones). **Minimum cases**: a clearly good profile (grade A, FICO 800, `dti` 5, no delinquencies) gets a lower PD than a clearly bad one; every PD is between 0 and 1; a loan with empty optional fields is scored without error; a loan of a term out of coverage gets no PD (D-070). **Time**: one prediction with its explanation takes under 50 ms (p95) in process, so that the API keeps its 200 ms (`problem.md`). **Bad models**: a constant model and a random model must fail the full battery.
+- **Alternatives considered**: (A) direction and bad models only: quick, but batch against single scoring and the edge cases go untested; (C) the battery plus fairness tests by protected group: very relevant in credit, but the data hold no protected attributes, and proxies were handled in F0 (D-018); a separate decision if wanted.
+- **Why**: it covers what step 3.3 asks for and shows the tests catch something. A constant model at the mean PD is perfectly calibrated overall, so calibration alone would let it through; it is stopped by the comparison with the baseline (AUC 0.5), by the segment test against the champion and by the minimum cases (a good profile must score lower than a bad one).
+- **Consequences**: each test gets its ID in `docs/tests.md` and Juan's approval before it is written (D-057).
+
+<a id="d-087"></a>
+### D-087 LGD candidates: regularised linear regression and LightGBM against the mean by grade, with the PD machinery
+
+Date: 2026-11-24 · Step: 3.2 · Status: Active
+
+- **Context**: LGD is hard to predict loan by loan: in the research phase the best model (CatBoost) reached R² 0.064, while its mean level matched (52.2% predicted against 52.2% observed). What matters for expected loss is the level by segment. The baseline is the mean LGD by grade (D-005). At T0 there are about 1,400 matured defaults between training and validation.
+- **Decision**: the same machinery as the PD. Candidates: a **regularised linear regression** and a **LightGBM regressor**, tuned on the inner split (D-073, D-074), compared with the mean by grade on validation with the paired bootstrap of D-075 on RMSE, and with the calibration by segment of D-081 (mean predicted against mean observed LGD). Predictions are clipped to [0, 1]. Same split by term (D-069). If no candidate beats the baseline by more than the noise, the mean by grade is the LGD champion.
+- **Alternatives considered**: (A) the baseline only, never challenged: simple, but a model that beats it with more data would never be found; (C) LGD-specific models (beta regression, two-stage models: does it recover anything, and how much): closer to the shape of LGD, but more complex, and they did not win in the research phase.
+- **Why**: it reuses every rule already decided, and lets the data of each date say when a model beats the mean by grade. A mean by grade as LGD champion at T0 is an honest result, not a failure.
+- **Consequences**: the champion/challenger logic must also accept a baseline as champion. The level by grade matters even with a low R², because expected loss multiplies it: a level error in one grade shifts the expected loss, and the buy decision, of every loan in that grade.
+
+<a id="d-088"></a>
+### D-088 The LGD label is a column of the training file, computed when the snapshot is built
+
+Date: 2026-11-24 · Step: 3.2 (changes step 2.3, D-060) · Status: Active (implemented in the first F3 pull request, data)
+
+- **Context**: a snapshot has two files (D-060): `features.parquet`, the only one training reads (features and the default label), and `evaluation.parquet`, with payments and recoveries, read only by evaluation. LGD is computed from payments and recoveries (data audit, section 4.5), so LGD training had no label.
+- **Decision**: `features.parquet` gets an `lgd` column, computed when the snapshot is built: `(EAD - principal repaid - (recoveries - collection fee)) / EAD`, with EAD the funded amount, only for loans charged off at least 12 months before T (D-017); empty for every other loan. Values outside [0, 1] are kept as computed and clipped by the model step.
+- **Alternatives considered**: (B) LGD training also reads `evaluation.parquet`: no change to F2, but it breaks the guarantee of D-060, since training code would have future payments at hand and a mistake could turn them into features; (C) a separate LGD snapshot: full separation, but two data versions per training to keep in step.
+- **Why**: the same reasoning as for the default label: a label may come from the future because it is what is predicted, never an input. The raw payment columns could be used as features by mistake; one derived number for the eligible loans only cannot.
+- **Consequences**: `sql/training_ids.sql` (or its companion query), the snapshot schema and test T5.5 change (test changes need Juan's approval); every snapshot gets a new content hash (only test snapshots exist so far). The rule of D-017 lives in one place, versioned with the snapshot.
+
+<a id="d-089"></a>
+### D-089 F3 is delivered in three pull requests: data, training, explanation and business
+
+Date: 2026-11-24 · Step: F3 (cross-cutting; adjusts the one-pull-request-per-phase default of the way of working) · Status: Active
+
+- **Context**: F3 is far larger than F2: snapshot changes, PD and LGD training, MLflow, two images, model tests, registry, explainability, model card and buy rule. Juan reviews every pull request.
+- **Decision**: three pull requests, in order. (1) **Data**: validation split per term (D-069) and the `lgd` label (D-088). (2) **Training**: PD and LGD, MLflow, the `serve` and `train` images, model tests, registry and promotion. (3) **Explanation and business**: SHAP, the model card, the buy rule and the business metric. The tests of each pull request are proposed to Juan, group by group, just before they are written.
+- **Alternatives considered**: (A) one pull request at the end, as in F2: one review, but thousands of lines at once, and a problem found early surfaces only at the end.
+- **Why**: each pull request makes sense on its own and carries its tests; reviews stay thorough; failures appear sooner. The data pull request goes first because training reads the snapshot it changes: training on the old split or without the LGD label would be work thrown away.
+- **Consequences**: three reviews and three CI runs. After each merge the work branch restarts from `main`.

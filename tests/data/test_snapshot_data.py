@@ -16,7 +16,7 @@ import pytest
 
 from credit_risk.ingest import ingest
 from credit_risk.settings import Settings
-from credit_risk.snapshot import Manifest, build
+from credit_risk.snapshot import FEATURES, LGD, SPLIT, Manifest, build
 from credit_risk.storage import LocalStore
 from tests.integration.conftest import database_url, dbmate
 
@@ -49,7 +49,14 @@ def conn() -> Iterator[Connection]:
 
 
 @pytest.fixture(scope="module")
-def first(conn: Connection, tmp_path_factory: pytest.TempPathFactory) -> Manifest:
+def store(tmp_path_factory: pytest.TempPathFactory) -> LocalStore:
+    return LocalStore(tmp_path_factory.mktemp("training_sets"))
+
+
+@pytest.fixture(scope="module")
+def first(
+    conn: Connection, store: LocalStore, tmp_path_factory: pytest.TempPathFactory
+) -> Manifest:
     reports = tmp_path_factory.mktemp("validation")
     periods = sorted(
         p for p in (date.fromisoformat(f"{d.name}-01") for d in LANDING.iterdir()) if p <= T0
@@ -60,19 +67,30 @@ def first(conn: Connection, tmp_path_factory: pytest.TempPathFactory) -> Manifes
         ingest(conn, LANDING, period, reports=reports)
     loaded = time.perf_counter() - start
     start = time.perf_counter()
-    store = LocalStore(tmp_path_factory.mktemp("training_sets"))
     manifest = build(conn, T0, store, commit="data-test")
     print(f"\nload up to {T0:%Y-%m}: {loaded:.0f} s; build: {time.perf_counter() - start:.1f} s")
     return manifest
 
 
 # T5.13
-def test_the_first_training_set_has_the_audit_counts(conn: Connection, first: Manifest) -> None:
+def test_the_first_training_set_has_the_audit_counts(
+    conn: Connection, first: Manifest, store: LocalStore
+) -> None:
     """At T0 only what was known then: 21 loans fewer than the audit, which read the
-    outcomes of the 2019 snapshot (E-022). Adding them back gives the audit's figures."""
+    outcomes of the 2019 snapshot (E-022). Adding them back gives the audit's figures.
+    The split per term (D-069) gives the same counts: no 60-month loan is matured at T0."""
     assert (first.rows_train, first.bad_train) == (7_733, 1_019)
     assert (first.rows_validation, first.bad_validation) == (4_324, 429)
     assert first.excluded_old_policy == 2_226
+    features = pl.read_parquet(store.local(first.version, FEATURES))
+    assert features["term"].unique().to_list() == [36]
+    # The LGD label (D-088): bad loans charged off at least 12 months before T0.
+    with_lgd = features.filter(pl.col(LGD).is_not_null())
+    assert with_lgd.height == 1_336
+    assert with_lgd.group_by(SPLIT).len().sort(SPLIT).rows() == [
+        ("train", 992),
+        ("validation", 344),
+    ]
     # The audit read the final status: count the matured loans resolved after T0 in the
     # later deliveries, which the build never saw.
     matured = conn.execute(
