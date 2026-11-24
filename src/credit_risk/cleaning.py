@@ -176,21 +176,40 @@ class CleaningError(ValueError):
         )
 
 
-def clean(frame: pl.DataFrame, rules: Mapping[str, Rule]) -> pl.DataFrame:
-    """Apply one rule per column. Same rows, same order, same columns, typed."""
+def convert(
+    frame: pl.DataFrame, rules: Mapping[str, Rule]
+) -> tuple[pl.DataFrame, dict[str, pl.Series]]:
+    """Apply one rule per column without stopping: the typed frame and, for each column
+    with values that do not fit, a mask of the rows that hold them.
+
+    :func:`clean` stops on any of them; the API uses the masks to reject only the loans
+    that hold them (D-117). One implementation for both.
+    """
     if list(frame.columns) != list(rules):
         missing = [c for c in rules if c not in frame.columns]
         extra = [c for c in frame.columns if c not in rules]
         raise ValueError(f"columns do not match the contract: missing {missing}, extra {extra}")
     out = frame.select(_convert(rule, col).alias(col) for col, rule in rules.items())
+    # Every mask in one call, then only the columns with a broken value (a single listing
+    # in the API pays one call, not one per column, T18.13).
+    masks = frame.select(
+        (pl.col(col).is_not_null() & _convert(rule, col).is_null()).alias(col)
+        for col, rule in rules.items()
+    )
+    any_broken = masks.select(pl.all().any()).row(0, named=True)
+    broken = {col: masks[col] for col, hit in any_broken.items() if hit}
+    return out, broken
+
+
+def clean(frame: pl.DataFrame, rules: Mapping[str, Rule]) -> pl.DataFrame:
+    """Apply one rule per column. Same rows, same order, same columns, typed."""
+    out, masks = convert(frame, rules)
     failures = []
-    for col, rule in rules.items():
-        broken = frame[col].is_not_null() & out[col].is_null()
-        if broken.any():
-            first = frame.filter(broken).row(0, named=True)
-            failures.append(
-                ColumnFailure(col, rule, first.get("id"), first[col], int(broken.sum()))
-            )
+    for col, broken in masks.items():
+        first = frame.filter(broken).row(0, named=True)
+        failures.append(
+            ColumnFailure(col, rules[col], first.get("id"), first[col], int(broken.sum()))
+        )
     if failures:
         f = failures[0]
         raise CleaningError(f.column, f.rule, f.loan_id, f.value, f.count, tuple(failures))

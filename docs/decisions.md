@@ -116,6 +116,20 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-106](#d-106) | 2026-11-24 | 4.1 | Retraining every quarter (January, April, July, October); every month is loaded | Active |
 | [D-107](#d-107) | 2026-11-24 | 4.1 | The simulated clock: an "advance one month" flow with its state in `sim.clock` | Active |
 | [D-108](#d-108) | 2026-11-24 | 4.1 | Alerts recorded in `ops.alerts`; the channel that delivers them is chosen in F6 | Active |
+| [D-109](#d-109) | 2026-11-24 | F5 | Scope of F5 and three pull requests: the API, the replayer, the published image | Active |
+| [D-110](#d-110) | 2026-11-24 | 5.1 | The API loads the champions from the MLflow registry by their alias | Active |
+| [D-111](#d-111) | 2026-11-24 | 5.1 | A new champion reaches the API by a notice from the flow, with polling as the safety net | Active |
+| [D-112](#d-112) | 2026-11-24 | 5.1 | The API returns the risk, the expected return and whether it passes the buy threshold; the monthly cap stays with the investor | Active |
+| [D-113](#d-113) | 2026-11-24 | 5.1 | `serving.predictions`: one row per prediction, columns for what is filtered, jsonb for what is audited | Active |
+| [D-114](#d-114) | 2026-11-24 | 5.1 | A loan is stored once per pair of models (unique key in the database) | Active |
+| [D-115](#d-115) | 2026-11-24 | 5.1 | Every request: a JSON log line and a row in `serving.requests`; rejected ones keep body and errors | Active |
+| [D-116](#d-116) | 2026-11-24 | 5.1 | The API takes listings as the provider delivers them and cleans them with the code of the monthly load | Active |
+| [D-117](#d-117) | 2026-11-24 | 5.1 | A batch answers each loan on its own; only a malformed batch is refused whole | Active |
+| [D-118](#d-118) | 2026-11-24 | 5.1 | API keys, one list per permission, several valid at once for rotation | Active |
+| [D-119](#d-119) | 2026-11-24 | 5.1 | FastAPI and uvicorn in the main dependencies, at the version Prefect allows | Active |
+| [D-120](#d-120) | 2026-11-24 | 5.1 | The buy rule is registered in MLflow like a model, and chosen again when the champion pair changes | Active |
+| [D-121](#d-121) | 2026-11-24 | 5.1 | A prediction is written before it is answered, in the same transaction | Active |
+| [D-122](#d-122) | 2026-11-24 | 5.1 (changes T18.13) | Latency is measured under an open load of 20 requests a second; capacity is measured apart | Active |
 
 ## Decisions
 
@@ -1246,3 +1260,157 @@ Date: 2026-11-24 · Step: 4.1 · Status: Active
 - **Alternatives considered**: (A) only logs and the Prefect UI: free, but nobody finds out without looking, and there is no record to query; (C) the table plus a webhook now (Slack, Discord or ntfy.sh): the alert really arrives from today, but needs a webhook kept as a secret, leaves two alert paths in F6, and the real sending cannot be tested in CI; (D) Prefect automations (rules on the server): native and without code of ours, but they only see what Prefect sees (not a promotion or a rollback), and their configuration lives on the server, not in the repository.
 - **Why**: one record of events that everything writes and F6 reads; the channel is decided once, with Grafana, for failures, promotions and drift together.
 - **Consequences**: module `credit_risk/alerts.py`; `registry.rollback` takes a `notify` callback. Tests T17.2 and T17.7.
+
+<a id="d-109"></a>
+### D-109 Scope of F5 and three pull requests: the API, the replayer, the published image
+
+Date: 2026-11-24 · Step: F5 · Status: Active
+
+- **Context**: the playbook puts two steps in F5: 5.1, the API, and 5.2, a published image with continuous delivery. D-098 moved here the old step 4.2: a replayer that sends each month's loans to the API (D-008), with every prediction stored.
+- **Decision**: F5 is delivered in three pull requests, in order: (1) the API and the `serving` tables; (2) the replayer, inside the simulated clock; (3) continuous delivery of the image.
+- **Alternatives considered**: (B) two pull requests, the API and the replayer together: fewer reviews, but a very large first one; (C) one pull request: hard to review in depth.
+- **Why**: each pull request has one goal and is reviewable, as in F3 and F4; the replayer builds on an API that is already reviewed.
+- **Consequences**: the tracking sheet marks 4.2 as delivered by the second pull request.
+
+<a id="d-110"></a>
+### D-110 The API loads the champions from the MLflow registry by their alias
+
+Date: 2026-11-24 · Step: 5.1 · Status: Active
+
+- **Context**: the flow of F4 promotes models every quarter by moving the alias `champion` in MLflow. The API needs the champion PD and LGD. The model can travel inside the image or be fetched from the registry.
+- **Decision**: the API asks the registry which versions the alias `champion` points to and loads them (`registry.load`, already tested in `serve` by B8). Every answer carries the registered versions it used.
+- **Alternatives considered**: (A) the model inside the image: immutable and independent of MLflow, but every promotion needs a new image and a deployment, which breaks the automation of F4 and mixes the life cycle of the code with that of the model; (C) the registry with a local copy as fallback: more resilient, but more code and the risk of silently serving an old model.
+- **Why**: a promotion reaches the API without touching the image; the registry is the only source of truth. Usual where models are retrained often.
+- **Consequences**: the API depends on MLflow to start serving: until it has loaded the champions `/health` answers 503 (D-111 decides how it learns of new ones).
+
+<a id="d-111"></a>
+### D-111 A new champion reaches the API by a notice from the flow, with polling as the safety net
+
+Date: 2026-11-24 · Step: 5.1 · Status: Active
+
+- **Context**: in the simulation the clock promotes in month m and the replayer sends the loans of month m right after. If the API still used the old model, those predictions would carry the wrong one.
+- **Decision**: after any change of champion the monthly flow calls `POST /admin/reload` (task `reload`, never retried, never failing the flow; a failure is a `reload_failed` alert). Every `API_RELOAD_SECONDS` (60 by default) a thread of the API also asks the registry whether an alias moved. The PD, the LGD and the buy rule are loaded first and swapped in one assignment; a request takes the set once, so it never mixes versions. A load that fails keeps the set in use and records a `model_load_failed` alert, once while the same failure repeats. One process per container, since the notice must reach the process that serves: the API scales by containers.
+- **Alternatives considered**: (A) only at start: a restart after each promotion; (B) only polling: up to a minute with the old model, and a simulation that is not deterministic; (C) only the notice: if it is lost, the old model stays indefinitely.
+- **Why**: the notice makes the simulation deterministic; polling covers a lost notice.
+- **Consequences**: `credit_risk/api/champions.py`; two new alert kinds (migration `20261124180100`); the worker gets `API_URL` and `API_ADMIN_KEY`. Tests T18.8, T18.9 and T19.2.
+
+<a id="d-112"></a>
+### D-112 The API returns the risk, the expected return and whether it passes the buy threshold; the monthly cap stays with the investor
+
+Date: 2026-11-24 · Step: 5.1 · Status: Active
+
+- **Context**: the buy rule (D-084, D-085) has a part without state, the expected return against a minimum, and a part with state, the cap of K notes a month in order of arrival.
+- **Decision**: for each loan the API returns PD, LGD, EAD (the amount of the listing, `loan_amnt`), expected loss `PD x LGD x EAD` and its rate `PD x LGD` (problem.md, section 3), expected return, the minimum and whether the loan passes it, the four reasons (D-083) and the versions. The monthly cap is applied by the investor, on the side of the replayer.
+- **Alternatives considered**: (A) only the risk: a pure risk service, but the rule validated in F3 would live elsewhere and could drift from it; (C) the whole decision with the cap: an API with state, hard to scale and to test, mixing risk with portfolio management.
+- **Why**: the usual split: the risk service scores and recommends, the portfolio manages the budget. The rule validated in F3 stays next to the models that justify it, and the API keeps no state.
+- **Consequences**: the minimum has to be stored with the champions (D-120).
+
+<a id="d-113"></a>
+### D-113 `serving.predictions`: one row per prediction, columns for what is filtered, jsonb for what is audited
+
+Date: 2026-11-24 · Step: 5.1 · Status: Active
+
+- **Context**: each prediction is stored to audit a decision years later (D-083), to monitor drift and performance in F6 and to know which model made it. About two million rows in a full simulation.
+- **Decision**: one row per prediction in the schema `serving`: loan id, listing month, versions of PD, LGD, buy rule and API, coverage, PD, LGD, EAD, expected loss and rate, expected return, minimum and verdict, base value, as columns; the four reasons, the 30 features the model saw, the SHAP contributions and the request as delivered, as jsonb. Checks in the table: PD and LGD between 0 and 1, and a covered loan has its whole risk while an uncovered one has none.
+- **Alternatives considered**: (B) normalised in three tables: a strict schema, but about 60 million rows of contributions and joins everywhere; (C) only the outputs in the database and the inputs in Parquet files: a small database, but auditing crosses two stores and the two are not written in one transaction.
+- **Why**: the usual inference log: fast queries for monitoring on columns, a complete audit in one row, and drift measured in F6 on the exact features the model saw, never recomputed.
+- **Consequences**: migration `20261124180000`; about 5 to 8 GB for the whole simulation. Test T18.11.
+
+<a id="d-114"></a>
+### D-114 A loan is stored once per pair of models (unique key in the database)
+
+Date: 2026-11-24 · Step: 5.1 · Status: Active
+
+- **Context**: a month of the replay may be sent again after a failure, and a client may retry after a timeout. Scoring the same loan again after a change of champion is legitimate (problem.md, section 4).
+- **Decision**: a unique constraint on (loan id, PD version, LGD version). A repeat is not written: the API answers the stored prediction, marked `stored_earlier`. A new champion writes a new row.
+- **Alternatives considered**: (B) an `Idempotency-Key` header per request: standard in payments, but it depends on the client, and two different requests for the same loan and models would still duplicate; (C) one row per loan, overwritten: loses which model scored the loan when it was listed; (D) the replayer checks first: the guarantee depends on one client, and the simulated world would read system tables.
+- **Why**: the guarantee lives where it cannot be skipped, the database, and fits deterministic models: same input and same models give the same prediction.
+- **Consequences**: a second identical request has no prediction row of its own; its request row records it (D-115). Test T18.6.
+
+<a id="d-115"></a>
+### D-115 Every request: a JSON log line and a row in `serving.requests`; rejected ones keep body and errors
+
+Date: 2026-11-24 · Step: 5.1 · Status: Active
+
+- **Context**: some requests produce no prediction: invalid input (422), refused keys (401, 403), a database that is down (503). How many there are and why is part of data quality (F6) and of debugging.
+- **Decision**: every request writes one JSON line to standard output (request id, path, status, latency, client, versions; never a key nor a body). Every request to `/predict`, `/predict/batch` and `/admin/reload` also writes a row in `serving.requests` (id, time, endpoint, client, status, latency, loans, rejected, versions); only a rejected one keeps its body and its errors. Each prediction points to its request. `/health` is only logged.
+- **Alternatives considered**: (A) only the log lines: standard for operations and free, but they cannot be queried with the predictions and containers rotate them away; (C) the body and answer of every request in a table: duplicates `serving.predictions` and doubles its size.
+- **Why**: the log serves the operator at the moment; the table serves monitoring and the audit of what was refused. Free text of valid requests (the loan description) is kept only with its prediction.
+- **Consequences**: tests T18.3, T18.11 and T18.12.
+
+<a id="d-116"></a>
+### D-116 The API takes listings as the provider delivers them and cleans them with the code of the monthly load
+
+Date: 2026-11-24 · Step: 5.1 · Status: Active
+
+- **Context**: a listing can arrive as the provider publishes it (text such as `" 36 months"`) or already clean (36). This decides whether the API reuses the cleaning of F2.
+- **Decision**: a Pydantic model with the columns of the delivery contract as text (strict: a number instead of text is refused). The columns the features read (`features.INPUTS`) must be present, their value may be null; the rest are optional; unknown columns are refused. Then `cleaning.convert` with the rules of the contract and `features.build_features`, the functions of training. A value that does not fit its rule is a 422 with the column, the rule and the value.
+- **Alternatives considered**: (B) clean, typed fields: a nicer API, but someone must clean first, so cleaning is duplicated or moved to the client, the skew D-045 and D-008 avoid; (C) a free dictionary checked only by pandera: no schema in the OpenAPI documentation and less clear errors.
+- **Why**: one cleaning path for the batch load and for real time (D-045); refusing unknown columns makes a silent change of the provider a visible error.
+- **Consequences**: `cleaning.convert` returns the typed frame and the rows that fail each rule, used by `clean` (which stops) and by the API (which rejects only those loans). The month rules of pandera (volumes, history) stay in the monthly load. Tests T18.3 and T18.15.
+
+<a id="d-117"></a>
+### D-117 A batch answers each loan on its own; only a malformed batch is refused whole
+
+Date: 2026-11-24 · Step: 5.1 · Status: Active
+
+- **Context**: the batch exists so that the replay does not take hours (D-008); conceptually it is many single requests together.
+- **Decision**: `POST /predict/batch` answers 200 with one result per loan in the same order, each a prediction or its errors. Valid loans are scored and stored; invalid ones are recorded in `serving.requests`. Only a structural error refuses the whole batch with 422: not a list, empty, more than `API_MAX_BATCH` (1,000) loans, broken JSON.
+- **Alternatives considered**: (A) all or nothing: simple and atomic, but one odd loan blocks the other 999 of its month; (C) 207 Multi-Status: as the decision, with a WebDAV status few clients expect.
+- **Why**: each loan is independent, as in reality, and a batch gives exactly what the loans one by one give.
+- **Consequences**: the client checks each item, not only the status. A batch of 1,000 takes about one second (T18.13). Test T18.4.
+
+<a id="d-118"></a>
+### D-118 API keys, one list per permission, several valid at once for rotation
+
+Date: 2026-11-24 · Step: 5.1 · Status: Active
+
+- **Context**: everything runs in docker compose today, but the API will reach AWS (F7), and `/admin/reload` changes the model in use.
+- **Decision**: a key in the header `X-API-Key`. Two lists of `name:key` pairs from environment secrets: `API_KEYS_PREDICT` (the replayer) and `API_KEYS_ADMIN` (the flow). Keys of at least 32 characters, compared in constant time against every configured key; no key or a wrong one gives 401, a key of the other permission 403. `/health` and `/health/live` are open. Logs and `serving.requests` record the name, never the key. Rotation without downtime: add the new key, move the clients, remove the old one; in AWS, Secrets Manager rotates it on a schedule.
+- **Alternatives considered**: (A) no authentication, trusting the compose network: anyone reaching the port could predict or reload; (C) OAuth2 with JWT: the most complete, but an identity server for two machine clients.
+- **Why**: the usual choice between internal services; it separates the permission to reload, and moves to Secrets Manager without changing the code.
+- **Consequences**: `credit_risk/api/settings.py`; development keys in `.env.example`. Test T18.5.
+
+<a id="d-119"></a>
+### D-119 FastAPI and uvicorn in the main dependencies, at the version Prefect allows
+
+Date: 2026-11-24 · Step: 5.1 · Status: Active
+
+- **Context**: one `uv.lock` for the project. Prefect requires FastAPI below 0.151 (D-103), so the lock has FastAPI 0.150.0 (19 October 2026).
+- **Decision**: FastAPI and uvicorn in the main dependencies (the `serve` image), at the version the lock allows. Also `psycopg[pool]` for the connection pool, and `httpx` in the `dev` group for the test client.
+- **Alternatives considered**: (B) two locks, one for the API: FastAPI free of the cap, but scikit-learn or LightGBM could differ between training and serving, and a model saved with one version may predict differently or not load with another; (C) Prefect in an image and lock of its own: its worker runs training, so it needs the same libraries; it ends up as (B).
+- **Why**: serving with exactly the libraries of training is worth more than the latest FastAPI; pip-audit and Dependabot watch for vulnerabilities, and an unfixed one in 0.150 reopens this decision.
+- **Consequences**: the `serve` image grows a few MB (B5 keeps its 800 MB budget).
+
+<a id="d-120"></a>
+### D-120 The buy rule is registered in MLflow like a model, and chosen again when the champion pair changes
+
+Date: 2026-11-24 · Step: 5.1 (consequence of D-112) · Status: Active
+
+- **Context**: the minimum of the buy rule is chosen on validation with one pair of models (D-084, D-096); until now only the business report of F3 computed it. PD and LGD are promoted apart, so a change of either invalidates it.
+- **Decision**: a registered "model" `buy_rule` with its own alias `champion`: a small object with the minimum, the PD and LGD versions it was chosen with and the training set version, logged as a run with every required field (D-079; metric: realised net return on validation at that minimum, with its bootstrap interval). A flow task `buy-rule` chooses it again whenever the champion PD or LGD changed (a pair that already has a rule reuses it, D-101) and records a `promoted` alert. The API serves the threshold only when the rule matches the pair it uses; otherwise "threshold not available", with the risk still served.
+- **Alternatives considered**: (B) a tag on the PD version: nothing new, but it goes stale when only the LGD changes; (C) a fixed value in the configuration: it does not follow the models and contradicts D-084.
+- **Why**: the rule is a versioned artefact like the models; for each prediction we know which rule decided it.
+- **Consequences**: `credit_risk/buy_rule.py`; the flow has six tasks (`buy-rule` and `reload` after the LGD). A manual rollback leaves the threshold unavailable until the next retraining. Tests T18.10 and T19.1.
+
+<a id="d-121"></a>
+### D-121 A prediction is written before it is answered, in the same transaction
+
+Date: 2026-11-24 · Step: 5.1 · Status: Active
+
+- **Context**: D-008 says every prediction is stored. The write costs a few milliseconds.
+- **Decision**: the API scores, writes the request and its predictions in one transaction, commits, and only then answers. If the database fails, 503 and no prediction. A batch is one transaction.
+- **Alternatives considered**: (B) writing in the background after answering: slightly faster, and the API answers with the database down, but a crash loses predictions already given; (C) an external queue (Kafka, SQS) and a consumer: what very high volumes use, but one more service to run for our volume.
+- **Why**: in credit, being able to prove what was predicted is worth more than a few milliseconds, and the latency stays far within the objective (T18.13).
+- **Consequences**: the API is not ready while the database is down (`/health`). Test T18.7.
+
+<a id="d-122"></a>
+### D-122 Latency is measured under an open load of 20 requests a second; capacity is measured apart
+
+Date: 2026-11-24 · Step: 5.1 (changes T18.13) · Status: Active
+
+- **Context**: T18.13 as approved sent requests from 20 clients without pause for 60 seconds. One process of the API answers about 70 requests a second (about 14 ms of work each), so with 20 requests always queued each waits for the other 19: p95 364 ms. That measures saturation, not latency.
+- **Decision**: T18.13 sends 20 requests a second at a fixed rate for 60 seconds (an open load, as listings arrive) and requires p95 below 200 ms. The capacity, answers a second with 20 clients that never pause, is measured after it and recorded, without a threshold.
+- **Alternatives considered**: (B) keep 20 clients and run several API containers behind a load balancer (nginx): the original test passes and horizontal scaling shows, but more infrastructure now, and real scaling is decided in AWS (F7); (C) keep it and optimise further: one process would need under about 9 ms a request, with no guarantee.
+- **Why**: the standard split of a load test: latency at a given load under capacity, capacity apart. 20 a second is more than a thousand times Lending Club's peak (about 40,000 listings a month in 2018, less than one a minute).
+- **Consequences**: measured here: p95 30 ms at 20 a second; capacity 70 answers a second for one process; a batch of 1,000 in about one second (E-044, E-045).

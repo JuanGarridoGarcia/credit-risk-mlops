@@ -63,7 +63,9 @@ def feature_of(column: str, prepare: Prepare) -> str:
     return column.split("=", 1)[0]
 
 
-def raw_contributions(model: PDModel | LGDModel, features: pl.DataFrame) -> tuple[float, Matrix]:
+def raw_contributions(
+    model: PDModel | LGDModel, features: pl.DataFrame, x: Matrix | None = None
+) -> tuple[float, Matrix]:
     """Base value and one contribution per output column of the model, before Platt.
 
     Works for any model made of a ``prepare`` and an ``estimator``: the PD models, and the
@@ -71,7 +73,8 @@ def raw_contributions(model: PDModel | LGDModel, features: pl.DataFrame) -> tupl
     """
     if model.prepare is None:
         raise ValueError(f"model {model.name} has no prepared columns to explain")
-    x = model.prepare.transform(features)
+    if x is None:
+        x = model.prepare.transform(features)
     estimator = model.estimator
     if hasattr(estimator, "coef_"):
         coef = np.asarray(estimator.coef_, dtype=np.float64).ravel()
@@ -94,9 +97,9 @@ def by_feature(model: PDModel | LGDModel, columns: Matrix) -> Matrix:
     return grouped
 
 
-def explain(model: PDModel, features: pl.DataFrame) -> Explanation:
-    """The explanation of every row's PD (D-083)."""
-    base, columns = raw_contributions(model, features)
+def explain(model: PDModel, features: pl.DataFrame, x: Matrix | None = None) -> Explanation:
+    """The explanation of every row's PD (D-083); ``x`` as in :meth:`PDModel.raw`."""
+    base, columns = raw_contributions(model, features, x)
     a, b = model.platt
     contributions = a * by_feature(model, columns)
     contributions[~model.covered(features)] = math.nan

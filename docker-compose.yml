@@ -1,7 +1,7 @@
 # Services of the system (decision A9, D-027): Postgres, MLflow since F3 (D-079), the
 # Prefect server and the worker of the monthly flow since F4 (D-099, D-103), and the
-# simulated clock (D-107), which belongs to the simulated world.
-# The API enters in F5 and Grafana in F6, each with the step that uses it and its tests.
+# simulated clock (D-107), which belongs to the simulated world, and the prediction API
+# since F5 (D-008, D-110). Grafana enters in F6 with the step that uses it and its tests.
 # Credentials come from .env (git-ignored); see .env.example.
 
 name: credit-risk
@@ -105,6 +105,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       PREFECT_API_URL: http://prefect:4200/api
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      # After a promotion the flow tells the API to load the new champions (D-111).
+      API_URL: http://api:8000
+      API_ADMIN_KEY: ${API_ADMIN_KEY:?set API_ADMIN_KEY in .env}
     command: ["python", "-m", "credit_risk.flows", "serve"]
     volumes:
       # Deliveries, validation reports and training sets (S3 in AWS). The deliveries are
@@ -134,6 +137,42 @@ services:
       # The source file, read only: only the simulated world opens it (D-043).
       - ./data/raw:/app/data/raw:ro
       - flowdata:/app/data
+    restart: unless-stopped
+
+  api:
+    # The prediction API, the single prediction path (D-008), from the light serve image
+    # (D-078). It loads the champions from the MLflow registry (D-110) and writes every
+    # prediction to serving.predictions before answering (D-121). One process: the
+    # reload notice must reach the process that serves (D-111); it scales by containers.
+    image: ${SERVE_IMAGE:-credit-risk:serve}
+    build:
+      context: .
+      target: serve
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      API_KEYS_PREDICT: ${API_KEYS_PREDICT:?set API_KEYS_PREDICT in .env}
+      API_KEYS_ADMIN: ${API_KEYS_ADMIN:?set API_KEYS_ADMIN in .env}
+      API_RELOAD_SECONDS: ${API_RELOAD_SECONDS:-60}
+    command: ["python", "-m", "credit_risk.api"]
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    healthcheck:
+      # Liveness only: a system with no champion yet is alive but not ready (/health).
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 5s
     restart: unless-stopped
 
 volumes:

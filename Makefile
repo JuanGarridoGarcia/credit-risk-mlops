@@ -91,7 +91,7 @@ test-image: ## Run the unit tests inside an image with the package installed as 
 	docker build $(DOCKER_BUILD_FLAGS) --target test -t credit-risk:test .
 	docker run --rm credit-risk:test
 
-up: ## Start the services (Postgres, MLflow, Prefect, its worker and the clock) and wait until they are healthy (run 'make build' first)
+up: ## Start the services (Postgres, MLflow, Prefect, its worker, the clock and the API) and wait until they are healthy (run 'make build' first)
 	@test -f .env || { echo ".env missing: run 'make install' or copy .env.example"; exit 1; }
 	docker compose up -d --wait
 

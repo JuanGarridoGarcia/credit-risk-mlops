@@ -6,13 +6,15 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 authors = [{ name = "Juan Garrido García" }]
 dependencies = [
+    "fastapi>=0.150",
     "lightgbm>=4.7",
     "mlflow-skinny>=3.18",
     "pandera[polars]>=0.36",
     "polars>=2.1",
-    "psycopg[binary]>=3.3.9",
+    "psycopg[binary,pool]>=3.3.9",
     "pydantic-settings>=2.16",
     "scikit-learn>=1.9.1",
+    "uvicorn>=0.54",
 ]
 
 [project.scripts]
@@ -21,6 +23,7 @@ credit-risk = "credit_risk.__main__:main"
 [dependency-groups]
 dev = [
     "diff-cover>=11.0",
+    "httpx>=0.28",
     "mypy>=2.4",
     "pip-audit>=2.9",
     "pre-commit>=4.7",
@@ -125,7 +128,12 @@ markers = [
     "data: needs the real Lending Club file in data/raw (not in CI)",
 ]
 xfail_strict = true
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # E-043: Starlette 1.10 asks for its new httpx2 client in TestClient; httpx (already in
+    # uv.lock through Prefect) still works. Revisit when the lock moves to httpx2.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
 
 # ---------------------------------------------------------------- coverage
 [tool.coverage.run]

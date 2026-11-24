@@ -143,15 +143,23 @@ class Prepare:
                 else:
                     columns.append(frame[c].cast(pl.Float64).fill_null(math.nan).to_numpy())
             return np.column_stack(columns) if columns else np.empty((frame.height, 0))
-        for c in self.numeric:
-            filled = frame[c].cast(pl.Float64).fill_null(self.medians[c]).to_numpy()
-            columns.append((filled - self.means[c]) / self.scales[c])
-        for c in self.gaps:
-            columns.append(frame[c].is_null().cast(pl.Float64).to_numpy())
+        # One polars call for all numeric and gap columns, then numpy: the same values as
+        # column by column, without the cost of one call per column, which is most of the
+        # time of a single loan in the API (T18.13).
+        exprs = [pl.col(c).cast(pl.Float64).fill_null(self.medians[c]) for c in self.numeric]
+        exprs += [pl.col(c).is_null().cast(pl.Float64).alias(f"{c}__gap") for c in self.gaps]
+        block = frame.select(exprs).to_numpy() if exprs else np.empty((frame.height, 0))
+        for j, c in enumerate(self.numeric):
+            columns.append((block[:, j] - self.means[c]) / self.scales[c])
+        for j in range(len(self.gaps)):
+            columns.append(block[:, len(self.numeric) + j])
+        texts = frame.select(
+            pl.col(c).cast(pl.String).fill_null(_MISSING) for c in self.categorical
+        ).to_dict(as_series=False)
         for c in self.categorical:
-            text = frame[c].cast(pl.String).fill_null(_MISSING)
+            text = np.asarray(texts[c], dtype=object)
             for v in self.categories[c]:
-                columns.append((text == v).cast(pl.Float64).to_numpy())
+                columns.append((text == v).astype(np.float64))
         return np.column_stack(columns) if columns else np.empty((frame.height, 0))
 
 
@@ -166,14 +174,16 @@ class PDModel:
     platt: tuple[float, float] = (1.0, 0.0)
     params: dict[str, Any] = field(default_factory=dict)
 
-    def raw(self, features: pl.DataFrame) -> Matrix:
+    def raw(self, features: pl.DataFrame, x: Matrix | None = None) -> Matrix:
         """Uncalibrated log-odds of default of every row.
 
         For a linear model the sum is taken row by row, so a loan gets exactly the same
         value alone or inside a batch (D-086); a matrix product can differ in the last
-        decimal with the number of rows.
+        decimal with the number of rows. ``x``, when given, is ``prepare.transform(features)``
+        computed once by the caller (the API, T18.13).
         """
-        x = self.prepare.transform(features)
+        if x is None:
+            x = self.prepare.transform(features)
         if hasattr(self.estimator, "coef_"):
             coef = np.asarray(self.estimator.coef_, dtype=np.float64).ravel()
             return np.asarray((x * coef).sum(axis=1) + self.estimator.intercept_[0])
@@ -189,9 +199,9 @@ class PDModel:
         """Whether each row's term is covered (D-070)."""
         return np.asarray(features["term"].is_in(list(self.covered_terms)).fill_null(False))
 
-    def predict_pd(self, features: pl.DataFrame) -> pl.Series:
+    def predict_pd(self, features: pl.DataFrame, x: Matrix | None = None) -> pl.Series:
         """Calibrated PD of every row; null for a term the model does not cover (D-070)."""
-        pd_ = self.calibrated(self.raw(features)) if features.height else np.empty(0)
+        pd_ = self.calibrated(self.raw(features, x)) if features.height else np.empty(0)
         values = np.where(self.covered(features), pd_, math.nan)
         return pl.Series("pd", values, dtype=pl.Float64).fill_nan(None)
 
@@ -262,7 +272,15 @@ class LGDModel:
                 dtype=np.float64,
             )
         elif features.height and self.prepare is not None:
-            raw = np.asarray(self.estimator.predict(self.prepare.transform(features)))
+            x = self.prepare.transform(features)
+            if hasattr(self.estimator, "coef_"):
+                # Row by row, like the PD: the same loan gets exactly the same LGD alone or
+                # inside a batch (T18.4); a matrix product can differ in the last decimal.
+                coef = np.asarray(self.estimator.coef_, dtype=np.float64).ravel()
+                intercept = float(np.ravel(self.estimator.intercept_)[0])
+                raw = np.asarray((x * coef).sum(axis=1) + intercept)
+            else:
+                raw = np.asarray(self.estimator.predict(x))
         else:
             raw = np.empty(0)
         covered = np.asarray(features["term"].is_in(list(self.covered_terms)).fill_null(False))
