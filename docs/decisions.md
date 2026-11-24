@@ -1026,7 +1026,7 @@ Date: 2026-11-24 · Step: 3.2 (changes step 2.3, D-060) · Status: Active (imple
 <a id="d-089"></a>
 ### D-089 F3 is delivered in three pull requests: data, training, explanation and business
 
-Date: 2026-11-24 · Step: F3 (cross-cutting; adjusts the one-PR-per-phase default of D-037) · Status: Active
+Date: 2026-11-24 · Step: F3 (cross-cutting; adjusts the one-pull-request-per-phase default of the way of working) · Status: Active
 
 - **Context**: F3 is far larger than F2: snapshot changes, PD and LGD training, MLflow, two images, model tests, registry, explainability, model card and buy rule. Juan reviews every pull request.
 - **Decision**: three pull requests, in order. (1) **Data**: validation split per term (D-069) and the `lgd` label (D-088). (2) **Training**: PD and LGD, MLflow, the `serve` and `train` images, model tests, registry and promotion. (3) **Explanation and business**: SHAP, the model card, the buy rule and the business metric. The tests of each pull request are proposed to Juan, group by group, just before they are written.
