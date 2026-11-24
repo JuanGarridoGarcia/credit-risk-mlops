@@ -103,6 +103,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-093](#d-093) | 2026-11-24 | 3.3 | A key segment blocks a promotion only if it is clearly worse by more than a margin | Active |
 | [D-094](#d-094) | 2026-11-24 | 3.2 | The level of every LGD model is corrected on validation, like Platt scaling for the PD | Active |
 | [D-095](#d-095) | 2026-11-24 | 3.5 | A model card is generated for every registered version and stored with it | Active |
+| [D-096](#d-096) | 2026-11-24 | 3.5 | The realised return is measured on the 12 months after T0; validation only chooses the minimum of the buy rule | Active |
 
 ## Decisions
 
@@ -1103,3 +1104,13 @@ Date: 2026-11-24 · Step: 3.5 · Status: Active
 - **Alternatives considered**: (B) a card written by hand in `docs/`: easier to read, stale at the first retraining; (C) only the model description in MLflow: no structure, no segments.
 - **Why**: each version that can become champion carries its own card, and the card can never disagree with the model it describes.
 - **Consequences**: one more artefact per run; its content is checked by tests.
+
+### D-096 The realised return is measured on the 12 months after T0; validation only chooses the minimum of the buy rule
+
+Date: 2026-11-24 · Step: 3.5 (completes D-007, D-084, D-085) · Status: Active
+
+- **Context**: the minimum expected return of the buy rule (D-084) is chosen on validation. Measuring the realised return (D-007) on the same loans would report a result fitted to them, so optimistic.
+- **Decision**: the business metric of F3 is measured on the loans listed in the 12 months after T0 (February 2014 to January 2015), with their final outcomes from the later deliveries, as an investor using the T0 models for a year would have earned. Validation only chooses the minimum, for our models and for the baseline alike. The later outcomes are used to measure, never to design or choose anything.
+- **Alternatives considered**: (B) cross-fitting within validation: choose the minimum on four fifths and measure on the fifth left, five times; nothing after T0 is used, but only six months of loans; (C) validation alone: simplest, but optimistic.
+- **Why**: it is the honest answer to "would it have made more money?", with both investors under the same rules and budget (D-085).
+- **Consequences**: the measurement needs every delivery up to the end of those loans, so it is a data test (local). It is a single year with a single pair of models; F4 and F7 repeat it as the models are retrained.
