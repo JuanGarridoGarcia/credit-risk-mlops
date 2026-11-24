@@ -526,6 +526,7 @@ wheels = [
 name = "credit-risk"
 version = "0.1.0"
 source = { editable = "." }
+default-groups = ["dev", "train"]
 dependencies = [
     { name = "lightgbm" },
     { name = "mlflow-skinny" },

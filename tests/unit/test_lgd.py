@@ -6,7 +6,7 @@ import pytest
 
 from credit_risk import registry
 from credit_risk.compare import LGD_MARGINS, segment_check, segments, segments_pass
-from credit_risk.lgd import fit_baseline, fit_ridge, lgd_rows, train_lgd
+from credit_risk.lgd import fit_baseline, fit_level, fit_ridge, lgd_rows, train_lgd
 from credit_risk.model import LGDModel
 from credit_risk.snapshot import LGD, SPLIT
 from credit_risk.train import prepare_frame
@@ -100,3 +100,32 @@ def test_lgd_predictions_stay_between_0_and_1(frame: pl.DataFrame) -> None:
     lgd = model.predict_lgd(rows).to_numpy()
     assert np.all((lgd >= 0) & (lgd <= 1))
     assert lgd.min() == 0.0 or lgd.max() == 1.0
+
+
+# T12.7
+def test_the_level_is_corrected_on_validation_only(frame: pl.DataFrame) -> None:
+    rows = lgd_rows(frame)
+    train = rows.filter(pl.col(SPLIT) == "train")
+    # Validation LGD 0.10 above training: the drift D-094 corrects.
+    validation = rows.filter(pl.col(SPLIT) == "validation").with_columns(pl.col(LGD) + 0.10)
+    ridge = fit_ridge(train, 1.0, (36,))
+    corrected = fit_level(ridge, validation)
+
+    before = ridge.predict_lgd(validation).to_numpy()
+    by_hand = float(np.mean(validation[LGD].to_numpy()) - np.mean(before))
+    assert corrected.shift == pytest.approx(by_hand)
+    assert by_hand > 0.05
+    # Only validation sets it: other validation labels change it; the training labels never
+    # enter, since the correction receives only the fitted model and validation.
+    moved = validation.with_columns(pl.col(LGD) + 0.05)
+    assert fit_level(ridge, moved).shift == pytest.approx(by_hand + 0.05)
+    assert fit_level(ridge, validation).shift == corrected.shift
+    after = corrected.predict_lgd(validation).to_numpy()
+    # One number: the order of the predictions is unchanged, and they stay in [0, 1].
+    assert np.array_equal(np.argsort(before, kind="stable"), np.argsort(after, kind="stable"))
+    assert np.all((after >= 0) & (after <= 1))
+    # Every model gets its own correction, the baseline included.
+    training = train_lgd(frame, CUTOFF, (36,), trials=3)
+    shifts = {m.name: m.shift for m in (training.ridge, training.lightgbm, training.baseline)}
+    assert all(s != 0.0 for s in shifts.values()), shifts
+    assert len(set(shifts.values())) == 3, shifts

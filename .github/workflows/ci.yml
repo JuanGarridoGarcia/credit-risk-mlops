@@ -84,7 +84,8 @@ jobs:
     # The ruleset on main requires this job by its name: rename both or neither (E-025).
     name: integration (image + Postgres)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # Training and promotion tests (F3) added a few minutes.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -94,15 +95,25 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Build the application image
+      # The two application images of D-078. Compose runs the MLflow server from train.
+      - name: Build the serve image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          target: runtime
-          tags: credit-risk:dev
+          target: serve
+          tags: credit-risk:serve
           load: true
-          cache-from: type=gha,scope=runtime
-          cache-to: type=gha,scope=runtime,mode=max
+          cache-from: type=gha,scope=serve
+          cache-to: type=gha,scope=serve,mode=max
+      - name: Build the train image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: train
+          tags: credit-risk:train
+          load: true
+          cache-from: type=gha,scope=train
+          cache-to: type=gha,scope=train,mode=max
       - name: Build the test image (package installed as in production)
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:

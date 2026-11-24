@@ -30,10 +30,10 @@ Status of every step of the playbook. Updated in every pull request.
 | | 2.2 Data validation | Done | #5 | D-053 to D-057; E-020, E-021; rules in validation_rules.md; tests in tests.md |
 | | 2.3 Data versioning | Done | #5 | D-058 to D-061; E-022 |
 | | 2.4 Features | Done | #5 | D-062, D-063; cross-cutting: coverage minimum D-064, audit notebook in CI D-065 |
-| F3 Model | 3.1 Baseline | In progress | | Designed: D-067, D-069, D-070. Split per term (D-069) implemented in the data PR |
-| | 3.2 Tracking and experiments | Designed | | D-068, D-071 to D-079, D-087, D-088 (LGD label implemented in the data PR) |
-| | 3.3 Model tests and promotion rules | Designed | | D-080, D-081, D-086 |
-| | 3.4 Model registry | Designed | | D-082 |
+| F3 Model | 3.1 Baseline | Done | #7, PR 2 | D-067, D-069, D-070, D-090. Split per term (D-069) in the data PR; grade-only baselines for PD and LGD in PR 2 |
+| | 3.2 Tracking and experiments | Done | #7, PR 2 | D-068, D-071 to D-079, D-087, D-088, D-091, D-092, D-094; E-027 to E-036 |
+| | 3.3 Model tests and promotion rules | Done | PR 2 | D-080, D-081, D-086, D-093 |
+| | 3.4 Model registry | Done | PR 2 | D-082, D-090 |
 | | 3.5 Explainability and model card | Designed | | D-083; buy rule and budget D-084, D-085 |
 | F4 Automation | 4.1 Orchestrated training flow | Pending | | |
 | | 4.2 Batch prediction flow | Pending | | Replaced by the replayer calling the API (D-008) |
@@ -481,7 +481,7 @@ Every decision of F3 was explained to Juan and taken by him one at a time (2026-
 | Model tests | Monotone constraints and signs (D-080); key segments (D-081); behavioural battery (D-086) |
 | Promotion | Automatic when every rule passes, with evidence, alert and tested rollback (D-082) |
 | Explanations | Four main reasons in the API; full SHAP vector stored (D-083) |
-| LGD | Linear and LightGBM against the mean by grade, same machinery (D-087); label computed in the snapshot (D-088) |
+| LGD | Linear and LightGBM against the mean by grade, same machinery (D-087); label computed in the snapshot (D-088); level corrected on validation (D-094) |
 | Buy rule | Expected return above a minimum chosen on validation; 25 dollar notes, monthly cap of 10% of last month's listings (D-084, D-085) |
 
 ### First pull request: data
@@ -490,7 +490,7 @@ The two changes to the training set that training depends on, in `sql/training_i
 
 ### Second pull request: training
 
-Tests approved by Juan before any code is written. They enter `docs/tests.md` with their code, because B6 fails on a catalogue row whose function does not exist yet; until then this list is the record of what was approved.
+Tests approved by Juan before any code was written (2026-11-24). They are now catalogued, with their functions, in [tests.md](tests.md); the tables below are the wording he approved.
 
 **T7 Training** (approved 2026-11-24)
 
@@ -559,3 +559,76 @@ Tests approved by Juan before any code is written. They enter `docs/tests.md` wi
 | T12.4 | The level by segment rules: a candidate with a good RMSE but a clearly wrong mean LGD in one grade fails the segment rule of D-081 |
 | T12.5 | Always between 0 and 1: extreme inputs give a prediction in [0, 1] (the label can fall outside, as the -0.6 of T5.15, and the linear regression extrapolates) |
 | T12.6 | Data test at T0: trained on the 992 training rows and validated on the 344; logs the RMSE, the interval against the baseline and the champion; fixes no winner, but the mean predicted LGD in validation lies inside the interval of the observed mean |
+| T12.6 (changed 2026-11-24, D-094) | Data test at T0: as above, with the level corrected on validation; logs the shift of each model and the gap before the correction; the champion's mean predicted LGD in validation is within 0.005 of the observed mean, and no shift exceeds 0.10 |
+| T12.7 (added 2026-11-24, D-094) | The level correction on made-up data whose validation LGD is 0.10 above training: shift by hand, set by validation only, order unchanged, predictions in [0, 1], one shift per model, the baseline included |
+
+#### How training works
+
+```
+training set version (features.parquet, T)
+   |
+   |  prepare_frame: the 30 fixed features + issue_d, label, lgd, split
+   v
+train_pd ------------------------------------------- train_lgd (defaults with lgd only)
+   inner split of training (D-073)                      ridge over 20 alphas, LightGBM 50 trials
+   logistic: 20 values of C, signs checked (D-092)      baseline: mean LGD by grade
+   LightGBM: 50 Optuna trials, monotone (D-080)         level corrected on validation (D-094)
+   Platt scaling on validation (D-076)                  chosen by RMSE with the paired bootstrap
+   chosen: LightGBM only if clearly better (D-068)
+   |                                                    |
+   v                                                    v
+log_run: one MLflow run per model, refused without commit, snapshot, seed,
+         library versions or metric intervals (D-079)
+   |
+   v
+register the chosen model as a new version of "pd" / "lgd"
+   |
+   v
+promote: noise, segments (with margins, D-093), signs, battery (PD only)
+   pass -> alias "champion" moves, WARNING alert, previous champion written on the version
+   fail -> the champion stays; the reasons and the evidence stay in the run
+```
+
+| Module | Role |
+|---|---|
+| `model.py` | Learned preparation (`Prepare`), the PD and LGD model classes, coverage rule (D-070), signs and constraints (D-080) |
+| `train.py` | The PD procedure: inner split, searches, Platt scaling, choice |
+| `lgd.py` | The LGD procedure on the same machinery |
+| `compare.py` | Metrics, paired bootstrap (D-075), segments and their margins (D-081, D-093) |
+| `battery.py` | The behavioural battery (D-086) |
+| `tracking.py` | Run records and their check (D-079); the MLflow server of compose |
+| `registry.py` | Storing, registering, promotion, alert and rollback (D-082, D-090) |
+| `pipeline.py` | `make train T=YYYY-MM`: the newest training set version at T, both targets, register and promote |
+
+| Command | What it does |
+|---|---|
+| `make train T=2014-01` | Trains the PD and the LGD on the newest training set version at T, logs every model in MLflow, registers the chosen ones and tries to promote them |
+| `make rollback MODEL=pd` | Puts back the champion before the current one (D-090); fails clearly if there is none |
+| `python -m credit_risk.registry champion pd` | Prints the version of the current champion |
+
+**MLflow** (D-079, D-091). The server runs in compose from our own `train` image (`python -m credit_risk.tracking server`), with its metadata in a database `mlflow` of our Postgres (created on start if missing) and its artefacts in the named volume `mlartifacts`, served through the server (`--serve-artifacts`), so a client never needs the volume. UI at http://localhost:5000. A model is stored as `model/model.joblib` in the artefacts of its run and registered under `pd` or `lgd`; the alias `champion` names the model in use. Each promoted version carries the tags `previous_champion` and `promoted_at`; each decision writes on the challenger's run the tags `promotion.outcome`, `promotion.reasons` and `rule.<rule>`, the metrics `promotion.*`, and the artefact `promotion/evidence.json` (the 1,000 bootstrap differences, the segment table, the battery report).
+
+**Images** (D-078). Built by `make build` from one Dockerfile:
+
+| Image | Target | Content | Size (sum of layers, 2026-11-24) | Budget |
+|---|---|---|---|---|
+| `credit-risk:serve` | `serve` | The package with the main dependencies: polars, scikit-learn, LightGBM, mlflow-skinny | 752 MB | 800 MB |
+| `credit-risk:train` | `train` | The same plus the group `train`: full MLflow (server), Optuna, SHAP | 1,229 MB | 1,500 MB |
+
+Both share the `runtime` base, which adds the OpenMP runtime LightGBM needs (`libgomp1`, E-027). B7 checks that nothing of training reaches `serve`; B8 trains a model in `train`, registers it in MLflow and loads it in `serve` with the same predictions.
+
+**Measured at T0 = 2014-01** (real data, first training set version; 36-month loans only):
+
+| | Value |
+|---|---|
+| Training / validation | 7,733 loans (1,019 defaults) / 4,324 loans (429 defaults) |
+| PD, validation AUC | logistic regression 0.677, LightGBM 0.680, baseline (grade) 0.636 |
+| PD, LightGBM against logistic | AUC difference interval [-0.013, +0.020]: touches zero, so the logistic regression is chosen (D-068) |
+| PD, AUC interval width | about ±0.014, as estimated when the 200-default minimum was fixed (D-070) |
+| PD, logistic regression signs | `pub_rec` and credit history came out with the wrong sign and were removed (D-092) |
+| PD, promotion | The logistic regression beats the baseline on every rule and becomes the first champion (D-090, D-093) |
+| LGD, level before the correction | every model about 5 points too low: mean predicted 0.592 against 0.642 observed, interval [0.620, 0.664]; the LGD rises with the listing year, 0.50 (2007) to 0.64 (2010) |
+| LGD, level correction (D-094) | ridge +0.050, LightGBM +0.054, baseline +0.050 |
+| LGD, validation RMSE | before the correction: ridge 0.2216, LightGBM 0.2241, baseline 0.2214; after: 0.2157, 0.2176, 0.2156 |
+| LGD, promotion | No candidate beats the baseline: the mean LGD by grade is the champion (D-087) |
+| Whole retrain (both targets, every search, MLflow) | about 40 seconds |

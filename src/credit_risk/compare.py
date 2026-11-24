@@ -148,7 +148,10 @@ def interval(
         values[i] = score(y[idx], p[idx])
     tail = (1 - LEVEL) / 2 * 100
     low, high = np.nanpercentile(values, [tail, 100 - tail])
-    return score(y, p), float(low), float(high)
+    value = score(y, p)
+    # A metric bounded at zero (the calibration error) can sit below every resample when
+    # it is close to zero; the interval is widened to hold the value itself (E-036).
+    return value, float(min(low, value)), float(max(high, value))
 
 
 # ---------------------------------------------------------------- segments (D-081)

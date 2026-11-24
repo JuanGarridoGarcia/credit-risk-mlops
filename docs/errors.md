@@ -36,6 +36,14 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-026](#e-026) | 2026-11-23 | 2.4 | Notebooks check failed on a Dependabot PR: the Kaggle secret was empty | Minor |
 | [E-027](#e-027) | 2026-11-24 | 3.2 | apt could not install `libgomp1` in the image build on Claude's cloud machine | Minor |
 | [E-028](#e-028) | 2026-11-24 | 3.2 | The image size measured by B5 depends on how Docker stores images | Moderate |
+| [E-029](#e-029) | 2026-11-24 | 3.2 | The probability overflowed for an extreme input | Minor |
+| [E-030](#e-030) | 2026-11-24 | 3.2 | The bootstrap of the LGD gave intervals of zero width | Moderate |
+| [E-031](#e-031) | 2026-11-24 | 3.2 | The logistic regression gave wrong signs on the real data | Moderate |
+| [E-032](#e-032) | 2026-11-24 | 3.3 | The segment rule blocked a promotion over a tiny calibration difference | Moderate |
+| [E-033](#e-033) | 2026-11-24 | 3.4 | A registry test failed for the wrong reason | Minor |
+| [E-034](#e-034) | 2026-11-24 | 3.2 | `make lint` failed: the lock file was out of step | Minor |
+| [E-035](#e-035) | 2026-11-24 | 3.2 | The unit tests failed inside the test image: LightGBM could not load | Minor |
+| [E-036](#e-036) | 2026-11-24 | 3.2 | A logged LGD metric fell outside its own interval | Minor |
 
 ## Errors
 
@@ -315,3 +323,74 @@ Date: 2026-11-24 · Step: 3.2 · Severity: moderate
 - **Fix**: B5 now measures the unpacked size as the sum of the image's layers (`docker history`), the same on every machine (change approved by Juan on 2026-11-24). Measured that way: `serve` 752 MB, `train` 1,229 MB, the F2 image 356 MB.
 - **Prevention**: B5 states which size it measures and why.
 
+### E-029 The probability overflowed for an extreme input
+
+Date: 2026-11-24 · Step: 3.2 · Severity: minor
+
+- **Symptom**: T7.2 failed while it was being written: a row with extreme values (an interest rate of 500%) gave a NumPy overflow warning, which the test settings turn into an error.
+- **Cause**: the logistic function was written as `1 / (1 + exp(-x))`; for a very negative `x`, `exp(-x)` overflows.
+- **Fix**: `scipy.special.expit`, which computes the same function without overflow.
+- **Prevention**: T7.2 keeps the extreme row; warnings stay errors in the test settings.
+
+### E-030 The bootstrap of the LGD gave intervals of zero width
+
+Date: 2026-11-24 · Step: 3.2 · Severity: moderate
+
+- **Symptom**: comparing two LGD models gave intervals with the low and high ends equal, so any difference, however small, looked certain.
+- **Cause**: the paired bootstrap stratifies by the label, so each resample keeps the number of defaults (D-075). The LGD label is continuous: every value was its own stratum, so every resample was the original sample.
+- **Fix**: the resample is stratified only when the label is 0 or 1; the LGD is drawn plainly.
+- **Prevention**: T12.3 checks that the baseline wins on pure noise, which fails if the intervals collapse.
+
+### E-031 The logistic regression gave wrong signs on the real data
+
+Date: 2026-11-24 · Step: 3.2 · Severity: moderate
+
+- **Symptom**: at T0 the coefficients of `pub_rec` and of the credit history had the opposite sign to D-080, so the signs rule would block every promotion.
+- **Cause**: most likely overlap with other features (the grade, FICO, the number of accounts) and little own signal on 7,733 loans, so their coefficients fall on either side of zero depending on the sample.
+- **Fix**: D-092, chosen by Juan: the feature with the worst wrong sign is removed and the model refitted, until every sign holds. At T0 both features were removed.
+- **Prevention**: the removed features are logged in the run; T9.4 keeps checking the signs.
+
+### E-032 The segment rule blocked a promotion over a tiny calibration difference
+
+Date: 2026-11-24 · Step: 3.3 · Severity: moderate
+
+- **Symptom**: the logistic regression beat the baseline clearly overall, yet was rejected because one quarter's calibration error was worse by less than one point, with an interval entirely below zero.
+- **Cause**: with enough loans, a paired bootstrap finds even a negligible difference "clear". The rule of D-081 had no notion of a difference too small to matter.
+- **Fix**: D-093, chosen by Juan: a segment blocks only if it is clearly worse by more than a margin (PD: 0.01 of AUC and of calibration error; LGD: 0.02 of calibration error).
+- **Prevention**: T9.3 has a case clearly worse but within the margin, which passes.
+
+### E-033 A registry test failed for the wrong reason
+
+Date: 2026-11-24 · Step: 3.4 · Severity: minor
+
+- **Symptom**: in T11.1, the challenger built to fail only the segment rule also failed the noise rule.
+- **Cause**: on 6,000 made-up loans (about 290 defaults in validation) even the sound logistic regression did not beat the grade baseline by more than the noise, so no challenger could fail exactly one rule.
+- **Fix**: the registry tests use 20,000 made-up loans (about 970 defaults in validation). Each challenger now fails exactly its rule. What the tests check is unchanged.
+- **Prevention**: the fixture says why it needs that size.
+
+### E-034 `make lint` failed: the lock file was out of step
+
+Date: 2026-11-24 · Step: 3.2 · Severity: minor
+
+- **Symptom**: `uv lock --check` failed although no dependency had changed.
+- **Cause**: `default-groups = ["dev", "train"]` was added to `pyproject.toml` and the lock was not regenerated; uv records the default groups in the lock.
+- **Fix**: `uv lock`, which only added that line.
+- **Prevention**: `make lint` (and CI) runs `uv lock --check`, which caught it.
+
+### E-035 The unit tests failed inside the test image: LightGBM could not load
+
+Date: 2026-11-24 · Step: 3.2 · Severity: minor
+
+- **Symptom**: `make test-image` failed while collecting the training tests: `OSError: libgomp.so.1: cannot open shared object file`.
+- **Cause**: the `test` stage was built on the builder, which has the Python packages but not the OpenMP runtime; only the `runtime` base installs `libgomp1` (E-027).
+- **Fix**: the dependencies of the test image are installed in a `builder-test` stage and copied onto the `runtime` base, so the tests run with the same system libraries as the shipped images.
+- **Prevention**: `make test-image` (also in CI) runs every unit test, LightGBM included, inside that image.
+
+### E-036 A logged LGD metric fell outside its own interval
+
+Date: 2026-11-24 · Step: 3.2 · Severity: minor
+
+- **Symptom**: after D-094, T8.3 failed: an LGD run logged a calibration error of 0.0000 with an interval of [0.0003, ...], so the value was below its own interval.
+- **Cause**: two things. The level correction is fitted on validation, so the calibration error of the corrected model on validation is zero by construction and says nothing. And the calibration error is an absolute value, bounded at zero: when it is near zero, every bootstrap resample is above it, so a percentile interval can leave it out.
+- **Fix**: the calibration error of each LGD run is now cross-fitted, as D-076 does for the PD's Platt scaling: the correction is fitted on four fifths of validation and judged on the other fifth, five times. And `interval` widens the interval to hold the value when a metric bounded at zero sits below every resample.
+- **Prevention**: T8.3 keeps checking that every logged value lies inside its interval.

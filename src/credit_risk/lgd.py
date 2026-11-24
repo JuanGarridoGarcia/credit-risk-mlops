@@ -8,6 +8,7 @@ the noise (D-068, D-075); the chosen one must still beat the mean LGD by grade (
 the baseline, to become champion (D-090). Predictions are clipped to [0, 1].
 """
 
+import dataclasses
 import logging
 from dataclasses import dataclass, field
 from datetime import date
@@ -61,6 +62,19 @@ def fit_baseline(train: pl.DataFrame, terms: tuple[int, ...]) -> LGDModel:
         grade_means={str(g): float(m) for g, m in means},
         overall_mean=float(train[LGD].mean() or 0.0),  # type: ignore[arg-type]
     )
+
+
+def fit_level(model: LGDModel, validation: pl.DataFrame) -> LGDModel:
+    """D-094: the same model with its level moved to the mean LGD observed in validation.
+
+    The LGD rises from one listing year to the next, so a model fitted on every year of
+    training lags the most recent ones. Like Platt scaling for the PD (D-076), the
+    correction is fitted on validation, the most recent period, and is one number: the
+    observed mean minus the mean predicted. Ranking within the period is unchanged.
+    """
+    uncorrected = dataclasses.replace(model, shift=0.0)
+    gap = float(np.mean(_y(validation)) - np.mean(uncorrected.predict_lgd(validation).to_numpy()))
+    return dataclasses.replace(model, shift=gap)
 
 
 def fit_ridge(train: pl.DataFrame, alpha: float, terms: tuple[int, ...]) -> LGDModel:
@@ -197,6 +211,14 @@ def train_lgd(
     lightgbm = fit_lightgbm(train, lgbm_params, seed, n_estimators, terms)
     baseline = fit_baseline(train, terms)
     covered = validation.filter(pl.col("term").is_in(list(terms)))
+    # The level of every model, the baseline included, is set on validation (D-094).
+    ridge, lightgbm, baseline = (fit_level(m, covered) for m in (ridge, lightgbm, baseline))
+    log.info(
+        "LGD level shifts fitted on validation: ridge %.4f, lightgbm %.4f, baseline %.4f",
+        ridge.shift,
+        lightgbm.shift,
+        baseline.shift,
+    )
     y = _y(covered)
     comparison = paired_bootstrap(
         y,

@@ -236,7 +236,8 @@ def feature_frame(rows: Sequence[dict[str, object]]) -> pl.DataFrame:
 @dataclass
 class LGDModel:
     """A fitted LGD model (D-087): a regression on the prepared features, or, for the
-    baseline (D-005), the mean LGD of each grade in training. Predictions are clipped to
+    baseline (D-005), the mean LGD of each grade in training. ``shift`` is the level
+    correction fitted on validation (D-094), added before predictions are clipped to
     [0, 1]; a term the PD does not cover gets nothing (D-070)."""
 
     name: str
@@ -246,6 +247,7 @@ class LGDModel:
     grade_means: dict[str, float] = field(default_factory=dict)
     overall_mean: float = 0.0
     params: dict[str, Any] = field(default_factory=dict)
+    shift: float = 0.0
 
     def predict_lgd(self, features: pl.DataFrame) -> pl.Series:
         """LGD of every row, in [0, 1]; null for a term not covered."""
@@ -259,5 +261,5 @@ class LGDModel:
         else:
             raw = np.empty(0)
         covered = np.asarray(features["term"].is_in(list(self.covered_terms)).fill_null(False))
-        values = np.where(covered, np.clip(raw, 0.0, 1.0), math.nan)
+        values = np.where(covered, np.clip(raw + self.shift, 0.0, 1.0), math.nan)
         return pl.Series("lgd", values, dtype=pl.Float64).fill_nan(None)

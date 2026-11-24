@@ -101,6 +101,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-091](#d-091) | 2026-11-24 | 3.2 | The MLflow server of docker compose runs from our `train` image | Active |
 | [D-092](#d-092) | 2026-11-24 | 3.2 | The logistic regression keeps the signs of D-080 by removing a wrong-signed feature and refitting | Active |
 | [D-093](#d-093) | 2026-11-24 | 3.3 | A key segment blocks a promotion only if it is clearly worse by more than a margin | Active |
+| [D-094](#d-094) | 2026-11-24 | 3.2 | The level of every LGD model is corrected on validation, like Platt scaling for the PD | Active |
 
 ## Decisions
 
@@ -1082,3 +1083,12 @@ Date: 2026-11-24 · Step: 3.3 (amends D-081) · Status: Active
 - **Why**: it separates what is statistically clear from what matters, which is how tolerances are set in model validation at banks. A real worsening still blocks.
 - **Consequences**: with the margins the logistic regression is promoted at T0. Test T9.3 checks the rule with a model clearly worse in grade A (blocked), a tie (passes) and a model clearly worse but within the margin (passes).
 
+### D-094 The level of every LGD model is corrected on validation, like Platt scaling for the PD
+
+Date: 2026-11-24 · Step: 3.2 (amends D-087) · Status: Active
+
+- **Context**: in the data test T12.6 at T0 (2026-11-24) the LGD champion, the mean by grade, predicted a mean LGD of 0.592 in validation against 0.642 observed (95% interval [0.620, 0.664]). Ridge and LightGBM were just as low. The LGD rises with the listing year: 0.50 for 2007 loans, 0.57 for 2008, 0.60 for 2009, 0.62 for 2010 in training and 0.64 for 2010 in validation. A model fitted on every year of training averages them and lags the latest ones. Underestimating the loss inflates the expected return of every loan, so the buy rule of D-084 would take more risk than it believes. RMSE does not show it: every model lags by the same amount.
+- **Decision**: after fitting on training, every LGD model, the baseline included, gets a level correction fitted on validation: one number, the observed mean LGD minus the mean predicted, added before clipping to [0, 1]. Candidates are compared, and the champion chosen, with their corrected predictions. The correction is logged as the tag `level_shift` of each run. The calibration error logged for each LGD run is cross-fitted within validation (five folds), as D-076 does for the PD, because on validation the corrected level is right by construction (E-036).
+- **Alternatives considered**: (B) give more weight to recent years in training: reduces the lag but does not remove it, and adds a weight to choose; (C) leave the model as it is, record the failing check as expected and let the monitoring of F6 watch the level.
+- **Why**: it is the same logic Juan chose for the PD (D-076): the shape is learned on training and the level is set on the most recent period with known outcomes. One number keeps it simple and cannot change the order of predictions.
+- **Consequences**: at T0 the shifts are +0.050 (ridge), +0.054 (LightGBM) and +0.050 (baseline); validation RMSE goes from 0.221 to 0.216 for each; no candidate beats the baseline, which stays champion. On validation the mean predicted equals the observed mean by construction, so it can no longer be a check of the level: T12.6 changes, with Juan's approval. With a rising trend the model can still lag by the change between the validation window and the time it is used; the monitoring of F6 compares the predicted and observed LGD of each new group of resolved defaults.

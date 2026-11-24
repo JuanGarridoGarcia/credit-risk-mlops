@@ -52,25 +52,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     if [ -f /run/secrets/extra_ca ]; then export SSL_CERT_FILE=/run/secrets/extra_ca; fi; \
     uv sync --frozen --no-default-groups --group train --no-editable
 
-# ---------------------------------------------------------------- test
-# Unit tests against the project installed as a regular package, not the editable
-# install used for development (decision A3): catches files missing from the package.
-# Built only on demand (`make test-image`, CI); never shipped.
-FROM builder-train AS test
+# ---------------------------------------------------------------- builder (test)
+FROM builder-train AS builder-test
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=secret,id=extra_ca \
     if [ -f /run/secrets/extra_ca ]; then export SSL_CERT_FILE=/run/secrets/extra_ca; fi; \
     uv sync --frozen --no-editable --no-default-groups --group train --group dev
-
-COPY tests ./tests
-COPY reports/data_audit/data_dictionary.csv ./reports/data_audit/data_dictionary.csv
-COPY docs/validation_rules.md docs/tests.md ./docs/
-ENV PATH="/opt/venv/bin:${PATH}" \
-    MPLCONFIGDIR=/tmp/matplotlib
-RUN rm -rf /app/src
-USER nobody
-CMD ["pytest", "tests/unit", "-p", "no:cacheprovider"]
 
 # ---------------------------------------------------------------- runtime base
 FROM ${PYTHON_IMAGE} AS runtime
@@ -106,6 +94,21 @@ ENV PATH="/opt/venv/bin:${PATH}" \
 WORKDIR /app
 USER app
 CMD ["credit-risk"]
+
+# ---------------------------------------------------------------- test
+# Unit tests against the project installed as a regular package, not the editable
+# install used for development (decision A3): catches files missing from the package.
+# Built on the runtime base, so the tests see the system libraries of the shipped images
+# (LightGBM needs libgomp1). Built only on demand (`make test-image`, CI); never shipped.
+FROM runtime AS test
+COPY --from=builder-test /opt/venv /opt/venv
+COPY pyproject.toml ./
+COPY tests ./tests
+COPY reports/data_audit/data_dictionary.csv ./reports/data_audit/data_dictionary.csv
+COPY docs/validation_rules.md docs/tests.md ./docs/
+ENV MPLCONFIGDIR=/tmp/matplotlib
+USER nobody
+CMD ["pytest", "tests/unit", "-p", "no:cacheprovider"]
 
 # ---------------------------------------------------------------- train
 FROM runtime AS train

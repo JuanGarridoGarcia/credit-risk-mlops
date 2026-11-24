@@ -14,17 +14,23 @@ Every test of the project, what it checks, where it lives and where it runs. Jua
 - [T4 Validation](#t4-validation)
 - [T5 Training set versions](#t5-training-set-versions)
 - [T6 Features](#t6-features)
+- [T7 Training](#t7-training)
+- [T8 Tracking](#t8-tracking)
+- [T9 Model comparison](#t9-model-comparison)
+- [T10 Behaviour](#t10-behaviour)
+- [T11 Registry](#t11-registry)
+- [T12 LGD](#t12-lgd)
 - [Change history](#change-history)
 
 ## How tests are organised
 
-Tests are grouped by the piece they check. Group B holds the foundations of F1 (package, settings, Postgres, image); each group T*n* belongs to a step of F2. Every test has an ID; a test can be one or more pytest functions.
+Tests are grouped by the piece they check. Group B holds the foundations (package, settings, Postgres, images); groups T1 to T6 belong to the steps of F2 and T7 to T12 to the training of F3. Every test has an ID; a test can be one or more pytest functions.
 
 | Kind | Folder | pytest marker | Needs | Command | Runs in |
 |---|---|---|---|---|---|
 | Unit | `tests/unit/` | none | Nothing | `make test`, `make test-image` | CI (job `tests`), and inside the image (job `integration`) |
-| Integration | `tests/integration/` | `integration` (`destructive` for B4) | Docker: compose Postgres or the built image | `make test-integration` | CI (job `integration`) |
-| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15, T5.13, T5.14, T6.8) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
+| Integration | `tests/integration/` | `integration` (`destructive` for B4 and T8.2) | Docker: compose Postgres and MLflow, or the built images | `make test-integration` | CI (job `integration`) |
+| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15, T5.13, T5.14, T6.8, T10.6, T12.6) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
 
 Integration and data tests never skip: if what they need is missing, they fail.
 
@@ -41,18 +47,24 @@ Changing what an approved test checks needs Juan's approval again. B6 fails if a
 
 | Group | Phase and step | Tests | Approved by Juan | Where they are described |
 |---|---|---|---|---|
-| B Foundations | F1, steps 1.1 and 1.2 | 6 | 2026-11-22 (B1 to B5), 2026-11-23 (B6) | [technical.md, F1](technical.md#3-f1-foundations) |
+| B Foundations | F1, steps 1.1 and 1.2; F3 (B5 changed, B7, B8) | 8 | 2026-11-22 (B1 to B5), 2026-11-23 (B6), 2026-11-24 (B5 changed, B7, B8) | [technical.md, F1](technical.md#3-f1-foundations) |
 | T1 Simulator | F2, step 2.1 | 12 | 2026-11-23 | [technical.md, step 2.1](technical.md#step-21-idempotent-ingestion) |
 | T2 Cleaning | F2, step 2.1 | 11 | 2026-11-23 | [technical.md, step 2.1](technical.md#step-21-idempotent-ingestion) |
 | T3 Loading | F2, step 2.1 | 15 | 2026-11-23 (T3.14 and T3.15 on approval in step 2.2) | [technical.md, step 2.1](technical.md#step-21-idempotent-ingestion) |
 | T4 Validation | F2, step 2.2 | 16 | 2026-11-23 | [validation_rules.md](validation_rules.md), [technical.md, step 2.2](technical.md#step-22-data-validation) |
 | T5 Training set versions | F2, step 2.3; F3 (D-069, D-088) | 15 | 2026-11-23; 2026-11-24 (T5.4, T5.5, T5.12, T5.13 changed, T5.15 added) | [technical.md, step 2.3](technical.md#step-23-data-versioning) |
 | T6 Features | F2, step 2.4 | 8 | 2026-11-23 | [technical.md, step 2.4](technical.md#step-24-features) |
-| **Total** | | **83** | | |
+| T7 Training | F3, second pull request | 5 | 2026-11-24 | [technical.md, F3](technical.md#second-pull-request-training) |
+| T8 Tracking | F3, second pull request | 4 | 2026-11-24 | [technical.md, F3](technical.md#second-pull-request-training) |
+| T9 Model comparison | F3, second pull request | 4 | 2026-11-24 (T9.3 margin case added the same day) | [technical.md, F3](technical.md#second-pull-request-training) |
+| T10 Behaviour | F3, second pull request | 6 | 2026-11-24 | [technical.md, F3](technical.md#second-pull-request-training) |
+| T11 Registry | F3, second pull request | 5 | 2026-11-24 | [technical.md, F3](technical.md#second-pull-request-training) |
+| T12 LGD | F3, second pull request | 7 | 2026-11-24 (T12.6 changed and T12.7 added the same day, D-094) | [technical.md, F3](technical.md#second-pull-request-training) |
+| **Total** | | **116** | | |
 
 ## B Foundations
 
-F1, steps 1.1 and 1.2.
+F1, steps 1.1 and 1.2; B7 and B8 come with the two images of F3 (D-078).
 
 | ID | What it checks | Functions | Kind | Runs in |
 |---|---|---|---|---|
@@ -62,6 +74,8 @@ F1, steps 1.1 and 1.2.
 | B4 | A random value in a table with a random name survives `docker compose down` + `up` (a new container); the table is dropped afterwards. Marked `destructive`: runs last and alone | `tests/integration/test_persistence.py::test_postgres_data_survives_container_recreation` | Integration | CI |
 | B5 | Each image (`serve`, `train`) runs as non-root, has no `.env*` file, no secret in its configuration or build history, prints the right version, and stays within its budget: `serve` 800 MB, `train` 1.5 GB, measured as the sum of its layers (D-078, E-028) | `tests/integration/test_image.py::test_image_runs_as_non_root`<br>`tests/integration/test_image.py::test_image_has_no_env_file`<br>`tests/integration/test_image.py::test_image_has_no_secrets_in_config`<br>`tests/integration/test_image.py::test_image_default_command_works`<br>`tests/integration/test_image.py::test_image_size_within_budget` | Integration | CI |
 | B6 | Every test marker in `tests/` is in this catalogue and the other way round, in the same file; every function named here exists; every test function in `tests/` is named here | `tests/unit/test_catalogue.py::test_markers_and_catalogue_agree` | Unit | CI, image |
+| B7 | `serve` carries nothing of training: importing Optuna, SHAP or the full MLflow server fails inside it | `tests/integration/test_image.py::test_serve_carries_nothing_of_training` | Integration | CI |
+| B8 | A small model trained in `train`, saved and loaded in `serve` gives identical predictions | `tests/integration/test_image.py::test_a_model_trained_in_train_predicts_the_same_in_serve` | Integration | CI |
 
 ## T1 Simulator
 
@@ -182,6 +196,79 @@ F2, step 2.4.
 | T6.7 | The fixed layer fills no gap: each feature is missing exactly where one of its sources is (D-062) | `tests/unit/test_features.py::test_missing_values_stay_missing` | Unit | CI, image |
 | T6.8 | Real data: the features of the version at 2018-12 (522,904 loans) compute with no error and every value is within its range | `tests/data/test_features_data.py::test_the_features_of_the_largest_version_are_in_range` | Data | Local |
 
+## T7 Training
+
+F3, second pull request (D-062, D-070, D-073, D-074).
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T7.1 | Learned preparation sees training only (D-062): the fill value of `dti` and the known categories of `purpose` equal what is computed by hand on training; extreme values in validation change nothing | `tests/unit/test_model.py::test_learned_preparation_sees_training_only` | Unit | CI, image |
+| T7.2 | An odd row does not break prediction: an unseen category, every field empty and extreme values give a finite probability between 0 and 1, for both candidates | `tests/unit/test_model.py::test_an_odd_row_still_gets_a_probability` | Unit | CI, image |
+| T7.3 | The inner split for tuning (D-073) is the last 6 matured months of each term inside training, edges tested as in T5.4; the search never receives a validation id (every id used to fit or score a trial is recorded and checked) | `tests/unit/test_train.py::test_the_inner_split_is_the_last_six_training_months_of_each_term`<br>`tests/unit/test_train.py::test_the_search_never_sees_a_validation_loan` | Unit | CI, image |
+| T7.4 | Same seed, same result (D-074): two trainings give the same hyperparameters and predictions; the budget is counted, 50 trials for LightGBM and 20 values of `C` for the logistic regression | `tests/unit/test_train.py::test_the_same_seed_gives_the_same_model` | Unit | CI, image |
+| T7.5 | Coverage rule (D-070): 200 defaults in training and 200 in validation is covered; 199 in either is not; a loan of an uncovered term gets "not covered", never a PD | `tests/unit/test_model.py::test_a_term_needs_200_defaults_in_training_and_in_validation`<br>`tests/unit/test_model.py::test_an_uncovered_term_gets_no_pd` | Unit | CI, image |
+
+## T8 Tracking
+
+F3, second pull request (D-079). T8.2 recreates the MLflow container and is marked `destructive`, like B4.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T8.1 | The MLflow server starts in compose and answers; its metadata are in the `mlflow` database of our Postgres, not in a file inside the container | `tests/integration/test_tracking.py::test_the_server_answers_and_keeps_its_metadata_in_postgres` | Integration | CI |
+| T8.2 | A run with a small artefact survives recreating the MLflow container. Marked `destructive`, like B4 | `tests/integration/test_persistence.py::test_mlflow_runs_and_artefacts_survive_container_recreation` | Integration | CI |
+| T8.3 | No run without its required fields: one function logs every run and refuses, naming the field, if the commit, snapshot hash, seed, library versions or metrics with intervals are missing (one case per field); a small real training read back from the server carries all of them | `tests/integration/test_tracking.py::test_every_run_of_a_real_training_carries_the_required_fields`<br>`tests/unit/test_tracking.py::test_a_complete_record_passes`<br>`tests/unit/test_tracking.py::test_a_missing_field_is_refused_by_name`<br>`tests/unit/test_tracking.py::test_log_run_checks_before_writing_anything` | Unit and integration | CI, image |
+| T8.4 | The model is rebuilt from what a run records (snapshot version, seed, hyperparameters) and gives the same predictions as the stored model | `tests/integration/test_tracking.py::test_the_model_is_rebuilt_from_what_its_run_recorded` | Integration | CI |
+
+## T9 Model comparison
+
+F3, second pull request (D-068, D-075, D-080, D-081, D-093).
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T9.1 | The paired bootstrap (D-075) on cases with a known answer: a clearly better model wins, an identical one does not (difference zero in every resample), a clearly worse one loses; every resample keeps the number of defaults; same seed, same interval; the sign is reversed for a metric where lower is better (Brier) | `tests/unit/test_compare.py::test_a_clearly_better_model_wins_and_a_worse_one_loses`<br>`tests/unit/test_compare.py::test_identical_models_never_win`<br>`tests/unit/test_compare.py::test_every_resample_keeps_the_number_of_defaults`<br>`tests/unit/test_compare.py::test_the_same_seed_gives_the_same_interval`<br>`tests/unit/test_compare.py::test_lower_is_better_for_the_brier_score` | Unit | CI, image |
+| T9.2 | The choice rule (D-068): LightGBM is chosen only if its interval against the logistic regression lies entirely above zero; if it touches zero the logistic regression wins, even with a higher mean AUC | `tests/unit/test_compare.py::test_lightgbm_needs_its_interval_above_zero_to_be_chosen` | Unit | CI, image |
+| T9.3 | The segments (D-081): F and G merged, covered terms only, quarters of validation; a segment with 49 defaults is merged with its neighbour and one with 50 is not; a model better overall but clearly worse in grade A fails; a tie in a segment passes; clearly worse but within the margin of D-093 passes (case added 2026-11-24, approved by Juan) | `tests/unit/test_compare.py::test_segments_merge_f_and_g_and_small_groups`<br>`tests/unit/test_compare.py::test_a_model_clearly_worse_in_one_segment_fails`<br>`tests/unit/test_compare.py::test_clearly_worse_within_the_margin_passes` | Unit | CI, image |
+| T9.4 | The signs (D-080): the nine coefficients of the logistic regression have the expected sign, and made-up data where a higher `int_rate` lowers risk make the check fail; LightGBM is trained with exactly the fixed list of constraints, logged in the run | `tests/unit/test_model.py::test_the_logistic_regression_keeps_the_signs_of_d080`<br>`tests/unit/test_model.py::test_lightgbm_is_trained_with_exactly_the_fixed_constraints` | Unit | CI, image |
+
+## T10 Behaviour
+
+F3, second pull request. The battery (D-086) is a function run on every model before promotion (D-082); these tests check that it does its job.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T10.1 | Invariance: changing fields the model does not use (`id`, `emp_title`, `addr_state`) leaves the PD unchanged; a loan scored alone or in a batch gets exactly the same PD | `tests/unit/test_battery.py::test_unused_fields_and_batch_size_do_not_move_the_pd` | Unit | CI, image |
+| T10.2 | Direction: on real validation loans, raising each of the nine features of D-080 in its risk direction never lowers the PD, and the reverse for the protective ones | `tests/unit/test_battery.py::test_raising_a_risk_feature_never_lowers_the_pd` | Unit | CI, image |
+| T10.3 | Minimum cases: a clearly good profile (grade A, FICO 800, `dti` 5, no delinquencies) gets a lower PD than a clearly bad one; every PD is between 0 and 1; empty optional fields are scored without error; an uncovered term gets no PD | `tests/unit/test_battery.py::test_the_minimum_cases` | Unit | CI, image |
+| T10.4 | Time: one prediction takes under 50 ms (p95) in process. Measured without the explanation here; extending it to include SHAP in the third pull request needs Juan's approval | `tests/unit/test_battery.py::test_one_prediction_takes_under_50_ms` | Unit | CI, image |
+| T10.5 | Bad models fail: a constant model and a random model fail the battery | `tests/unit/test_battery.py::test_a_constant_and_a_random_model_fail` | Unit | CI, image |
+| T10.6 | Data test: the model trained at T0 on the real data passes the whole battery | `tests/data/test_training_data.py::test_the_model_trained_at_t0_passes_the_battery` | Data | Local |
+
+## T11 Registry
+
+F3, second pull request (D-082, D-090). Integration tests against the MLflow of compose.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T11.1 | Only a challenger that passes every rule is promoted: the alias `champion` moves to it; one case per rule where only that rule fails (noise, a segment, a sign, the battery) leaves the alias where it was; the promotion function has no option to skip a rule | `tests/integration/test_registry.py::test_a_challenger_failing_one_rule_is_not_promoted`<br>`tests/integration/test_registry.py::test_a_challenger_passing_every_rule_is_promoted`<br>`tests/integration/test_registry.py::test_promotion_cannot_skip_a_rule` | Integration | CI |
+| T11.2 | Every decision leaves evidence in the challenger's run, promoted or not: intervals, segments, battery results and, if rejected, the reason. Small values as tags and metrics (Postgres), the 1,000 differences, segment table and battery report as artefacts | `tests/integration/test_registry.py::test_every_decision_leaves_evidence` | Integration | CI |
+| T11.3 | Every promotion alerts: until Grafana (F6), a WARNING log message with the previous and new champion, plus a tag in MLflow | `tests/integration/test_registry.py::test_every_promotion_alerts` | Integration | CI |
+| T11.4 | Rollback in one command (`make rollback MODEL=pd`): the alias returns to the previous champion, read from the tag written on each promoted version; predictions are again exactly those of that model; the rollback leaves evidence and alerts; with no previous champion it fails clearly and changes nothing | `tests/integration/test_registry.py::test_rollback_returns_to_the_previous_champion` | Integration | CI |
+| T11.5 | The first champion (D-090): with no champion, the chosen model is compared with the grade-only baseline under the same rules; if it does not beat it, the baseline is the champion | `tests/integration/test_registry.py::test_the_first_champion_must_beat_the_baseline`<br>`tests/integration/test_registry.py::test_a_first_model_that_beats_the_baseline_is_champion` | Integration | CI |
+
+## T12 LGD
+
+F3, second pull request (D-087, D-088, D-094).
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T12.1 | Only defaults with a known LGD enter: training and validation use only the rows with `lgd` of their split; good loans, unresolved loans and charge-offs younger than 12 months never enter (ids recorded, as in T7.3) | `tests/unit/test_lgd.py::test_only_defaults_with_a_known_lgd_enter` | Unit | CI, image |
+| T12.2 | The baseline: the mean by grade equals the one computed by hand on training and is applied as it is to validation | `tests/unit/test_lgd.py::test_the_baseline_is_the_mean_lgd_by_grade` | Unit | CI, image |
+| T12.3 | The baseline can win: with made-up data where LGD is pure noise no candidate beats the mean by grade on RMSE with the paired bootstrap, and the baseline is the champion; with data where LGD clearly depends on a feature, the candidate wins | `tests/unit/test_lgd.py::test_the_baseline_wins_on_noise_and_loses_to_a_real_signal` | Unit | CI, image |
+| T12.4 | The level by segment rules: a candidate with a good RMSE but a clearly wrong mean LGD in one grade fails the segment rule of D-081 | `tests/unit/test_lgd.py::test_a_wrong_level_in_one_grade_fails_the_segment_rule` | Unit | CI, image |
+| T12.5 | Always between 0 and 1: extreme inputs give a prediction in [0, 1] (the label can fall outside, as the -0.6 of T5.15, and the linear regression extrapolates) | `tests/unit/test_lgd.py::test_lgd_predictions_stay_between_0_and_1` | Unit | CI, image |
+| T12.6 | Data test at T0: trained on the 992 training rows, level corrected (D-094) and validated on the 344; logs the RMSE with intervals, the interval against the baseline, the champion, the level shift of each model and the gap before the correction; fixes no winner; the champion's mean predicted LGD in validation is within 0.005 of the observed mean, and no shift exceeds 0.10 | `tests/data/test_training_data.py::test_the_lgd_at_t0_is_on_the_level_of_the_observed_lgd` | Data | Local |
+| T12.7 | The level correction of D-094 on made-up data whose validation LGD is 0.10 above training: the shift equals the observed mean minus the mean predicted, by hand; only validation sets it; the order of predictions is unchanged; every prediction stays in [0, 1]; every model, the baseline included, gets its own shift | `tests/unit/test_lgd.py::test_the_level_is_corrected_on_validation_only` | Unit | CI, image |
+
 ## Change history
 
 | Date | Test | Change | Why |
@@ -202,3 +289,7 @@ F2, step 2.4.
 | 2026-11-24 | T5.4, T5.5, T5.12, T5.13, T5.15 | T5.13 also checks that T0 holds 36-month loans only and counts the loans with `lgd`; T5.4 checks the validation window per term; T5.5 expects the `lgd` column; T5.12 mirrors both rules in polars; T5.15 written | Approved by Juan ([D-069](decisions.md#d-069), [D-088](decisions.md#d-088)) |
 | 2026-11-24 | T5.1 | One training loan added to its data. What it checks is unchanged | Under D-069 its two loans are both validation, and a set with no training loan is refused |
 | 2026-11-24 | B5 | Runs on both images, `serve` (budget 800 MB) and `train` (1.5 GB); the size is the sum of the layers instead of `docker image inspect` | Two images ([D-078](decisions.md#d-078)); the inspected size depends on the Docker image store ([E-028](errors.md#e-028)). Approved by Juan |
+| 2026-11-24 | T7.1 to T7.5, T8.1 to T8.4, T9.1 to T9.4, T10.1 to T10.6, T11.1 to T11.5, T12.1 to T12.6, B7, B8 | Written (F3, second pull request) | Approved by Juan |
+| 2026-11-24 | T9.3 | Case added: clearly worse in a segment but within the margin passes | The margins of [D-093](decisions.md#d-093); approved by Juan |
+| 2026-11-24 | T5.13, T5.14 | The load up to T0 moved from `tests/data/test_snapshot_data.py` to `tests/data/conftest.py`, shared with T10.6 and T12.6. What each test checks is unchanged | The load takes minutes; doing it twice is waste |
+| 2026-11-24 | T12.6, T12.7 | T12.6 no longer checks that the mean predicted LGD lies inside the interval of the observed mean (true by construction after D-094): it checks the mean after the correction and that no shift exceeds 0.10, and logs the gap before. T12.7 written | The LGD was 5 points too low at T0 and its level is now corrected on validation ([D-094](decisions.md#d-094)); approved by Juan |

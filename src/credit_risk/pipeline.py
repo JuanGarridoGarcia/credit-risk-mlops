@@ -19,12 +19,13 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import polars as pl
 import psycopg
 
 from credit_risk import registry
 from credit_risk.compare import interval
-from credit_risk.lgd import LGDTraining, lgd_rows, train_lgd
+from credit_risk.lgd import LGDTraining, fit_level, lgd_rows, train_lgd
 from credit_risk.model import MONOTONE, LGDModel, PDModel
 from credit_risk.settings import Settings
 from credit_risk.snapshot import (
@@ -129,6 +130,27 @@ def _log_pd(
     return run_id
 
 
+#: Folds of validation for the honest calibration error of the LGD (D-076, D-094).
+FOLDS = 5
+
+
+def cross_fitted_lgd(model: LGDModel, rows: pl.DataFrame, seed: int) -> np.ndarray:
+    """Predictions where each loan's level correction was fitted without that loan.
+
+    The level is fitted on validation (D-094), so on validation the calibration error of
+    the corrected model is zero by construction. As for Platt scaling (D-076), its honest
+    value comes from cross-fitting: fit the correction on four fifths of validation and
+    predict the other fifth, five times.
+    """
+    fold = np.random.default_rng(seed).permutation(rows.height) % FOLDS
+    out = np.empty(rows.height)
+    for k in range(FOLDS):
+        held = fold == k
+        fitted = fit_level(model, rows.filter(pl.Series(~held)))
+        out[held] = fitted.predict_lgd(rows.filter(pl.Series(held))).to_numpy()
+    return out
+
+
 def _log_lgd(
     context: Context, model: LGDModel, training: LGDTraining, validation: pl.DataFrame
 ) -> str:
@@ -147,7 +169,12 @@ def _log_lgd(
                 versions=library_versions(),
                 metrics={
                     "rmse": _interval(y, p, "rmse", context.seed),
-                    "calibration_error": _interval(y, p, "calibration_error", context.seed),
+                    "calibration_error": _interval(
+                        y,
+                        cross_fitted_lgd(model, rows, context.seed),
+                        "calibration_error",
+                        context.seed,
+                    ),
                 },
                 params=model.params,
                 tags={
@@ -155,6 +182,7 @@ def _log_lgd(
                     "cutoff": f"{training.cutoff:%Y-%m}",
                     "chosen": str(model is training.chosen),
                     "covered_terms": ",".join(map(str, model.covered_terms)),
+                    "level_shift": f"{model.shift:.6f}",
                 },
                 files=files,
             )
