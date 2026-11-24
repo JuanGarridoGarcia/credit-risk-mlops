@@ -548,3 +548,14 @@ Tests approved by Juan before any code is written. They enter `docs/tests.md` wi
 | B5 (changed) | Both images, each against its own budget: `serve` at most 800 MB, `train` at most 1.5 GB (D-078); the rest of B5 (non-root, no `.env`, no secrets, right version) applies to both. If the measured images do not fit, the budgets go back to Juan first |
 | B7 | `serve` carries nothing of training: importing Optuna, SHAP or the full MLflow server fails inside it |
 | B8 | A small model trained in `train`, saved and loaded in `serve` gives identical predictions |
+
+**T12 LGD** (approved 2026-11-24)
+
+| ID | What it checks |
+|---|---|
+| T12.1 | Only defaults with a known LGD enter: training and validation use only the rows with `lgd` of their split; good loans, unresolved loans and charge-offs younger than 12 months never enter (ids recorded, as in T7.3) |
+| T12.2 | The baseline: the mean by grade equals the one computed by hand on training and is applied as it is to validation |
+| T12.3 | The baseline can win: with made-up data where LGD is pure noise no candidate beats the mean by grade on RMSE with the paired bootstrap, and the baseline is the champion; with data where LGD clearly depends on a feature, the candidate wins |
+| T12.4 | The level by segment rules: a candidate with a good RMSE but a clearly wrong mean LGD in one grade fails the segment rule of D-081 |
+| T12.5 | Always between 0 and 1: extreme inputs give a prediction in [0, 1] (the label can fall outside, as the -0.6 of T5.15, and the linear regression extrapolates) |
+| T12.6 | Data test at T0: trained on the 992 training rows and validated on the 344; logs the RMSE, the interval against the baseline and the champion; fixes no winner, but the mean predicted LGD in validation lies inside the interval of the observed mean |
