@@ -5,14 +5,15 @@
 SHELL := /bin/bash
 UV := uv run --frozen
 
-IMAGE ?= credit-risk:dev
+SERVE_IMAGE ?= credit-risk:serve
+TRAIN_IMAGE ?= credit-risk:train
 # Extra flags for `docker build`, e.g. on a machine behind a TLS-inspecting proxy:
 #   DOCKER_BUILD_FLAGS="--network host --secret id=extra_ca,src=/path/to/ca.pem"
 DOCKER_BUILD_FLAGS ?=
 # Loads .env into the environment of a recipe line (the Python settings read it from there).
 LOAD_ENV := set -a && . ./.env && set +a
 
-.PHONY: help install lint format test build test-image up down test-integration clean audit check data publish test-data migrate ingest snapshot diff-cover notebooks
+.PHONY: help install lint format test build test-image up down test-integration clean audit check data publish test-data migrate ingest snapshot diff-cover notebooks train rollback
 
 help: ## List the available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -60,6 +61,14 @@ snapshot: migrate ## Build the training set version at T (YYYY-MM) from clean (D
 	@test -n "$(T)" || { echo "usage: make snapshot T=YYYY-MM"; exit 1; }
 	$(LOAD_ENV) && $(UV) python -m credit_risk.snapshot build $(T)
 
+train: up ## Train, register and try to promote the PD and LGD models on the training set version at T (YYYY-MM)
+	@test -n "$(T)" || { echo "usage: make train T=YYYY-MM"; exit 1; }
+	$(LOAD_ENV) && $(UV) python -m credit_risk.pipeline $(T)
+
+rollback: up ## Put back the champion before the current one of MODEL (pd or lgd) (D-090)
+	@test -n "$(MODEL)" || { echo "usage: make rollback MODEL=pd|lgd"; exit 1; }
+	$(LOAD_ENV) && $(UV) python -m credit_risk.registry rollback $(MODEL)
+
 test-data: data ## Run the tests that need the real data file (not in CI)
 	$(UV) pytest -m data
 
@@ -67,14 +76,15 @@ notebooks: ## Run the audit notebook top to bottom; fails if its outputs differ 
 	$(UV) --group notebooks jupyter nbconvert --to notebook --execute --inplace notebooks/00_data_audit.ipynb
 	git diff --exit-code --stat -- reports/data_audit ':(exclude)*.png'
 
-build: ## Build the application image
-	docker build $(DOCKER_BUILD_FLAGS) -t $(IMAGE) .
+build: ## Build the two application images, serve and train (D-078)
+	docker build $(DOCKER_BUILD_FLAGS) --target serve -t $(SERVE_IMAGE) .
+	docker build $(DOCKER_BUILD_FLAGS) --target train -t $(TRAIN_IMAGE) .
 
 test-image: ## Run the unit tests inside an image with the package installed as in production
 	docker build $(DOCKER_BUILD_FLAGS) --target test -t credit-risk:test .
 	docker run --rm credit-risk:test
 
-up: ## Start the services (Postgres) and wait until they are healthy
+up: ## Start the services (Postgres, MLflow) and wait until they are healthy (run 'make build' first)
 	@test -f .env || { echo ".env missing: run 'make install' or copy .env.example"; exit 1; }
 	docker compose up -d --wait
 
@@ -84,7 +94,7 @@ down: ## Stop the services; the data stays in the volume (use 'docker compose do
 test-integration: up ## Tests that need Docker (run 'make build' first), destructive last; coverage of unit + integration at least 85% (D-064)
 	$(UV) coverage erase
 	$(UV) pytest tests/unit --cov --cov-report= --cov-fail-under=0
-	$(LOAD_ENV) && IMAGE=$(IMAGE) $(UV) pytest -m "integration and not destructive" --cov --cov-append --cov-report=xml --cov-fail-under=0
+	$(LOAD_ENV) && SERVE_IMAGE=$(SERVE_IMAGE) TRAIN_IMAGE=$(TRAIN_IMAGE) $(UV) pytest -m "integration and not destructive" --cov --cov-append --cov-report=xml --cov-fail-under=0
 	$(LOAD_ENV) && $(UV) pytest -m destructive
 	$(UV) coverage report
 

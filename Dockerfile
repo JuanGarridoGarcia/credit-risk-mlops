@@ -1,7 +1,11 @@
 # syntax=docker/dockerfile:1.7
-# Application image (decisions A7 and A8, D-025 and D-026).
-# Two stages: "builder" installs the locked dependencies with uv; "runtime" copies only
-# the resulting environment, so uv, caches and build tools never reach the final image.
+# Application images (decisions A7 and A8, D-025 and D-026; two images since D-078).
+# Builder stages install the locked dependencies with uv; the final stages copy only the
+# resulting environment, so uv, caches and build tools never reach a shipped image.
+#   serve  the package with what predicting needs (scikit-learn, LightGBM, mlflow-skinny)
+#   train  serve plus the "train" dependency group (Optuna, full MLflow, SHAP); it also
+#          runs the MLflow tracking server of docker compose
+# Both come from the same uv.lock, so a model trained in one loads in the other (test B8).
 # Base images are pinned by version AND digest; Dependabot proposes updates.
 
 ARG PYTHON_IMAGE=python:3.12.16-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
@@ -9,7 +13,7 @@ ARG UV_IMAGE=astral/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445
 
 FROM ${UV_IMAGE} AS uv
 
-# ---------------------------------------------------------------- builder
+# ---------------------------------------------------------------- builder (serve)
 FROM ${PYTHON_IMAGE} AS builder
 
 COPY --from=uv /uv /usr/local/bin/uv
@@ -22,6 +26,7 @@ ENV UV_COMPILE_BYTECODE=1 \
 WORKDIR /app
 
 # 1) Dependencies only: this layer is reused while pyproject.toml and uv.lock do not change.
+#    --no-default-groups: only the project's own dependencies, none of the groups.
 #    The optional "extra_ca" secret is for networks behind a TLS-inspecting proxy; it is
 #    mounted only during this RUN and never stored in a layer (see docs/errors.md, E-008).
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -29,7 +34,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=secret,id=extra_ca \
     if [ -f /run/secrets/extra_ca ]; then export SSL_CERT_FILE=/run/secrets/extra_ca; fi; \
-    uv sync --frozen --no-dev --no-install-project
+    uv sync --frozen --no-default-groups --no-install-project
 
 # 2) The project itself, installed as a regular (non-editable) package, as in production.
 COPY pyproject.toml uv.lock README.md ./
@@ -37,38 +42,50 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=secret,id=extra_ca \
     if [ -f /run/secrets/extra_ca ]; then export SSL_CERT_FILE=/run/secrets/extra_ca; fi; \
-    uv sync --frozen --no-dev --no-editable
+    uv sync --frozen --no-default-groups --no-editable
 
-# ---------------------------------------------------------------- test
-# Unit tests against the project installed as a regular package, not the editable
-# install used for development (decision A3): catches files missing from the package.
-# Built only on demand (`make test-image`, CI); never shipped.
-FROM builder AS test
+# ---------------------------------------------------------------- builder (train)
+FROM builder AS builder-train
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=secret,id=extra_ca \
     if [ -f /run/secrets/extra_ca ]; then export SSL_CERT_FILE=/run/secrets/extra_ca; fi; \
-    uv sync --frozen --no-editable --group dev
+    uv sync --frozen --no-default-groups --group train --no-editable
 
-COPY tests ./tests
-COPY reports/data_audit/data_dictionary.csv ./reports/data_audit/data_dictionary.csv
-COPY docs/validation_rules.md docs/tests.md ./docs/
-ENV PATH="/opt/venv/bin:${PATH}"
-RUN rm -rf /app/src
-USER nobody
-CMD ["pytest", "tests/unit", "-p", "no:cacheprovider"]
+# ---------------------------------------------------------------- builder (test)
+FROM builder-train AS builder-test
 
-# ---------------------------------------------------------------- runtime
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=secret,id=extra_ca \
+    if [ -f /run/secrets/extra_ca ]; then export SSL_CERT_FILE=/run/secrets/extra_ca; fi; \
+    uv sync --frozen --no-editable --no-default-groups --group train --group dev
+
+# ---------------------------------------------------------------- runtime base
 FROM ${PYTHON_IMAGE} AS runtime
 
 LABEL org.opencontainers.image.title="credit-risk" \
       org.opencontainers.image.source="https://github.com/JuanGarridoGarcia/credit-risk-mlops"
 
+# LightGBM needs the OpenMP runtime (D-072), which the slim image does not carry.
+# Behind a TLS-inspecting proxy that only tunnels HTTPS (the "extra_ca" secret, E-008),
+# apt goes over HTTPS with that CA for this RUN only; the sources are restored after.
+# The CA is mounted readable by all: apt downloads as its own unprivileged user (_apt).
+# It is a public certificate, not a secret; it is mounted outside /run/secrets because
+# this step stays in the history of the shipped images, which B5 scans for secret words.
+RUN --mount=type=secret,id=extra_ca,mode=0444,target=/run/extra_ca.pem \
+    set -e; sources=/etc/apt/sources.list.d/debian.sources; opts=""; \
+    if [ -f /run/extra_ca.pem ]; then \
+        sed -i 's|http://deb.debian.org|https://deb.debian.org|' "$sources"; \
+        opts="-o Acquire::https::CAInfo=/run/extra_ca.pem -o Acquire::https::Proxy=${https_proxy:-false}"; \
+    fi; \
+    apt-get $opts update; \
+    apt-get $opts install --yes --no-install-recommends libgomp1; \
+    sed -i 's|https://deb.debian.org|http://deb.debian.org|' "$sources"; \
+    rm -rf /var/lib/apt/lists/*
+
 # Unprivileged user with a fixed id (test B5).
 RUN groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
-
-COPY --from=builder --chown=app:app /opt/venv /opt/venv
 
 ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -76,5 +93,34 @@ ENV PATH="/opt/venv/bin:${PATH}" \
 
 WORKDIR /app
 USER app
-
 CMD ["credit-risk"]
+
+# ---------------------------------------------------------------- test
+# Unit tests against the project installed as a regular package, not the editable
+# install used for development (decision A3): catches files missing from the package.
+# Built on the runtime base, so the tests see the system libraries of the shipped images
+# (LightGBM needs libgomp1). Built only on demand (`make test-image`, CI); never shipped.
+FROM runtime AS test
+COPY --from=builder-test /opt/venv /opt/venv
+COPY pyproject.toml ./
+COPY tests ./tests
+COPY reports/data_audit/data_dictionary.csv ./reports/data_audit/data_dictionary.csv
+COPY docs/validation_rules.md docs/tests.md ./docs/
+ENV MPLCONFIGDIR=/tmp/matplotlib
+USER nobody
+CMD ["pytest", "tests/unit", "-p", "no:cacheprovider"]
+
+# ---------------------------------------------------------------- train
+FROM runtime AS train
+LABEL org.opencontainers.image.title="credit-risk-train"
+# Where the MLflow server of docker compose keeps artefacts (a named volume takes the
+# owner of this folder, so the unprivileged user can write to it).
+USER root
+RUN mkdir -p /mlflow/artifacts && chown -R app:app /mlflow
+USER app
+COPY --from=builder-train --chown=app:app /opt/venv /opt/venv
+
+# ---------------------------------------------------------------- serve (default target)
+FROM runtime AS serve
+LABEL org.opencontainers.image.title="credit-risk-serve"
+COPY --from=builder --chown=app:app /opt/venv /opt/venv

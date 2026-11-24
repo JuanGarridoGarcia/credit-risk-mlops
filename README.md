@@ -38,7 +38,14 @@ Target architecture; the parts already built are marked.
 
 ## Results
 
-Pending: the first model is trained in F3.
+First training, at T0 = January 2014 (36-month loans; validation: 4,324 loans, 429 defaults). Every model was judged against a grade-only baseline under the same promotion rules.
+
+| Model | Validation result | Outcome |
+|---|---|---|
+| Probability of default | AUC 0.677 for the logistic regression against 0.636 for the baseline; LightGBM (0.680) is not better by more than the noise, so the simpler model wins ([D-068](docs/decisions.md#d-068)) | Logistic regression promoted |
+| Loss given default | No candidate beats the mean by grade (RMSE 0.216); every model was 5 points too low because losses rise year after year, so the level is now set on the most recent period ([D-094](docs/decisions.md#d-094)) | Baseline stays |
+
+The business result (realised return of the buy rule) comes with the third part of F3. Details in the [technical document](docs/technical.md#5-f3-model).
 
 ## Key decisions
 
@@ -63,9 +70,11 @@ cd credit-risk-mlops
 make install            # environment from uv.lock, git hooks, .env from .env.example
 make lint               # style, formatting, types, lock in sync
 make test               # unit tests with coverage
-make build              # application image
-make up                 # Postgres, waits until healthy
-make test-integration   # tests against Postgres and the image
+make build              # the two application images, serve and train
+make up                 # Postgres and MLflow (UI at http://localhost:5000), waits until healthy
+make test-integration   # tests against Postgres, MLflow and the images
+make train T=2014-01    # train, register and try to promote the PD and LGD models
+make rollback MODEL=pd  # put back the previous champion
 make down               # stop; data stays in the volume
 ```
 
@@ -78,7 +87,7 @@ make down               # stop; data stays in the volume
 | F0 Framing | Problem, metrics, baselines, data audit | Done |
 | F1 Foundations | Environment, code quality, Docker, CI, documentation | Done |
 | F2 Data | Ingestion, validation, versioning, features | Done |
-| F3 Model | Baselines, experiments, model tests, registry, explainability | In progress (designed; data changes in review) |
+| F3 Model | Baselines, experiments, model tests, registry, explainability | In progress (data merged; training in review; explainability and business next) |
 | F4 Automation | Orchestrated training | Pending |
 | F5 Deployment | API, published image, continuous delivery | Pending |
 | F6 Monitoring | Drift, dashboard, alerts, triggered retraining | Pending |

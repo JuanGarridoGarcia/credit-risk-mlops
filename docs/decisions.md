@@ -97,6 +97,11 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-087](#d-087) | 2026-11-24 | 3.2 | LGD candidates: regularised linear regression and LightGBM against the mean by grade, with the PD machinery | Active |
 | [D-088](#d-088) | 2026-11-24 | 3.2 (changes step 2.3) | The LGD label is a column of the training file, computed when the snapshot is built | Active |
 | [D-089](#d-089) | 2026-11-24 | F3 (cross-cutting) | F3 is delivered in three pull requests: data, training, explanation and business | Active |
+| [D-090](#d-090) | 2026-11-24 | 3.4 | With no PD champion yet, the first model must beat the grade-only baseline; otherwise the baseline is the champion | Active |
+| [D-091](#d-091) | 2026-11-24 | 3.2 | The MLflow server of docker compose runs from our `train` image | Active |
+| [D-092](#d-092) | 2026-11-24 | 3.2 | The logistic regression keeps the signs of D-080 by removing a wrong-signed feature and refitting | Active |
+| [D-093](#d-093) | 2026-11-24 | 3.3 | A key segment blocks a promotion only if it is clearly worse by more than a margin | Active |
+| [D-094](#d-094) | 2026-11-24 | 3.2 | The level of every LGD model is corrected on validation, like Platt scaling for the PD | Active |
 
 ## Decisions
 
@@ -1033,3 +1038,57 @@ Date: 2026-11-24 · Step: F3 (cross-cutting; adjusts the one-pull-request-per-ph
 - **Alternatives considered**: (A) one pull request at the end, as in F2: one review, but thousands of lines at once, and a problem found early surfaces only at the end.
 - **Why**: each pull request makes sense on its own and carries its tests; reviews stay thorough; failures appear sooner. The data pull request goes first because training reads the snapshot it changes: training on the old split or without the LGD label would be work thrown away.
 - **Consequences**: three reviews and three CI runs. After each merge the work branch restarts from `main`.
+
+<a id="d-090"></a>
+### D-090 With no PD champion yet, the first model must beat the grade-only baseline; otherwise the baseline is the champion
+
+Date: 2026-11-24 · Step: 3.4 · Status: Active
+
+- **Context**: promotion (D-082) compares a challenger with the champion, but at the first training there is no champion. For the LGD, D-087 already lets the mean by grade be the champion. For the PD this was not written down. Found while proposing test T11.5.
+- **Decision**: when there is no PD champion, the chosen model is compared with the grade-only logistic regression (D-004) under the same rules as any promotion: paired bootstrap (D-075), segments (D-081), signs (D-080) and the behavioural battery (D-086). If it passes, it becomes the first champion. If not, the baseline is registered and becomes the champion, and the next retraining competes against it.
+- **Alternatives considered**: (A) the first model becomes champion without comparison: simple, but a model no better than the grade alone could start buying; (B) no champion until a model beats the baseline, so nothing is scored: the simulation stops buying for no reason, when the baseline is a valid model that the business metric already uses as reference (D-084).
+- **Why**: the same rule as the LGD (D-087) and as every later promotion; nothing enters production without beating what it replaces, and something always does the scoring.
+- **Consequences**: the baseline is trained, logged and registered like any model, with the same required fields (D-079). The battery for the baseline has to accept that its PD is constant inside a grade: every test of D-086 applies as it is, and the direction test passes without effort for the features the baseline does not use, because its PD does not move with them. Each promotion writes on the new model version a tag with the previous champion and the date, so that rollback (T11.4) and the history of champions do not depend on the registry alias, which keeps only the current one.
+
+<a id="d-091"></a>
+### D-091 The MLflow server of docker compose runs from our `train` image
+
+Date: 2026-11-24 · Step: 3.2 (completes D-079) · Status: Active
+
+- **Context**: D-079 puts an MLflow tracking server in docker compose, with its metadata in Postgres, but does not say which image it runs from. The `train` image (D-078) already carries the full MLflow and a Postgres driver (`psycopg`).
+- **Decision**: the `mlflow` service of docker compose runs `mlflow server` from our `train` image. It is built by `make build` before `make up`.
+- **Alternatives considered**: (B) the official MLflow image, pinned by version and digest: an external image to keep up to date apart from `uv.lock`, and, as far as known, without a Postgres driver, so it would need a Dockerfile of its own to extend it (not checked: Claude's cloud machine cannot download from ghcr.io).
+- **Why**: the server and the client that logs the runs have the same MLflow version always, fixed in `uv.lock` and updated by Dependabot with everything else; no new image to pin and scan.
+- **Consequences**: `make up` needs the `train` image built first; CI builds it before starting compose. The server image is scanned by Trivy with the `train` image.
+
+<a id="d-092"></a>
+### D-092 The logistic regression keeps the signs of D-080 by removing a wrong-signed feature and refitting
+
+Date: 2026-11-24 · Step: 3.2 (completes D-080) · Status: Active
+
+- **Context**: in the first training on the real data at T0 (2026-11-24), the logistic regression gave two of the nine features of D-080 the wrong sign: `pub_rec` (-0.04 per standard deviation) and the length of credit history (+0.01). The first is almost surely collinearity: `pub_rec > 0` and having `mths_since_last_record` are nearly the same thing, and the indicator of that gap takes the effect (raw default rate 21% with one public record, 13% with none). The second is practically zero. Under D-080 the logistic regression would fail and could never be champion, while D-068 picks it on a tie: the two rules clashed.
+- **Decision**: the signs are enforced while fitting. While a feature of D-080 gets a coefficient with the wrong sign, the one with the largest wrong coefficient is removed and the model is fitted again, until every sign holds. The same procedure is used in the search (D-074) and in the final fit. The removed features are logged with the run.
+- **Alternatives considered**: (B) the same effect with an optimiser that bounds each coefficient (at least or at most zero), instead of scikit-learn: more code of our own to test and maintain; (C) let the logistic regression fail and write a rule for when the simpler model fails: a model a bank would never accept goes on being trained at every retraining.
+- **Why**: it is the standard practice in bank scorecards, it uses scikit-learn as it is, and it leaves on record which features left and why. It is the counterpart of the monotone constraints of LightGBM.
+- **Consequences**: the sign test of D-080 now checks the procedure (it must never return a wrong sign) as well as each model. A feature removed at one date may come back at the next retraining, with more data.
+
+<a id="d-093"></a>
+### D-093 A key segment blocks a promotion only if it is clearly worse by more than a margin
+
+Date: 2026-11-24 · Step: 3.3 (amends D-081) · Status: Active
+
+- **Context**: in the first retraining on the real data at T0 (2026-11-24), the logistic regression beat the grade-only baseline clearly in AUC (improvement +0.04, interval [+0.021, +0.062]) but D-081 rejected it: in the segment of grades D to G its calibration error was 0.66 points of PD against 0.11 for the baseline, an interval of the difference of [-0.97, -0.12] points. Statistically clear, practically tiny. The baseline is a rate per grade, so inside each grade it is calibrated almost perfectly by construction. Worse, intervals narrow as data grow (140,000 validation loans in 2018), so any difference of a tenth of a point would become "clear" and almost no promotion would pass.
+- **Decision**: a segment blocks only if the new model is worse for sure **and** by more than a margin: the whole 95% interval of the improvement lies below minus the margin. Margins: **0.01 of AUC** and **1 point of PD** in calibration error for the PD; **2 points of LGD** in calibration error for the LGD. The margins are fixed in code and logged with the evidence of every promotion.
+- **Alternatives considered**: (B) judge calibration in a segment in absolute terms: the model's mean PD must lie inside the interval of the observed default rate of the segment; purer, but with many loans those intervals are very narrow and it would fail for differences just as small; (C) keep D-081 as it was: at T0 the baseline would be champion, and with more data almost no model could be promoted.
+- **Why**: it separates what is statistically clear from what matters, which is how tolerances are set in model validation at banks. A real worsening still blocks.
+- **Consequences**: with the margins the logistic regression is promoted at T0. Test T9.3 checks the rule with a model clearly worse in grade A (blocked), a tie (passes) and a model clearly worse but within the margin (passes).
+
+### D-094 The level of every LGD model is corrected on validation, like Platt scaling for the PD
+
+Date: 2026-11-24 · Step: 3.2 (amends D-087) · Status: Active
+
+- **Context**: in the data test T12.6 at T0 (2026-11-24) the LGD champion, the mean by grade, predicted a mean LGD of 0.592 in validation against 0.642 observed (95% interval [0.620, 0.664]). Ridge and LightGBM were just as low. The LGD rises with the listing year: 0.50 for 2007 loans, 0.57 for 2008, 0.60 for 2009, 0.62 for 2010 in training and 0.64 for 2010 in validation. A model fitted on every year of training averages them and lags the latest ones. Underestimating the loss inflates the expected return of every loan, so the buy rule of D-084 would take more risk than it believes. RMSE does not show it: every model lags by the same amount.
+- **Decision**: after fitting on training, every LGD model, the baseline included, gets a level correction fitted on validation: one number, the observed mean LGD minus the mean predicted, added before clipping to [0, 1]. Candidates are compared, and the champion chosen, with their corrected predictions. The correction is logged as the tag `level_shift` of each run. The calibration error logged for each LGD run is cross-fitted within validation (five folds), as D-076 does for the PD, because on validation the corrected level is right by construction (E-036).
+- **Alternatives considered**: (B) give more weight to recent years in training: reduces the lag but does not remove it, and adds a weight to choose; (C) leave the model as it is, record the failing check as expected and let the monitoring of F6 watch the level.
+- **Why**: it is the same logic Juan chose for the PD (D-076): the shape is learned on training and the level is set on the most recent period with known outcomes. One number keeps it simple and cannot change the order of predictions.
+- **Consequences**: at T0 the shifts are +0.050 (ridge), +0.054 (LightGBM) and +0.050 (baseline); validation RMSE goes from 0.221 to 0.216 for each; no candidate beats the baseline, which stays champion. On validation the mean predicted equals the observed mean by construction, so it can no longer be a check of the level: T12.6 changes, with Juan's approval. With a rising trend the model can still lag by the change between the validation window and the time it is used; the monitoring of F6 compares the predicted and observed LGD of each new group of resolved defaults.

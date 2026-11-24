@@ -36,10 +36,17 @@ def pg_connection(settings: Settings) -> Iterator[PgConnection]:
         yield conn
 
 
-@pytest.fixture(scope="session")
-def image() -> str:
-    """Name of the application image under test (built by ``make build``)."""
-    return os.environ.get("IMAGE", "credit-risk:dev")
+#: The two images of D-078, by target, as ``make build`` tags them.
+IMAGES = {
+    "serve": os.environ.get("SERVE_IMAGE", "credit-risk:serve"),
+    "train": os.environ.get("TRAIN_IMAGE", "credit-risk:train"),
+}
+
+
+@pytest.fixture(scope="session", params=sorted(IMAGES))
+def image(request: pytest.FixtureRequest) -> str:
+    """Each application image in turn (both built by ``make build``)."""
+    return IMAGES[request.param]
 
 
 def compose(*args: str) -> subprocess.CompletedProcess[str]:

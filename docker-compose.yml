@@ -1,5 +1,5 @@
-# Services of the system (decision A9, D-027). Only Postgres for now: MLflow enters in F3,
-# the API in F5 and Grafana in F6, each with the step that uses it and its tests.
+# Services of the system (decision A9, D-027): Postgres, and MLflow since F3 (D-079).
+# The API enters in F5 and Grafana in F6, each with the step that uses it and its tests.
 # Credentials come from .env (git-ignored); see .env.example.
 
 name: credit-risk
@@ -28,5 +28,38 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  mlflow:
+    # MLflow tracking server and model registry (D-079), run from our own train image so
+    # that server and client share the MLflow version of uv.lock (D-091). `make build`
+    # builds the image first; compose builds it only if it is missing.
+    image: ${TRAIN_IMAGE:-credit-risk:train}
+    build:
+      context: .
+      target: train
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    # Metadata go to the database "mlflow" of the same Postgres, created if missing;
+    # artefacts go to the volume below through the server (an S3 bucket in AWS).
+    command: ["python", "-m", "credit_risk.tracking", "server"]
+    ports:
+      - "127.0.0.1:${MLFLOW_PORT:-5000}:5000"
+    volumes:
+      - mlartifacts:/mlflow/artifacts
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 10s
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  mlartifacts:
