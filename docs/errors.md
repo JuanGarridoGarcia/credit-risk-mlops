@@ -57,6 +57,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-047](#e-047) | 2026-11-25 | 4.2 (in F5) | The clock story expected several batches a month with batches of 40; a made-up month has 15 listings | Minor |
 | [E-048](#e-048) | 2026-11-25 | 5.2 | The API in compose could not load its champions: the MLflow server refused its Host name | Major |
 | [E-049](#e-049) | 2026-11-25 | 5.2 | The unit tests of delivery failed inside the test image: `ci/` and the workflows were not in it | Minor |
+| [E-050](#e-050) | 2026-11-25 | 5.2 | The smoke test, run inside pytest, left MLflow pointing to its own server, and the tracking tests after it failed | Minor |
 
 ## Errors
 
@@ -532,4 +533,14 @@ Date: 2026-11-25 · Step: 5.2 · Severity: minor
 - **Cause**: the build context lets in only what the Dockerfile needs (`.dockerignore`), and `ci/` and `.github/workflows/` were new.
 - **Fix**: both enter the context and are copied into the test stage only, as `docs/tests.md` for B6; serve and train still carry neither.
 - **Prevention**: `make check` runs the unit tests inside the image, as CI does; this is how it was caught before the pull request.
+
+<a id="e-050"></a>
+### E-050 The smoke test, run inside pytest, left MLflow pointing to its own server, and the tracking tests after it failed
+
+Date: 2026-11-25 · Step: 5.2 · Severity: minor
+
+- **Symptom**: in `make check`, every test of `tests/integration/test_tracking.py` failed with `Connection refused` on `127.0.0.1` and a port that was not the one of `.env`; alone, they passed.
+- **Cause**: T22.3 called the smoke test as a function. To register its champions it sets the address of MLflow (`mlflow.set_tracking_uri`) to the server it starts; MLflow keeps it in a global of the process, so after the smoke test had removed that server, the next tests of the same pytest process still called it.
+- **Fix**: T22.3 runs the smoke test as `ci/publish.py` does, in a process of its own (`python -m tests.smoke`), and reads its exit code and messages.
+- **Prevention**: the module's docstring says why it must run in its own process.
 

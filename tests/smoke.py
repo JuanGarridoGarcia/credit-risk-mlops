@@ -11,7 +11,8 @@ migrations and registers made-up champions as the API tests do. It then asks for
 
 Everything it started is removed at the end, whatever happened.
 
-Usage: ``python -m tests.smoke --serve <image> --train <image> --commit <sha>``.
+Usage: ``python -m tests.smoke --serve <image> --train <image> --commit <sha>``. It runs
+in a process of its own: MLflow keeps its server address and experiment in globals.
 """
 
 import argparse
@@ -171,9 +172,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--serve", required=True)
     parser.add_argument("--train", required=True)
     parser.add_argument("--commit", required=True)
+    # For T22.3 only: an empty registry, and a shorter wait for /health.
+    parser.add_argument("--no-champions", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--timeout", type=float, default=90, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     try:
-        body = smoke(args.serve, args.train, args.commit)
+        body = smoke(
+            args.serve, args.train, args.commit,
+            champions=not args.no_champions, timeout=args.timeout,
+        )  # fmt: skip
     except Exception as error:  # noqa: BLE001 - any failure fails the smoke test
         print(f"smoke: FAILED: {error!r}", file=sys.stderr)
         return 1
