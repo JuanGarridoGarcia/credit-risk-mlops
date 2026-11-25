@@ -139,9 +139,12 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       PREFECT_API_URL: http://prefect:4200/api
       MLFLOW_TRACKING_URI: http://mlflow:5000
-      # The investor is a client of the API, with a predict key (D-118, D-124).
+      # The investor is a client of the API, with a predict key (D-118, D-124). The
+      # monthly flow runs in this process too and, after a promotion, tells the API to
+      # load the new champions with the admin key (D-111), before the next investor (E-056).
       API_URL: http://api:8000
       API_PREDICT_KEY: ${API_PREDICT_KEY:?set API_PREDICT_KEY in .env}
+      API_ADMIN_KEY: ${API_ADMIN_KEY:?set API_ADMIN_KEY in .env}
     command: ["python", "-m", "credit_risk.simulator.clock", "serve"]
     volumes:
       # The source file, read only: only the simulated world opens it (D-043).
