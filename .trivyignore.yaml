@@ -42,3 +42,10 @@ vulnerabilities:
   - id: CVE-2026-85091
     statement: "Fixed in Debian, but the official python:3.12-slim image has not been rebuilt yet; Dependabot proposes the new digest when it is. Short expiry on purpose. Packages: zlib1g"
     expired_at: 2026-12-06
+  # Found by the first publication on main, 2026-11-25 (E-054). Base image digest of 2026-11-24.
+  - id: CVE-2026-107494
+    statement: "No fix available in Debian 13 yet (status: affected). Denial of service of a QUIC server; nothing in the project speaks QUIC (the API serves HTTP/1.1 over TCP). Packages: libssl3t64, openssl, openssl-provider-legacy"
+    expired_at: 2026-12-22
+  - id: CVE-2026-124851
+    statement: "Fixed in Debian (1.5.7+dfsg-1+deb13u1), but the official python:3.12-slim image has not been rebuilt yet (D-038); Dependabot proposes the new digest when it is. Short expiry on purpose. Our code does not load libzstd. Packages: libzstd1"
+    expired_at: 2026-12-06
