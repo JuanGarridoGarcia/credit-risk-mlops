@@ -113,7 +113,7 @@ TRAIN_IMAGE=ghcr.io/juangarridogarcia/credit-risk-train:main make up
 | F2 Data | Ingestion, validation, versioning, features | Done |
 | F3 Model | Baselines, experiments, model tests, registry, explainability | Done |
 | F4 Automation | Orchestrated monthly cycle and simulated clock | Done |
-| F5 Deployment | API, replayer, published image, continuous delivery | In progress (API in #12; simulated investor and purchases in #13; published images in the third pull request) |
+| F5 Deployment | API, replayer, published image, continuous delivery | Done (API in #12; simulated investor and purchases in #13; published images in #14, first publication after the fixes of #15 to #17) |
 | F6 Monitoring | Drift, dashboard, alerts, triggered retraining | Pending |
 | F7 Closing | End to end, AWS with infrastructure as code | Pending |
 
