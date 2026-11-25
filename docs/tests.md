@@ -27,6 +27,8 @@ Every test of the project, what it checks, where it lives and where it runs. Jua
 - [T17 Clock and alerts](#t17-clock-and-alerts)
 - [T18 API](#t18-api)
 - [T19 Buy rule in the flow](#t19-buy-rule-in-the-flow)
+- [T20 Purchases](#t20-purchases)
+- [T21 Simulated investor](#t21-simulated-investor)
 - [Change history](#change-history)
 
 ## How tests are organised
@@ -74,7 +76,9 @@ Changing what an approved test checks needs Juan's approval again. B6 fails if a
 | T17 Clock and alerts | F4, step 4.1, second pull request | 9 | 2026-11-24 | [technical.md, F4](technical.md#second-pull-request-the-simulated-clock-cadence-and-alerts) |
 | T18 API | F5, step 5.1, first pull request | 15 | 2026-11-24 (T18.13 changed the same day, D-122) | [technical.md, F5](technical.md#first-pull-request-the-api-and-the-predictions-table) |
 | T19 Buy rule in the flow | F5, step 5.1, first pull request | 2 | 2026-11-24 | [technical.md, F5](technical.md#first-pull-request-the-api-and-the-predictions-table) |
-| **Total** | | **170** | | |
+| T20 Purchases | F5, old step 4.2, second pull request | 5 | 2026-11-25 | [technical.md, F5](technical.md#second-pull-request-the-simulated-investor-and-its-purchases) |
+| T21 Simulated investor | F5, old step 4.2, second pull request | 5 | 2026-11-25 | [technical.md, F5](technical.md#second-pull-request-the-simulated-investor-and-its-purchases) |
+| **Total** | | **180** | | |
 
 ## B Foundations
 
@@ -386,6 +390,30 @@ F5, step 5.1, first pull request (D-111, D-120). Integration tests: the monthly 
 | T19.1 | When the PD or LGD champion changes, the flow registers a buy rule with the minimum chosen on validation (D-084) and the versions of the pair, with every required field of its run (D-079), moves its alias and records a `promoted` alert; running the month again creates no version; a new PD champion makes a new rule, and going back reuses the old one | `tests/integration/test_buy_rule.py::test_the_flow_registers_the_rule_of_the_champion_pair` | Integration | CI |
 | T19.2 | After a promotion the flow calls `/admin/reload` with the admin key, and a run with no change sends no notice; with an API that does not answer the flow goes on and records one `reload_failed` warning, without the key | `tests/integration/test_buy_rule.py::test_the_flow_tells_the_api_after_a_promotion` | Integration | CI |
 
+## T20 Purchases
+
+F5, old step 4.2, second pull request (D-124, D-126, D-128, D-129). Unit tests run the application in process on made-up champions with the in-memory store, as T18; T20.5 runs the same store against a migrated database of its own.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T20.1 | Every answer of `/predict` carries its `prediction_id`; a valid purchase (order, prediction, 25 dollars) gets 200 with status `created` and is stored with client, loan, prediction, amount and order number | `tests/unit/test_purchases.py::test_a_purchase_of_a_stored_prediction_is_recorded` | Unit | CI, image |
+| T20.2 | Idempotency (D-129): the same order twice gives one row and the same purchase, marked `stored_earlier`; the same order number with another content is refused with 409; a new order on the same loan adds to the share (a repurchase); another client can buy the same loan, even with the same order number | `tests/unit/test_purchases.py::test_an_order_number_makes_a_repeat_harmless_and_allows_repurchases` | Unit | CI, image |
+| T20.3 | Refusals per purchase (422, with the column), the rest of the request recorded: an unknown prediction id, an amount that is not a multiple of 25, zero, negative, not a whole number or missing, a client's share above the loan's amount, an unknown field, an empty order number; the request row keeps the refused body and errors. A malformed request (more than the limit, empty, not a list, a wrong key) is refused whole; no key or a wrong key gives 401, the admin key 403 | `tests/unit/test_purchases.py::test_a_wrong_purchase_is_refused_on_its_own`<br>`tests/unit/test_purchases.py::test_a_malformed_request_is_refused_whole`<br>`tests/unit/test_purchases.py::test_purchases_need_a_predict_key` | Unit | CI, image |
+| T20.4 | Exceptions are recorded, not refused (D-126): a purchase that passes the threshold, one below it, one with no threshold and one of an uncovered term are all accepted, with their `policy` | `tests/unit/test_purchases.py::test_exceptions_to_the_rule_are_recorded_not_refused` | Unit | CI, image |
+| T20.5 | With the real Postgres: the unique (client, order number) is in the database; each request leaves its row in `serving.requests` with client and counts; two requests at once with the same order leave one row, and two orders at once that each fill a loan leave one; a request that fails halfway records no purchase and no request | `tests/integration/test_purchases.py::test_the_database_keeps_one_row_per_order_and_whole_requests`<br>`tests/integration/test_purchases.py::test_two_requests_at_once_cannot_duplicate_an_order_or_overfill_a_loan`<br>`tests/integration/test_purchases.py::test_a_request_that_fails_halfway_records_nothing` | Integration | CI |
+
+## T21 Simulated investor
+
+F5, old step 4.2, second pull request (D-123, D-125, D-127). T21.1 is a unit test of the rule; T21.2 to T21.5 check the clock story of `tests/integration/test_clock.py` (T17), where the API now runs in a process of its own, batches are of 4 listings so that each month takes several, and one advance of 2012-04 finds the API out of reach.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T21.1 | The investor's rule by hand (D-085): K is 10% of the loans listed the month before, rounded down; the loans that pass the threshold are bought in listing order until K, 25 dollars each; an uncovered loan or one below the minimum is never bought; with fewer passing than K all are bought, with K above the whole month only those that pass, and with no buy rule nothing; the same as `business.buy` on the same loans | `tests/unit/test_replayer.py::test_the_investor_buys_what_passes_in_listing_order_up_to_k` | Unit | CI, image |
+| T21.2 | Months (D-127): nothing up to T0 is sent to the API; from the month after, every listing of each month is sent, in batches never above the limit, and has exactly one prediction | `tests/integration/test_clock.py::test_the_investor_sends_every_listing_after_t0_once` | Integration | CI |
+| T21.3 | Order inside `advance` (D-123): the loans of the retraining month 2012-04, and of 2012-05, are scored by the champions promoted before that month | `tests/integration/test_clock.py::test_a_month_is_scored_by_the_champions_of_the_month_before` | Integration | CI |
+| T21.4 | Failures (D-125): with the API out of reach, the investor's task runs 1 + 3 times (waits set to 0), the advance fails and the clock stays; the next advance does the month; a month repeated after the system's flow failed is not sent again; an investor that stopped after buying sends the month again with no prediction or purchase stored twice; a listing the API refuses is not bought, is counted in the month's summary and the month completes | `tests/integration/test_clock.py::test_the_investor_retries_a_missing_api_and_never_buys_twice` | Integration | CI |
+| T21.5 | The whole story: for every month invested, the purchases in `serving.purchases` are exactly what the rule gives on the predictions in `serving.predictions` (same loans, linked to their predictions, 25 dollars, `passes`), and `sim.invested` has its counts; no loan is bought twice | `tests/integration/test_clock.py::test_what_was_bought_is_what_the_rule_gives_on_the_predictions` | Integration | CI |
+
 ## Change history
 
 | Date | Test | Change | Why |
@@ -422,3 +450,8 @@ F5, step 5.1, first pull request (D-111, D-120). Integration tests: the monthly 
 | 2026-11-24 | T18.1 to T18.15, T19.1, T19.2 | Written (F5, first pull request) | Approved by Juan |
 | 2026-11-24 | T18.13 | Open load of 20 requests a second for 60 s with p95 under 200 ms instead of 20 clients firing without pause; capacity measured and recorded, with no assertion | 20 busy clients measure saturation, not latency: each request waits for the other 19 ([D-122](decisions.md#d-122), [E-044](errors.md#e-044)); approved by Juan |
 | 2026-11-24 | T16.8, T17.6 | T16.8: `buy-rule` and `reload` never run after a failed validation either. T17.6: the retraining months also run `buy-rule`, and `reload` when a champion or the rule changed | The flow gained these two tasks ([D-111](decisions.md#d-111), [D-120](decisions.md#d-120)). What each test checks is unchanged |
+| 2026-11-25 | T20.1 to T20.5, T21.1 to T21.5 | Written (F5, second pull request) | Approved by Juan |
+| 2026-11-25 | T17.9 | Also checks the investor: from 2014-02 every listing has one prediction through the API, no month buys more than K, and the purchases are what the rule gives; the API runs in a process of its own during the replay | The replayer lives inside the clock ([D-123](decisions.md#d-123)); checked on the real year rather than repeating its 25 minutes in another test. Approved by Juan |
+| 2026-11-25 | T17.4 to T17.8 | The clock story runs with an API in a process of its own, batches of 4 listings and one more advance of 2012-04 with the API out of reach. What each test checks is unchanged | Each advance now sends its month to the API ([D-123](decisions.md#d-123)); approved by Juan with T21 |
+| 2026-11-25 | T18.13 | The API process is started by `tests/integration/api_process.py`, shared with the clock story. What it checks is unchanged | The same server is needed by T21 |
+

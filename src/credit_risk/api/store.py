@@ -1,30 +1,37 @@
-"""What the API writes to Postgres: ``serving.requests`` and ``serving.predictions``.
+"""What the API writes to Postgres: ``serving.requests``, ``serving.predictions`` and
+``serving.purchases``.
 
 A prediction is written before it is answered, in the same transaction as its request
 (D-121): if the database cannot take it, the client gets a 503 and no prediction. A
 batch is one transaction. A loan already scored by the same pair of models is not
 stored again (D-114): the stored prediction is read back and answered instead.
+
+A purchase is judged by :func:`credit_risk.api.purchases.judge` on what is stored, in the
+request's transaction, under a lock on the client's order and on the client's share of
+the loan, so two requests at once cannot both create the same order or overfill a loan.
 """
 
 import json
 import logging
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from typing import Any, Final, Protocol
 
 from psycopg import Connection
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
+from credit_risk.api.purchases import Order, Outcome, Prediction, Stored, judge
 from credit_risk.api.scoring import Scored
 
 log = logging.getLogger(__name__)
 
 #: Columns of ``serving.predictions`` read back for an answer, in this order.
 ANSWER: Final = (
-    "loan_id", "listed", "covered", "pd", "lgd", "ead", "expected_loss", "el_rate",
+    "prediction_id", "loan_id", "listed", "covered", "pd", "lgd", "ead", "expected_loss", "el_rate",
     "expected_return", "minimum", "passes", "reasons", "pd_version", "lgd_version",
     "rule_version", "api_version",
 )  # fmt: skip
@@ -95,6 +102,10 @@ INSERT_PREDICTION: Final = """
 """
 
 
+#: Turns the outcomes of a request's purchases into its results and its request row.
+Describe = Callable[[list[Outcome]], None]
+
+
 class Saver(Protocol):
     """What the application needs from a store; tests use one in memory."""
 
@@ -107,6 +118,10 @@ class Saver(Protocol):
     def save(self, row: RequestRow, scored: Sequence[Scored]) -> list[Answer]: ...
 
     def record(self, row: RequestRow) -> bool: ...
+
+    def purchase(
+        self, row: RequestRow, orders: Sequence[Order], describe: Describe
+    ) -> list[Outcome]: ...
 
 
 class Store:
@@ -151,6 +166,26 @@ class Store:
             stored = _read(conn, [s.loan_id for s in scored], v.get("pd"), v.get("lgd"))
         return [Answer(stored[s.loan_id], s.loan_id not in new) for s in scored]
 
+    def purchase(
+        self, row: RequestRow, orders: Sequence[Order], describe: Describe
+    ) -> list[Outcome]:
+        """Judge and write ``orders`` of the client ``row.client`` in one transaction.
+
+        ``describe`` turns the outcomes into what the request row keeps (counts, and the
+        body and errors of refused purchases), written in the same transaction.
+        """
+        client = str(row.client)
+        with self.pool.connection() as conn, conn.transaction():
+            _insert_request(conn, row)
+            outcomes = [_purchase(conn, row, client, order) for order in orders]
+            describe(outcomes)
+            conn.execute(
+                "UPDATE serving.requests SET loans = %s, rejected = %s, body = %s,"
+                " errors = %s WHERE request_id = %s",
+                (row.loans, row.rejected, _json(row.body), _json(row.errors), row.request_id),
+            )
+        return outcomes
+
     def record(self, row: RequestRow) -> bool:
         """Write a request with no prediction (rejected, refused, failed); best effort."""
         try:
@@ -177,3 +212,50 @@ def _read(
             values["listed"] = values["listed"].isoformat()
         out[int(values["loan_id"])] = values
     return out
+
+
+STORED: Final = "purchase_id, client, order_id, prediction_id, loan_id, amount, policy, at"
+
+
+def _lock(conn: Connection[Any], *parts: Any) -> None:
+    """A lock held until the transaction ends, on a name made of ``parts``."""
+    name = ":".join(str(p) for p in parts)
+    conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (name,))
+
+
+def _purchase(conn: Connection[Any], row: RequestRow, client: str, order: Order) -> Outcome:
+    _lock(conn, "order", client, order.order_id)
+    found = conn.execute(
+        f"SELECT {STORED} FROM serving.purchases "  # noqa: S608 - fixed names
+        "WHERE client = %s AND order_id = %s",
+        (client, order.order_id),
+    ).fetchone()
+    existing = None if found is None else Stored(*found)
+    answer = conn.execute(
+        "SELECT prediction_id, loan_id, ead, covered, minimum, passes"
+        " FROM serving.predictions WHERE prediction_id = %s",
+        (order.prediction_id,),
+    ).fetchone()
+    prediction = None if answer is None else Prediction(*answer)
+    held = Decimal(0)
+    if existing is None and prediction is not None:
+        _lock(conn, "loan", client, prediction.loan_id)
+        total = conn.execute(
+            "SELECT coalesce(sum(amount), 0) FROM serving.purchases"
+            " WHERE client = %s AND loan_id = %s",
+            (client, prediction.loan_id),
+        ).fetchone()
+        held = Decimal(total[0]) if total else Decimal(0)
+    outcome = judge(order, existing, prediction, held)
+    if outcome.status != "created":
+        return outcome
+    inserted = conn.execute(
+        "INSERT INTO serving.purchases (request_id, client, order_id, prediction_id,"  # noqa: S608 - fixed names
+        " loan_id, amount, policy) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+        f" RETURNING {STORED}",
+        (row.request_id, client, order.order_id, order.prediction_id, outcome.loan_id,
+         order.amount, outcome.policy),
+    ).fetchone()  # fmt: skip
+    assert inserted is not None  # noqa: S101 - RETURNING always gives the row
+    return Outcome("created", loan_id=outcome.loan_id, policy=outcome.policy,
+                   stored=Stored(*inserted))  # fmt: skip

@@ -1,11 +1,14 @@
 """T17.9: a real year, 2014, lived by the simulated clock (D-106 to D-108), approved by
-Juan on 2026-11-24.
+Juan on 2026-11-24; with the simulated investor since F5 (D-123 to D-129), approved by
+Juan on 2026-11-25.
 
 Needs the real source file (``make data``) and the services of docker compose (``make
 up``). The clock starts empty on a database of its own, with landing, training sets and
 model names of its own, and replays 2014-01 to 2014-12 with the real number of trials:
 twelve months loaded, four retrainings (January, April, July and October), every
-verdict in MLflow and in ``ops.alerts``.
+verdict in MLflow and in ``ops.alerts``. The API runs in a process of its own on the same
+database and model names; from 2014-02 every listing goes through it, and what the
+investor bought is what its rule gives.
 """
 
 import os
@@ -27,8 +30,11 @@ from credit_risk.flows import Paths
 from credit_risk.settings import Settings
 from credit_risk.simulator import clock
 from credit_risk.simulator.clock import World
+from tests.api_support import ADMIN_KEY, PREDICT_KEY
+from tests.integration.api_process import api_process
 from tests.integration.conftest import database_url, dbmate
 from tests.integration.test_flows import _remove_models
+from tests.investor_support import check_month
 
 pytestmark = pytest.mark.data
 
@@ -46,7 +52,8 @@ def year(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
     with psycopg.connect(settings.postgres_conninfo(), autocommit=True) as admin:
         admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
         admin.execute(f'CREATE DATABASE "{name}"')
-    previous = {k: os.environ.get(k) for k in ("POSTGRES_DB", "CREDIT_RISK_COMMIT")}
+    keys = ("POSTGRES_DB", "CREDIT_RISK_COMMIT", "API_URL", "API_ADMIN_KEY", "API_PREDICT_KEY")
+    previous = {k: os.environ.get(k) for k in keys}
     mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5000"))
     try:
         dbmate(database_url(settings, name), "up")
@@ -58,12 +65,14 @@ def year(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
             training_sets=str(folder / "training_sets"),
         )
         world = World(source=str(ROOT / World().source), cache=str(ROOT / World().cache))
-        start = time.perf_counter()
-        months = clock.replay(YEAR[-1], world, paths, YEAR[0], prefix)
-        print(f"\nreplay of 2014: {time.perf_counter() - start:.0f} s")
         conninfo = settings.postgres_conninfo().replace(
             f"dbname={settings.postgres_db}", f"dbname={name}"
         )
+        with api_process(name, prefix, ready=False) as url:
+            os.environ.update(API_URL=url, API_ADMIN_KEY=ADMIN_KEY, API_PREDICT_KEY=PREDICT_KEY)
+            start = time.perf_counter()
+            months = clock.replay(YEAR[-1], world, paths, YEAR[0], prefix)
+            print(f"\nreplay of 2014: {time.perf_counter() - start:.0f} s")
         with psycopg.connect(conninfo, row_factory=dict_row) as conn:
             alerts = conn.execute("SELECT * FROM ops.alerts ORDER BY alert_id").fetchall()
             sets = conn.execute("SELECT * FROM ops.training_sets").fetchall()
@@ -73,6 +82,8 @@ def year(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
             "alerts": alerts,
             "training_sets": sets,
             "prefix": prefix,
+            "conninfo": conninfo,
+            "landing": paths.landing,
         }
     finally:
         for key, value in previous.items():
@@ -117,3 +128,12 @@ def test_a_real_year_runs_twelve_months_and_retrains_four_times(year: dict[str, 
         assert promoted, f"{name} got its first champion"
         assert promoted[-1]["version"] == registry.champion(name)
         print(f"  {target} champion: v{registry.champion(name)}")
+
+    # The investor (D-123 to D-129): from 2014-02, every listing scored once through the
+    # API, never more than K bought, and what was bought is what the rule gives.
+    print("\ninvestor in 2014:")
+    for period in YEAR[1:]:
+        month = date.fromisoformat(f"{period}-01")
+        counts = check_month(year["conninfo"], year["landing"], month)
+        assert counts["bought"] <= counts["k"]
+        print(f"  {period}: {counts}")

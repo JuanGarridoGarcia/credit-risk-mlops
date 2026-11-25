@@ -54,6 +54,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-044](#e-044) | 2026-11-24 | 5.1 | The load test missed the latency objective: 31 ms of work for a single loan | Major |
 | [E-045](#e-045) | 2026-11-24 | 5.1 | The first load test measured its own clients as much as the API | Minor |
 | [E-046](#e-046) | 2026-11-24 | 5.1 | The real-month test sent listings without their empty columns | Minor |
+| [E-047](#e-047) | 2026-11-25 | 4.2 (in F5) | The clock story expected several batches a month with batches of 40; a made-up month has 15 listings | Minor |
 
 ## Errors
 
@@ -499,4 +500,14 @@ Date: 2026-11-24 · Step: 5.1 · Severity: minor
 - **Cause**: an error in the test, not in the API: it dropped the empty columns of each row before sending, and the columns the model reads must be present even when empty (D-116).
 - **Fix**: the test sends every column of the delivery, empty ones as null, as the replayer will.
 - **Prevention**: the replayer (second pull request) sends delivery rows as they are; T18.15 shows that a whole real month passes with no refusal.
+
+<a id="e-047"></a>
+### E-047 The clock story expected several batches a month with batches of 40; a made-up month has 15 listings
+
+Date: 2026-11-25 · Step: 4.2 (in F5) · Severity: minor
+
+- **Symptom**: T21.2 failed on `len(batches) > len(INVESTED)`: five months, five batches of 15 listings each.
+- **Cause**: an error in the test: the batch size of the story (40) was chosen without looking at the size of a month of `tests/synthetic_source.py`, about 15 listings.
+- **Fix**: batches of 4 in the story, so that every month takes four requests and the batching of the replayer is exercised.
+- **Prevention**: the constant's comment states the size of a made-up month.
 

@@ -12,7 +12,7 @@ Related documents: [problem definition](problem.md), [data audit](data_audit.md)
 4. F2 Data (steps 2.1 to 2.4)
 5. F3 Model (steps 3.1 to 3.5)
 6. F4 Automation (step 4.1)
-7. F5 Deployment (step 5.1; old step 4.2 and step 5.2 to come)
+7. F5 Deployment (step 5.1 and old step 4.2; step 5.2 to come)
 
 ---
 
@@ -38,8 +38,8 @@ Status of every step of the playbook. Updated in every pull request.
 | | 3.4 Model registry | Done | PR 2 | D-082, D-090 |
 | | 3.5 Explainability and model card | Done | PR 3 | D-083, D-095; buy rule, budget and business result D-084, D-085, D-096, D-097 |
 | F4 Automation | 4.1 Orchestrated training flow | Done | #10, #11 | D-098 to D-108; E-037 to E-042; #11: clock, cadence and alerts |
-| | 4.2 Batch prediction flow | Moved to F5 | | Replaced by the replayer calling the API (D-008, D-098); second pull request of F5 |
-| F5 Deployment | 5.1 API | In review | PR 1 of F5 | D-109 to D-122; E-043 to E-046; API, predictions table, buy rule in MLflow |
+| | 4.2 Batch prediction flow | In review (in F5) | PR 2 of F5 | Replaced by the simulated investor calling the API (D-008, D-098); D-123 to D-129; E-047 |
+| F5 Deployment | 5.1 API | Done | #12 | D-109 to D-122; E-043 to E-046; API, predictions table, buy rule in MLflow; purchases endpoint in PR 2 (D-124) |
 | | 5.2 Published image and CD | Pending | | |
 | F6 Monitoring | 6.1 Drift and metrics | Pending | | |
 | | 6.2 Dashboard and alerts | Pending | | |
@@ -819,6 +819,9 @@ Every decision of F5 was explained to Juan and taken by him one at a time on 202
 | Buy threshold | The buy rule is registered in MLflow like a model, chosen again when the champion pair changes (D-120) |
 | Writing | Each prediction is written before it is answered, in the request's transaction; database down gives 503 (D-121) |
 | Load test | Open load of 20 requests a second, p95 under 200 ms; capacity measured apart (D-122) |
+| Investor | The replayer is the simulated investor, a step of `advance` after publishing a month and before the system's flow (D-123); from the month after T0 (D-127) |
+| Purchases | Reported to `POST /purchases` and stored in `serving.purchases` (D-124), each naming the `prediction_id` of its answer (D-126) and its amount in notes of 25 dollars (D-128), by the client's own order number (D-129) |
+| Investor failures | The API not answering is retried 3 times, then the clock stops; a refused listing is not bought and is counted (D-125) |
 
 ### First pull request: the API and the predictions table
 
@@ -881,4 +884,45 @@ If the buy rule in use was chosen for another PD and LGD pair, or there is none 
 | E-044 | The load test missed its objective: 31 ms of work per loan; polars called once per column, the PD's matrix built three times |
 | E-045 | The first load test ran its clients in the server's process (the GIL) |
 | E-046 | The real-month test dropped empty columns; the API rightly refused the loans |
+
+### Second pull request: the simulated investor and its purchases
+
+```
+ simulated world: flow "advance" for month M                    system
+   1. publish M (and the history on the first run)
+   2. investor (replayer, D-123), if M is after T0 (D-127)
+        listings of M, 1,000 at a time -------------------------> POST /predict/batch
+                                         <-- prediction_id, risk, passes threshold
+        K = 10% of the listings of M-1 (D-085)
+        those that pass, in listing order, up to K, 25 dollars each
+        order "M-loan", prediction_id, 25 ---------------------> POST /purchases
+                                                                   -> serving.purchases
+        record M in sim.invested
+   3. the system's flow "monthly" for M (load; retraining in the cadence months)
+   4. write M in sim.clock
+```
+
+**The investor** (`credit_risk.simulator.replayer`). It belongs to the simulated world, as the clock: in production the investor is a client of the API. Each month after T0 it reads the month's listings as the provider delivered them and sends them to `/predict/batch` in batches of 1,000; keeps the answers that pass the buy threshold; applies its cap with `business.buy` (the same function as the business metric of F3: K is 10% of the loans listed the month before, in listing order, D-085); and reports the purchases to `/purchases`. Its key is a predict key (`API_PREDICT_KEY`, client name `replayer`). It runs before the system's flow, so in a retraining month its loans are decided by the champions of the month before (T21.3). The month is recorded in `sim.invested` (migration `20261125090100`) with its counts; a month the clock repeats because the system's flow failed is not sent again, since the investor already acted on it.
+
+**Failures (D-125).** No connection, a timeout or a 5xx answer of the API raises `ApiUnavailableError`, retried by Prefect three times after 10, 30 and 90 s; then `advance` fails and the clock stays. A listing refused with 422 is counted (`refused`) and not bought. A refused purchase stops the month (`InvestorError`): it would be a bug. Repeating a month buys nothing twice: predictions are stored once per loan and pair (D-114) and purchases once per order number (D-129).
+
+**Purchases (D-124, D-126, D-128, D-129).** Every answer now carries `prediction_id`. `POST /purchases` takes up to 1,000 purchases:
+
+```json
+{"purchases": [{"order_id": "2014-02-12345", "prediction_id": 8812, "amount": 25}]}
+```
+
+and answers 200 with one result per purchase, in order: `created` or `stored_earlier` with the stored purchase, or `refused` with 409 (the order number was used for another purchase) or 422 (unknown prediction, an amount that is not a positive multiple of 25, a client's share above the loan's amount, or a malformed purchase). A malformed request (empty, more than 1,000, a wrong key) is a 422 for the whole request. Each purchase is marked against the rule of its answer: `passes`, `below_minimum`, `no_threshold` or `not_covered`; exceptions are recorded, never refused. `credit_risk.api.purchases.judge` decides; the store reads what it needs and writes what it decides in the request's transaction, under a lock on the client's order and one on its share of the loan (`pg_advisory_xact_lock`), so two requests at once cannot both create an order or overfill a loan (T20.5).
+
+**Table** (migration `20261125090000`). `serving.purchases`: one row per order, linked to its request and its prediction: client, order number, loan, amount (numeric, checked to be a positive multiple of 25), policy, time. Unique (client, order number).
+
+**Compose.** The `clock` service gets `API_URL=http://api:8000` and `API_PREDICT_KEY`, and starts after the API is healthy.
+
+**Measured** (2026-11-25, cloud machine). On the made-up source of the tests (about 15 listings a month), the clock story with the investor takes about 80 s, as before. The real year of T17.9 with the investor: see its numbers below once run.
+
+**Tests** (T20, T21, approved by Juan on 2026-11-25): a purchase recorded (T20.1); order numbers (T20.2); refusals (T20.3); exceptions recorded (T20.4); the database's constraint, locks and transactions (T20.5); the investor's rule by hand (T21.1); months after T0, every listing once (T21.2); the champions of the month before (T21.3); failures (T21.4); purchases equal to the rule on the predictions (T21.5). T17.9 also checks the investor on the real year. T17.4 to T17.8 run with the API in a process of its own.
+
+| Error | What happened |
+|---|---|
+| E-047 | The clock story expected several batches a month with batches of 40; a made-up month has 15 listings |
 

@@ -5,16 +5,18 @@ store in memory that keeps the same promise as Postgres (one row per loan and pa
 import threading
 from collections.abc import Sequence
 from dataclasses import asdict
-from datetime import date
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any, Final
 
 import polars as pl
 import psycopg
 
 from credit_risk.api.champions import Versions
+from credit_risk.api.purchases import Order, Outcome, Prediction, Stored, judge
 from credit_risk.api.scoring import Scored
 from credit_risk.api.settings import ApiSettings
-from credit_risk.api.store import ANSWER, Answer, RequestRow
+from credit_risk.api.store import ANSWER, Answer, Describe, RequestRow
 from credit_risk.buy_rule import BuyRule
 from credit_risk.lgd import train_lgd
 from credit_risk.model import LGDModel, PDModel
@@ -79,6 +81,7 @@ class MemoryStore:
     def __init__(self) -> None:
         self.requests: list[RequestRow] = []
         self.predictions: dict[tuple[int, Any, Any], dict[str, Any]] = {}
+        self.purchases: dict[tuple[str, str], Stored] = {}
         self.up = True
         self.lock = threading.Lock()
 
@@ -103,6 +106,7 @@ class MemoryStore:
                 earlier = key in self.predictions
                 if not earlier:
                     values = {k: asdict(s).get(k) for k in ANSWER}
+                    values["prediction_id"] = len(self.predictions) + 1
                     values["listed"] = s.listed.isoformat() if s.listed else None
                     values.update(
                         pd_version=v.get("pd"),
@@ -113,6 +117,43 @@ class MemoryStore:
                     self.predictions[key] = values
                 answers.append(Answer(self.predictions[key], earlier))
             return answers
+
+    def purchase(
+        self, row: RequestRow, orders: Sequence[Order], describe: Describe
+    ) -> list[Outcome]:
+        if not self.up:
+            raise psycopg.OperationalError("database down")
+        client = str(row.client)
+        by_id = {v["prediction_id"]: v for v in self.predictions.values()}
+        with self.lock:
+            outcomes = []
+            for order in orders:
+                existing = self.purchases.get((client, order.order_id))
+                v = by_id.get(order.prediction_id)
+                prediction = None if v is None else Prediction(
+                    v["prediction_id"], v["loan_id"], v["ead"], v["covered"], v["minimum"],
+                    v["passes"],
+                )  # fmt: skip
+                held = sum(
+                    (p.amount for p in self.purchases.values()
+                     if prediction is not None and (p.client, p.loan_id)
+                     == (client, prediction.loan_id)),
+                    Decimal(0),
+                )  # fmt: skip
+                o = judge(order, existing, prediction, held)
+                if o.status == "created":
+                    assert o.loan_id is not None
+                    assert o.policy is not None
+                    stored = Stored(
+                        len(self.purchases) + 1, client, order.order_id, order.prediction_id,
+                        o.loan_id, Decimal(order.amount), o.policy, datetime.now(UTC),
+                    )  # fmt: skip
+                    self.purchases[(client, order.order_id)] = stored
+                    o = Outcome("created", loan_id=o.loan_id, policy=o.policy, stored=stored)
+                outcomes.append(o)
+            describe(outcomes)
+            self.requests.append(row)
+            return outcomes
 
     def record(self, row: RequestRow) -> bool:
         if not self.up:

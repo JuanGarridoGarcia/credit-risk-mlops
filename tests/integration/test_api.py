@@ -10,8 +10,6 @@ import math
 import os
 import socket
 import statistics
-import subprocess
-import sys
 import threading
 import time
 import uuid
@@ -40,6 +38,7 @@ from credit_risk.model import LGDModel, PDModel, logit
 from credit_risk.settings import Settings
 from tests.api_support import PREDICT_KEY, loan, rule, settings, toy_models
 
+from .api_process import api_process
 from .conftest import IMAGES, compose, docker
 
 pytestmark = pytest.mark.integration
@@ -261,44 +260,11 @@ def test_what_is_stored_with_each_prediction(served: Served) -> None:
 
 
 # T18.13
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
-def test_latency_under_load(served: Served, settings: Settings) -> None:
+def test_latency_under_load(served: Served) -> None:
     # The API in a process of its own, as in compose: the clients of this test must not
-    # share its interpreter (and its lock) with the server they measure.
-    port = _free_port()
-    env = {
-        **os.environ,
-        "POSTGRES_DB": served.conninfo.split("dbname=")[1].split()[0],
-        "API_MODEL_PREFIX": served.prefix,
-        "API_KEYS_PREDICT": f"replayer:{PREDICT_KEY}",
-        "API_KEYS_ADMIN": f"flow:{'a' * 40}",
-        "API_POOL_SIZE": str(POOL),
-    }
-    server = subprocess.Popen(
-        [sys.executable, "-m", "credit_risk.api", "--port", str(port)],
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    url = f"http://127.0.0.1:{port}"
-    try:
-        with httpx.Client(base_url=url, trust_env=False, timeout=5) as http:
-            deadline = time.monotonic() + 60
-            while True:
-                assert server.poll() is None, server.stderr.read() if server.stderr else ""
-                assert time.monotonic() < deadline, "the API did not become ready"
-                try:
-                    if http.get("/health").status_code == 200:
-                        break
-                except httpx.TransportError:
-                    pass
-                time.sleep(0.2)
+    # share its interpreter (and its lock) with the server they measure (E-045).
+    dbname = served.conninfo.split("dbname=")[1].split()[0]
+    with api_process(dbname, served.prefix, API_POOL_SIZE=str(POOL)) as url:
         # Open load (D-122): requests leave at a fixed rate, whatever the answers do, as
         # loans are listed; a pool of clients with their connections sends them.
         latencies: list[float] = []
@@ -368,11 +334,6 @@ def test_latency_under_load(served: Served, settings: Settings) -> None:
         assert answer.status_code == 200
         assert len(answer.json()["results"]) == 1_000
         assert batch_seconds < 30, "a batch of 1,000 must fit the replayer's timeout"
-    finally:
-        server.terminate()
-        server.wait(timeout=10)
-        if server.stderr is not None:
-            server.stderr.close()
 
 
 # T18.14

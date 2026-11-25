@@ -5,7 +5,8 @@ production the calendar is real and nobody publishes deliveries, they arrive. It
 the last month the system completed, is one row of ``sim.clock``, a schema the system
 never reads (T17.3).
 
-``advance`` moves one month: it publishes the next month's deliveries, runs the system's
+``advance`` moves one month: it publishes the next month's deliveries, lets the simulated
+investor send its listings to the API and buy (``replayer``, D-123), runs the system's
 monthly flow for it (which retrains or not by its cadence, D-106), and only then writes the
 month as done. If anything fails, the clock stays where it was and the next ``advance``
 tries the same month again: a month is never skipped nor done twice. ``replay`` calls
@@ -29,6 +30,7 @@ from credit_risk import flows
 from credit_risk.settings import Settings
 from credit_risk.simulator.io import SOURCE_SHA256
 from credit_risk.simulator.publish import load_prepared, publish
+from credit_risk.simulator.replayer import invest_task
 from credit_risk.train import LIGHTGBM_TRIALS
 
 log = logging.getLogger(__name__)
@@ -105,10 +107,12 @@ def advance(
     period = f"{month:%Y-%m}"
     log.info("clock: %s -> %s", f"{last:%Y-%m}" if last else "empty", period)
     publish_task(period, world, paths.landing, history=last is None)
-    # A subflow: if the system's month fails, so does this, and the clock does not move.
+    # The investor decides with the champions of the month before, then the system's month
+    # runs (D-123). A subflow: if it fails, so does this, and the clock does not move.
+    investor = invest_task(period, paths.landing, start)
     summary = flows.monthly(period, paths, prefix, trials, cadence)
     _done(month)
-    return summary
+    return {**summary, "investor": investor}
 
 
 @flow(name="replay", log_prints=True)

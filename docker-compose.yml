@@ -117,12 +117,15 @@ services:
 
   clock:
     # The simulated world (D-107): serves advance/advance (schedule paused) and
-    # replay/replay. Each advance publishes the next month and runs the system's flow.
+    # replay/replay. Each advance publishes the next month, lets the simulated investor
+    # send it to the API and buy (D-123), and runs the system's flow.
     image: ${TRAIN_IMAGE:-credit-risk:train}
     depends_on:
       prefect:
         condition: service_healthy
       mlflow:
+        condition: service_healthy
+      api:
         condition: service_healthy
     environment:
       POSTGRES_HOST: postgres
@@ -132,6 +135,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       PREFECT_API_URL: http://prefect:4200/api
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      # The investor is a client of the API, with a predict key (D-118, D-124).
+      API_URL: http://api:8000
+      API_PREDICT_KEY: ${API_PREDICT_KEY:?set API_PREDICT_KEY in .env}
     command: ["python", "-m", "credit_risk.simulator.clock", "serve"]
     volumes:
       # The source file, read only: only the simulated world opens it (D-043).
