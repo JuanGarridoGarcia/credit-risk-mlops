@@ -25,6 +25,8 @@ Every test of the project, what it checks, where it lives and where it runs. Jua
 - [T15 Buy rule and business metric](#t15-buy-rule-and-business-metric)
 - [T16 Orchestration](#t16-orchestration)
 - [T17 Clock and alerts](#t17-clock-and-alerts)
+- [T18 API](#t18-api)
+- [T19 Buy rule in the flow](#t19-buy-rule-in-the-flow)
 - [Change history](#change-history)
 
 ## How tests are organised
@@ -35,7 +37,7 @@ Tests are grouped by the piece they check. Group B holds the foundations (packag
 |---|---|---|---|---|---|
 | Unit | `tests/unit/` | none | Nothing | `make test`, `make test-image` | CI (job `tests`), and inside the image (job `integration`) |
 | Integration | `tests/integration/` | `integration` (`destructive` for B4 and T8.2) | Docker: compose Postgres and MLflow, or the built images | `make test-integration` | CI (job `integration`) |
-| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15, T5.13, T5.14, T6.8, T10.6, T12.6, T14.6, T15.7, T17.9; MLflow for T14.6 and T17.9; the Prefect server for T17.9) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
+| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15, T5.13, T5.14, T6.8, T10.6, T12.6, T14.6, T15.7, T17.9, T18.15; MLflow for T14.6 and T17.9; the Prefect server for T17.9) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
 
 Integration and data tests never skip: if what they need is missing, they fail.
 
@@ -70,7 +72,9 @@ Changing what an approved test checks needs Juan's approval again. B6 fails if a
 | T15 Buy rule and business metric | F3, third pull request | 7 | 2026-11-24 | [technical.md, F3](technical.md#third-pull-request-explanations-and-business) |
 | T16 Orchestration | F4, step 4.1, first pull request | 10 | 2026-11-24 | [technical.md, F4](technical.md#6-f4-automation) |
 | T17 Clock and alerts | F4, step 4.1, second pull request | 9 | 2026-11-24 | [technical.md, F4](technical.md#second-pull-request-the-simulated-clock-cadence-and-alerts) |
-| **Total** | | **153** | | |
+| T18 API | F5, step 5.1, first pull request | 15 | 2026-11-24 (T18.13 changed the same day, D-122) | [technical.md, F5](technical.md#first-pull-request-the-api-and-the-predictions-table) |
+| T19 Buy rule in the flow | F5, step 5.1, first pull request | 2 | 2026-11-24 | [technical.md, F5](technical.md#first-pull-request-the-api-and-the-predictions-table) |
+| **Total** | | **170** | | |
 
 ## B Foundations
 
@@ -351,6 +355,37 @@ F4, step 4.1, second pull request (D-106 to D-108). Unit tests need no Docker (T
 | T17.8 | The `advance` deployment is on the server with its 10-minute schedule paused, and `replay` is deployed with no schedule; `replay` (the flow `make replay` runs) advances month by month until the month asked and returns the months it ran | `tests/integration/test_clock.py::test_the_clock_is_deployed_paused_and_replay_loops_months` | Integration | CI |
 | T17.9 | A real year: from an empty clock, `replay` lives 2014-01 to 2014-12 on the real file with the real number of trials: 12 months, 4 training sets, one challenger of each model per quarter with its verdict carried out in MLflow and, when rejected, its alert in `ops.alerts`; no flow fails. It fixes no winner: it prints the verdicts | `tests/data/test_clock_data.py::test_a_real_year_runs_twelve_months_and_retrains_four_times` | Data | Local |
 
+## T18 API
+
+F5, step 5.1, first pull request (D-109 to D-122). Unit tests run the application in process with `TestClient`, made-up champions (`tests/api_support.py`), a registry in memory and an in-memory store; integration tests use the services of docker compose: champions registered in the MLflow server and a migrated database of their own. T18.13 starts the API in a process of its own.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T18.1 | `/predict` with a valid listing: 200 with PD, LGD, expected loss in dollars and as a rate, expected return, whether it passes the threshold, the four main reasons and the versions (PD, LGD, buy rule, API); the values equal scoring in process with the same functions | `tests/unit/test_api.py::test_one_listing_gets_its_full_answer` | Unit | CI, image |
+| T18.2 | An uncovered term (D-070): `covered` false, no PD, LGD, loss or threshold, the note "not covered"; it is stored all the same | `tests/unit/test_api.py::test_an_uncovered_term_gets_no_risk_and_is_stored` | Unit | CI, image |
+| T18.3 | Invalid input (a required field missing, a broken format, a number that is not text, an unknown field, no id): 422 with the column and the reason; one row in `serving.requests` with the body and the errors; none in `serving.predictions` | `tests/unit/test_api.py::test_invalid_input_is_refused_with_its_column_and_recorded` | Unit | CI, image |
+| T18.4 | A batch answers exactly as the loans one by one, in the same order; valid and invalid loans mixed give a result per loan (D-117); more loans than the limit (1,000; lowered in the test), an empty list, loans that are not a list, a wrong key or broken JSON give 422 for the whole batch | `tests/unit/test_api.py::test_a_batch_answers_exactly_as_one_by_one`<br>`tests/unit/test_api.py::test_a_batch_answers_each_loan_on_its_own`<br>`tests/unit/test_api.py::test_a_malformed_batch_is_refused_whole`<br>`tests/unit/test_api.py::test_broken_json_is_refused` | Unit | CI, image |
+| T18.5 | Keys (D-118): no key or a wrong key gives 401; the predict key does not open `/admin/reload` (403); two valid keys at once (rotation); `/health` needs no key; the key is never stored nor logged, only the client's name; keys shorter than 32 characters, repeated or malformed stop the start | `tests/unit/test_api.py::test_keys_decide_who_may_call_what`<br>`tests/unit/test_api.py::test_short_or_malformed_keys_stop_the_start` | Unit | CI, image |
+| T18.6 | Duplicates (D-114): the same loan with the same versions twice gives one row and the same answer, marked as stored earlier; with a new champion, a new row | `tests/integration/test_api.py::test_the_same_loan_and_pair_is_stored_once` | Integration | CI |
+| T18.7 | Synchronous writing (D-121): no prediction leaves without its stored row (in memory); with Postgres down, 503 and no prediction; a batch that fails halfway through its inserts leaves none of its loans stored | `tests/unit/test_api.py::test_no_prediction_leaves_without_being_stored`<br>`tests/integration/test_api.py::test_with_postgres_down_nothing_is_predicted`<br>`tests/integration/test_api.py::test_a_batch_that_fails_halfway_stores_nothing` | Unit, integration | CI, image |
+| T18.8 | Start: the API is not ready (503) until it can load the champions, and becomes ready when the registry answers (in memory); it loads the champion trio from the MLflow server and `/health` shows the versions | `tests/unit/test_api.py::test_the_api_is_not_ready_until_it_can_load_the_champions`<br>`tests/integration/test_api.py::test_the_champions_come_from_the_mlflow_registry` | Unit, integration | CI, image |
+| T18.9 | Reload (D-111): after a promotion `/admin/reload` serves the new pair at once; polling finds a moved alias without the notice (interval shortened); a champion that fails to load leaves the pair in use and writes one `model_load_failed` alert; with concurrent requests during the swap, none mixes versions | `tests/unit/test_api.py::test_a_new_champion_is_served_at_once_after_the_notice`<br>`tests/unit/test_api.py::test_polling_finds_a_new_champion_without_the_notice`<br>`tests/unit/test_api.py::test_a_champion_that_fails_to_load_leaves_the_pair_in_use`<br>`tests/unit/test_api.py::test_no_request_mixes_two_pairs_during_a_swap` | Unit | CI, image |
+| T18.10 | A buy rule of another PD and LGD pair, or no rule yet: the risk is served and the threshold is "not available" | `tests/unit/test_api.py::test_a_rule_of_another_pair_gives_no_threshold`<br>`tests/unit/test_api.py::test_no_rule_yet_gives_no_threshold` | Unit | CI, image |
+| T18.11 | What is stored: the row of `serving.predictions` has the request, the 30 features the model saw and the SHAP vector, and base value plus contributions gives the PD (additivity); the row of `serving.requests` has endpoint, status, latency, client and number of loans, and no free text of valid requests | `tests/integration/test_api.py::test_what_is_stored_with_each_prediction` | Integration | CI |
+| T18.12 | Logs: one JSON line per request with id, path, status, latency and versions, with no key and no body | `tests/unit/test_api.py::test_one_json_line_per_request_without_keys_or_bodies` | Unit | CI, image |
+| T18.13 | Load (D-122): the API in its own process takes an open load of 20 single-loan requests a second for 60 s with p95 under 200 ms; the capacity (answers a second with 20 busy clients for 20 s) is measured and printed with no assertion; a batch of 1,000 loans takes under 30 s | `tests/integration/test_api.py::test_latency_under_load` | Integration | CI |
+| T18.14 | The API runs in compose from the `serve` image with its healthcheck: healthy, alive, the database reachable, the package version, and 401 with no key. B5 (800 MB) and B7 (no training libraries) keep checking that image | `tests/integration/test_api.py::test_the_api_runs_in_compose_from_the_serve_image` | Integration | CI |
+| T18.15 | Data test: the real delivery of 2014-02 (15,269 loans), sent as the provider wrote it in batches of 1,000 to an API serving models trained at T0, gives exactly what scoring the month in process gives, with no refusal; every answer is stored | `tests/data/test_api_data.py::test_a_real_month_through_the_api_equals_scoring_in_process` | Data | Local |
+
+## T19 Buy rule in the flow
+
+F5, step 5.1, first pull request (D-111, D-120). Integration tests: the monthly flow runs in process against a database of its own and the MLflow server, on the small made-up source; a small HTTP server stands in for the API and records what it receives.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T19.1 | When the PD or LGD champion changes, the flow registers a buy rule with the minimum chosen on validation (D-084) and the versions of the pair, with every required field of its run (D-079), moves its alias and records a `promoted` alert; running the month again creates no version; a new PD champion makes a new rule, and going back reuses the old one | `tests/integration/test_buy_rule.py::test_the_flow_registers_the_rule_of_the_champion_pair` | Integration | CI |
+| T19.2 | After a promotion the flow calls `/admin/reload` with the admin key, and a run with no change sends no notice; with an API that does not answer the flow goes on and records one `reload_failed` warning, without the key | `tests/integration/test_buy_rule.py::test_the_flow_tells_the_api_after_a_promotion` | Integration | CI |
+
 ## Change history
 
 | Date | Test | Change | Why |
@@ -384,3 +419,6 @@ F4, step 4.1, second pull request (D-106 to D-108). Unit tests need no Docker (T
 | 2026-11-24 | T16.7, T16.10 | T16.7: the test publishes the deliveries with the simulator before the flow, which no longer has a publish task. T16.10: the failing run of the deployment fails in the load task (no deliveries) instead of the publish task | Publishing belongs to the simulated world, not to the system ([D-105](decisions.md#d-105)); approved by Juan with D-105 |
 | 2026-11-24 | T16.8 | Raw is left out of the "nothing new" comparison | Raw keeps every delivery as it came, by design ([D-044](decisions.md#d-044)); validation stops it at clean ([E-040](errors.md#e-040)) |
 | 2026-11-24 | T17.1 to T17.9 | Written (F4, second pull request) | Approved by Juan |
+| 2026-11-24 | T18.1 to T18.15, T19.1, T19.2 | Written (F5, first pull request) | Approved by Juan |
+| 2026-11-24 | T18.13 | Open load of 20 requests a second for 60 s with p95 under 200 ms instead of 20 clients firing without pause; capacity measured and recorded, with no assertion | 20 busy clients measure saturation, not latency: each request waits for the other 19 ([D-122](decisions.md#d-122), [E-044](errors.md#e-044)); approved by Juan |
+| 2026-11-24 | T16.8, T17.6 | T16.8: `buy-rule` and `reload` never run after a failed validation either. T17.6: the retraining months also run `buy-rule`, and `reload` when a champion or the rule changed | The flow gained these two tasks ([D-111](decisions.md#d-111), [D-120](decisions.md#d-120)). What each test checks is unchanged |

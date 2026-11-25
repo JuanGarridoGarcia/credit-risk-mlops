@@ -9,7 +9,10 @@ already stored:
    (Postgres, D-104);
 2. ``version``: the training set at the month (object storage and manifest);
 3. ``train-pd``: PD trained, registered and judged for promotion (MLflow);
-4. ``train-lgd``: the same for the LGD, on the terms the PD covers (MLflow).
+4. ``train-lgd``: the same for the LGD, on the terms the PD covers (MLflow);
+5. ``buy-rule``: the buy rule of the champion pair, chosen again when the pair changed
+   (MLflow, D-120);
+6. ``reload``: when any champion changed, tell the API to load it now (D-111).
 
 The flow starts from the deliveries in the landing folder, as it would with a real
 provider. Publishing them belongs to the simulated world, never to the system (D-043,
@@ -29,7 +32,8 @@ import logging
 import os
 import shutil
 import time
-from dataclasses import dataclass
+import urllib.request
+from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 from typing import Any, Final
@@ -42,12 +46,13 @@ from prefect.client.schemas.objects import State, TaskRun
 from prefect.runtime import flow_run
 from prefect.tasks import Task
 from psycopg import sql
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from credit_risk import alerts, pipeline, registry
+from credit_risk import alerts, buy_rule, pipeline, registry
 from credit_risk.ingest import catch_up
 from credit_risk.settings import Settings
-from credit_risk.snapshot import ROOT, build, git_commit, read_features
+from credit_risk.snapshot import ROOT, build, git_commit, read_evaluation, read_features
 from credit_risk.storage import LocalStore
 from credit_risk.train import LIGHTGBM_TRIALS
 
@@ -158,6 +163,8 @@ class Trained:
     promoted: bool
     reasons: tuple[str, ...]
     reused: bool
+    #: Whether the champion is a different version after this task (D-111).
+    changed: bool = False
 
 
 def _summary(outcome: pipeline.Outcome) -> Trained:
@@ -187,7 +194,7 @@ def _with_alerts(target: str, prefix: str, period: str, train: Any) -> Trained:
         name, outcome.version, summary.promoted, summary.reasons, before, after, _month(period)
     ):
         alerts.record(alert)
-    return summary
+    return replace(summary, changed=after != before)
 
 
 @task(name="train-pd", **RETRY)
@@ -226,6 +233,84 @@ def train_lgd_task(
             trials=trials,
         ),
     )
+
+
+@task(name="buy-rule", **RETRY)
+def buy_rule_task(period: str, version: str, paths: Paths, prefix: str) -> bool:
+    """The buy rule of the champion pair (D-120); return whether its champion moved."""
+    name = f"{prefix}{buy_rule.NAME}"
+    before = registry.champion(name)
+    with _connect() as conn:
+        store = LocalStore(Path(paths.training_sets))
+        rule, moved = buy_rule.update(
+            version,
+            read_features(conn, store, version),
+            read_evaluation(conn, store, version),
+            buy_rule.listed(conn),
+            prefix=prefix,
+            commit=git_commit(),
+        )
+    if moved and rule is not None:
+        alerts.record(
+            alerts.Alert(
+                "promoted",
+                f"{name} champion {before or 'none'} -> {rule}",
+                period=_month(period),
+                model=name,
+                version=rule,
+                previous=before,
+            )
+        )
+    return moved
+
+
+class ReloadSettings(BaseSettings):
+    """Where the API is, and the admin key the flow uses to reach it (D-111, D-118)."""
+
+    model_config = SettingsConfigDict(frozen=True, extra="ignore", env_prefix="API_")
+
+    url: str | None = None
+    admin_key: SecretStr | None = None
+
+
+#: Seconds the flow waits for the API to answer a reload.
+RELOAD_TIMEOUT: Final = 30.0
+
+
+@task(name="reload")
+def reload_task(period: str) -> bool:
+    """Ask the API to load the new champions now (D-111); return whether it answered.
+
+    Never fails the flow and is never retried: the API's own polling catches up within
+    ``API_RELOAD_SECONDS``. A failure is recorded as a ``reload_failed`` alert.
+    """
+    settings = ReloadSettings()
+    if not settings.url or settings.admin_key is None:
+        log.warning("API_URL or API_ADMIN_KEY not set: the API will notice by polling")
+        return False
+    request = urllib.request.Request(  # noqa: S310 - the URL is our own configuration
+        f"{settings.url.rstrip('/')}/admin/reload",
+        method="POST",
+        headers={"X-API-Key": settings.admin_key.get_secret_value()},
+    )
+    try:
+        # An internal service: straight there, never through an outbound proxy.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=RELOAD_TIMEOUT) as answer:
+            log.info("API reloaded: %s", answer.read().decode())
+        return True
+    except Exception as error:  # noqa: BLE001 - recorded, never raised
+        alerts.record(
+            alerts.Alert(
+                "reload_failed",
+                f"the API did not take the reload notice of {period}: {error!r}",
+                period=_month(period),
+                flow=FLOW,
+                task="reload",
+                details={"url": settings.url, "error": repr(error)},
+            )
+        )
+        return False
 
 
 # ---------------------------------------------------------------- cadence (D-106)
@@ -325,6 +410,8 @@ def monthly(
     version = version_task(period, paths)
     pd_ = train_pd_task(period, version, paths, prefix, trials)
     lgd = train_lgd_task(period, version, pd_.covered_terms, paths, prefix, trials)
+    rule_moved = buy_rule_task(period, version, paths, prefix)
+    reloaded = reload_task(period) if pd_.changed or lgd.changed or rule_moved else None
     summary = {
         "period": period,
         "months_loaded": months,
@@ -333,6 +420,8 @@ def monthly(
         "training_set": version,
         "pd": pd_,
         "lgd": lgd,
+        "buy_rule_moved": rule_moved,
+        "api_reloaded": reloaded,
     }
     log.info("monthly %s: %s", period, summary)
     return summary

@@ -1,7 +1,8 @@
 """Alerts: every event a person should know about, recorded in ``ops.alerts`` (D-108).
 
-Four kinds: a flow that failed, a model promoted to champion, a challenger rejected, and
-a rollback. They are only recorded here; Grafana reads the table in F6 and sends them on,
+Six kinds: a flow that failed, a model promoted to champion, a challenger rejected, a
+rollback, and from F5 a champion the API could not load and a reload notice that did not
+reach the API (D-111). They are only recorded here; Grafana reads the table in F6 and sends them on,
 together with the drift alerts, through the channel chosen then. A verdict on a registered
 version is recorded once, however many times its month runs (unique index, D-101).
 """
@@ -23,6 +24,10 @@ KINDS: Final = {
     "promoted": "warning",
     "rejected": "info",
     "rolled_back": "warning",
+    # Step 5.1 (D-111): the API could not load a new champion and kept the pair it had;
+    # the flow's reload notice did not reach the API (its polling catches up).
+    "model_load_failed": "error",
+    "reload_failed": "warning",
 }
 
 

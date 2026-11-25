@@ -21,6 +21,7 @@ Target architecture; the parts already built are marked.
              |
              v
    replayer -----> API (PD, LGD, EL + explanation) -----> Postgres [built]
+                    [built]
                     ^                                      (loans, predictions,
                     |                                       labels, metrics)
             model registry <---- training flow                  |
@@ -67,6 +68,7 @@ One line per theme; each links to its full card with the alternatives considered
 | Architecture | A single prediction path, the API, with every prediction stored ([D-008](docs/decisions.md#d-008)) |
 | Engineering | Three families of tests (code now; data from F2, model from F3), each approved before it is written and listed in the [test catalogue](docs/tests.md) ([D-057](docs/decisions.md#d-057)); CI is the only way into `main`, with no exceptions ([D-028](docs/decisions.md#d-028), [D-032](docs/decisions.md#d-032)); everything from outside is pinned by its fingerprint ([D-030](docs/decisions.md#d-030)) |
 | Orchestration | Prefect runs the monthly cycle: load and validate, version, train PD and LGD, promote; only identifiers travel between tasks ([D-099](docs/decisions.md#d-099), [D-100](docs/decisions.md#d-100)); running a month again changes nothing ([D-101](docs/decisions.md#d-101)); only transient failures are retried ([D-102](docs/decisions.md#d-102)); the simulator stays outside the system ([D-105](docs/decisions.md#d-105)); retraining every quarter ([D-106](docs/decisions.md#d-106)); a simulated clock moves the system one month at a time and never skips or repeats a month ([D-107](docs/decisions.md#d-107)); failures, promotions, rejections and rollbacks recorded as alerts ([D-108](docs/decisions.md#d-108)) |
+| Serving | One API, the only way to a prediction ([D-008](docs/decisions.md#d-008)): it takes listings as the provider delivers them and cleans them with the code of the monthly load ([D-116](docs/decisions.md#d-116)); it answers PD, LGD, expected loss, expected return and whether the loan passes the buy threshold, with four reasons and the versions used ([D-112](docs/decisions.md#d-112)); every answer is stored before it leaves, once per loan and pair of models ([D-113](docs/decisions.md#d-113), [D-114](docs/decisions.md#d-114), [D-121](docs/decisions.md#d-121)); champions come from the MLflow registry and are swapped as a whole after a notice from the flow ([D-110](docs/decisions.md#d-110), [D-111](docs/decisions.md#d-111)); API keys per permission ([D-118](docs/decisions.md#d-118)) |
 | Modelling | Baselines use only the grade ([D-004](docs/decisions.md#d-004)); models are judged on ranking and calibration ([D-006](docs/decisions.md#d-006)) and on realised return at equal budget ([D-007](docs/decisions.md#d-007)). Training decisions come in F3 |
 
 ## How to run it
@@ -80,7 +82,7 @@ make install            # environment from uv.lock, git hooks, .env from .env.ex
 make lint               # style, formatting, types, lock in sync
 make test               # unit tests with coverage
 make build              # the two application images, serve and train
-make up                 # Postgres, MLflow (UI at http://localhost:5000), Prefect (UI at http://localhost:4200), its worker and the simulated clock
+make up                 # Postgres, MLflow (UI at http://localhost:5000), Prefect (UI at http://localhost:4200), its worker, the simulated clock and the API (http://localhost:8000/docs)
 make test-integration   # tests against Postgres, MLflow and the images
 make train T=2014-01    # train, register and try to promote the PD and LGD models
 make advance            # simulated clock: publish the next month and run the monthly flow for it
@@ -99,8 +101,8 @@ make down               # stop; data stays in the volume
 | F1 Foundations | Environment, code quality, Docker, CI, documentation | Done |
 | F2 Data | Ingestion, validation, versioning, features | Done |
 | F3 Model | Baselines, experiments, model tests, registry, explainability | Done |
-| F4 Automation | Orchestrated monthly cycle and simulated clock | In review (flow in PR #10; clock, retraining cadence and alerts in the second pull request) |
-| F5 Deployment | API, published image, continuous delivery | Pending |
+| F4 Automation | Orchestrated monthly cycle and simulated clock | Done |
+| F5 Deployment | API, replayer, published image, continuous delivery | In progress (API and predictions table in the first pull request) |
 | F6 Monitoring | Drift, dashboard, alerts, triggered retraining | Pending |
 | F7 Closing | End to end, AWS with infrastructure as code | Pending |
 

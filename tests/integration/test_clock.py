@@ -33,7 +33,7 @@ from credit_risk.simulator.clock import World
 from tests.synthetic_source import write_source
 
 from .conftest import database_url, dbmate
-from .test_flows import _remove_models, _task_runs
+from .test_flows import ENVIRONMENT, _remove_models, _task_runs
 
 pytestmark = pytest.mark.integration
 
@@ -74,10 +74,12 @@ def story(settings: Settings, tmp_path_factory: pytest.TempPathFactory) -> Itera
     prefix = f"test-clock-{uuid.uuid4().hex[:8]}-"
     with psycopg.connect(settings.postgres_conninfo(), autocommit=True) as admin:
         admin.execute(f'CREATE DATABASE "{name}"')
-    previous = {k: os.environ.get(k) for k in ("POSTGRES_DB", "CREDIT_RISK_COMMIT")}
+    previous = {k: os.environ.get(k) for k in ENVIRONMENT}
     mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5000"))
     try:
         dbmate(database_url(settings, name), "up")
+        for key in ("API_URL", "API_ADMIN_KEY"):  # not the API of compose (test_flows)
+            os.environ.pop(key, None)
         os.environ["POSTGRES_DB"] = name
         os.environ["CREDIT_RISK_COMMIT"] = "e" * 40
         story = Story(
@@ -172,7 +174,12 @@ def test_only_the_cadence_months_retrain(story: Story) -> None:
         summary = story.summaries[period]
         assert summary["retrained"] is retrained, period
         tasks = asyncio.run(_task_runs(summary["flow_run"]))
-        names = ["load", "version", "train-pd", "train-lgd"] if retrained else ["load"]
+        names = ["load"]
+        if retrained:
+            names += ["version", "train-pd", "train-lgd", "buy-rule"]
+            # The API is told only when a champion changed (D-111).
+            if summary["pd"].changed or summary["lgd"].changed or summary["buy_rule_moved"]:
+                names.append("reload")
         assert sorted(tasks) == sorted(names), period
         assert all(t.state.is_completed() for runs in tasks.values() for t in runs)
     assert story.summaries["2012-04"]["training_set"] != story.summaries["2012-01"]["training_set"]

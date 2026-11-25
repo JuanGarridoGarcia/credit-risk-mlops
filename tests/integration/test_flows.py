@@ -43,6 +43,10 @@ PERIOD = f"{CUTOFF:%Y-%m}"
 BAD_MONTH = date(2012, 2, 1)
 
 
+#: Environment variables the scenarios change, put back afterwards.
+ENVIRONMENT = ("POSTGRES_DB", "CREDIT_RISK_COMMIT", "API_URL", "API_ADMIN_KEY")
+
+
 def prefect_url() -> str:
     return os.environ.get("PREFECT_API_URL", "http://localhost:4200/api")
 
@@ -68,11 +72,14 @@ def scenario(settings: Settings, tmp_path_factory: pytest.TempPathFactory) -> It
     prefix = f"test-flow-{uuid.uuid4().hex[:8]}-"
     with psycopg.connect(settings.postgres_conninfo(), autocommit=True) as admin:
         admin.execute(f'CREATE DATABASE "{name}"')
-    previous = {k: os.environ.get(k) for k in ("POSTGRES_DB", "CREDIT_RISK_COMMIT")}
+    previous = {k: os.environ.get(k) for k in ENVIRONMENT}
     mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5000"))
     try:
         dbmate(database_url(settings, name), "up")
-        # Every task reads its settings from the environment, as in the worker.
+        # Every task reads its settings from the environment, as in the worker. The API of
+        # compose serves the real model names, not these: the flow must not notify it.
+        for key in ("API_URL", "API_ADMIN_KEY"):
+            os.environ.pop(key, None)
         os.environ["POSTGRES_DB"] = name
         os.environ["CREDIT_RISK_COMMIT"] = "f" * 40
         conninfo = settings.postgres_conninfo().replace(
@@ -101,7 +108,7 @@ def _publish(
 
 def _remove_models(prefix: str) -> None:
     client = MlflowClient()
-    for target in ("pd", "lgd"):
+    for target in ("pd", "lgd", "buy_rule"):
         name = f"{prefix}{target}"
         if client.search_registered_models(f"name='{name}'"):
             for version in client.search_model_versions(f"name='{name}'"):
@@ -203,7 +210,7 @@ def test_a_critical_validation_failure_stops_the_flow(
     assert [t.state.type.value for t in tasks["load"]] == ["FAILED"]
     assert tasks["load"][0].run_count == 1, "a failed validation is never retried"
     assert "ValidationFailed" in (tasks["load"][0].state.message or "")
-    for later in ("version", "train-pd", "train-lgd"):
+    for later in ("version", "train-pd", "train-lgd", "buy-rule", "reload"):
         assert later not in tasks, f"{later} ran after a failed validation"
     after = _footprint(scenario)
     # Raw keeps the delivery as it came, by design (D-044): validation stops it at clean.

@@ -112,8 +112,8 @@ class Portfolio:
         return self.lost / self.invested if self.invested else 0.0
 
 
-def realise(bought: pl.DataFrame, outcomes: pl.DataFrame, k: Mapping[date, int]) -> Portfolio:
-    """Realised result of one note in each ``bought`` loan.
+def received(bought: pl.DataFrame, outcomes: pl.DataFrame) -> tuple[Array, npt.NDArray[np.bool_]]:
+    """What one note in each ``bought`` loan received, and whether the loan defaulted.
 
     ``outcomes``: ``id``, ``label``, ``funded_amnt``, ``total_pymnt`` and
     ``collection_recovery_fee``; a note receives its share of what the borrower paid,
@@ -125,15 +125,19 @@ def realise(bought: pl.DataFrame, outcomes: pl.DataFrame, k: Mapping[date, int])
     share = (rows["total_pymnt"] - rows["collection_recovery_fee"].fill_null(0)) / rows[
         "funded_amnt"
     ]
-    received = (NOTE * share).to_numpy()
-    bad = rows["label"].to_numpy() == 1
+    return np.asarray((NOTE * share).to_numpy(), dtype=np.float64), rows["label"].to_numpy() == 1
+
+
+def realise(bought: pl.DataFrame, outcomes: pl.DataFrame, k: Mapping[date, int]) -> Portfolio:
+    """Realised result of one note in each ``bought`` loan (see :func:`received`)."""
+    values, bad = received(bought, outcomes)
     return Portfolio(
-        notes=rows.height,
+        notes=len(values),
         budget=NOTE * sum(k.values()),
-        invested=NOTE * rows.height,
-        received=float(received.sum()),
+        invested=NOTE * len(values),
+        received=float(values.sum()),
         defaults=int(bad.sum()),
-        lost=float(np.clip(NOTE - received[bad], 0, None).sum()),
+        lost=float(np.clip(NOTE - values[bad], 0, None).sum()),
     )
 
 
