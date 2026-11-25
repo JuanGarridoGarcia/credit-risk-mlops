@@ -918,7 +918,23 @@ and answers 200 with one result per purchase, in order: `created` or `stored_ear
 
 **Compose.** The `clock` service gets `API_URL=http://api:8000` and `API_PREDICT_KEY`, and starts after the API is healthy.
 
-**Measured** (2026-11-25, cloud machine). On the made-up source of the tests (about 15 listings a month), the clock story with the investor takes about 80 s, as before. The real year of T17.9 with the investor: see its numbers below once run.
+**Measured** (2026-11-25, cloud machine). On the made-up source of the tests (about 15 listings a month), the clock story with the investor takes about 80 s, as before. The real year of T17.9 with the investor took 32 min (1,906 s, with the unit tests running at the same time; 25 min without the investor in F4), with the same verdicts as in F4 (PD champion v5, LGD still the mean by grade). Every listing from 2014-02 went through the API, with no refusal:
+
+| Month | Listings | Pass the threshold | K | Bought |
+|---|---|---|---|---|
+| 2014-02 | 15,269 | 2,899 | 1,562 | 1,562 |
+| 2014-03 | 16,513 | 3,344 | 1,526 | 1,526 |
+| 2014-04 | 19,071 | 3,841 | 1,651 | 1,651 |
+| 2014-05 | 19,099 | 2,897 | 1,907 | 1,907 |
+| 2014-06 | 17,179 | 2,108 | 1,909 | 1,909 |
+| 2014-07 | 29,306 | 3,844 | 1,717 | 1,717 |
+| 2014-08 | 18,814 | 4,934 | 2,930 | 2,930 |
+| 2014-09 | 10,606 | 2,789 | 1,881 | 1,881 |
+| 2014-10 | 38,783 | 10,186 | 1,060 | 1,060 |
+| 2014-11 | 25,054 | 5,036 | 3,878 | 3,878 |
+| 2014-12 | 10,307 | 1,964 | 2,505 | 1,964 |
+
+December is the case Juan asked about: fewer loans pass than K, so all of them are bought and the rest of the budget stays idle (D-085). The months after a large one (2014-08 after 2014-07, 2014-11 after 2014-10) have a large K; the cap follows last month's listings, as D-085 decided.
 
 **Tests** (T20, T21, approved by Juan on 2026-11-25): a purchase recorded (T20.1); order numbers (T20.2); refusals (T20.3); exceptions recorded (T20.4); the database's constraint, locks and transactions (T20.5); the investor's rule by hand (T21.1); months after T0, every listing once (T21.2); the champions of the month before (T21.3); failures (T21.4); purchases equal to the rule on the predictions (T21.5). T17.9 also checks the investor on the real year. T17.4 to T17.8 run with the API in a process of its own.
 

@@ -94,7 +94,7 @@ def served(settings: Settings, migrated_database: str) -> Iterator[Served]:
             f"dbname={settings.postgres_db}", f"dbname={migrated_database}"
         )
         with psycopg.connect(conninfo, autocommit=True) as conn:
-            conn.execute("TRUNCATE serving.predictions, serving.requests")
+            conn.execute("TRUNCATE serving.purchases, serving.predictions, serving.requests")
         yield Served(prefix, conninfo, models)
     finally:
         _remove(prefix)
