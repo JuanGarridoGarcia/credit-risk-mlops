@@ -61,6 +61,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-051](#e-051) | 2026-11-25 | 5.2 | In CI, moving `main` gave a new digest: the registry tool wrapped the image in a new index | Moderate |
 | [E-052](#e-052) | 2026-11-25 | 5.2 | The integration job ran past its 25 minute limit and GitHub cancelled it, with every test passed | Minor |
 | [E-053](#e-053) | 2026-11-25 | 5.1 (found in 5.2) | A log test failed at random on main: a random request id contained the word it looked for | Minor |
+| [E-054](#e-054) | 2026-11-25 | 5.2 | The first publication was stopped by Trivy: two new HIGH findings in the Debian base image | Minor |
 
 ## Errors
 
@@ -576,3 +577,13 @@ Date: 2026-11-25 · Step: 5.1 (found in 5.2) · Severity: minor
 - **Cause**: the test sends a loan with `term="bad"` and checks that the text never reaches the log. Each request id is a random UUID written in hexadecimal, and b, a and d are hexadecimal digits, so an id can hold "bad" by chance: about 0.7% of ids, and with four requests in the test about one run in 35. The API logged nothing it should not; the test was flaky.
 - **Fix**: the value is now `term="sixty months please"`, which has letters that are not hexadecimal and spaces, so no id can contain it. The test checks the same thing.
 - **Prevention**: the values a test looks for in a log are never short words made of hexadecimal letters; the comment in the test says why. No other test of the repository looks for such a word.
+
+<a id="e-054"></a>
+### E-054 The first publication was stopped by Trivy: two new HIGH findings in the Debian base image
+
+Date: 2026-11-25 · Step: 5.2 · Severity: minor
+
+- **Symptom**: on the run of main after the merge of #15, every test passed and the job `publish` stopped at its Trivy step: `credit-risk:serve (debian 13.7) Total: 4 (HIGH: 4)`. Nothing was pushed to GHCR and no tag moved.
+- **Cause**: two findings published after the weekly scan of Monday, both in OS packages of the official base image, none in our code or our Python packages: CVE-2026-107494 (OpenSSL, denial of service of a QUIC server; no fix in Debian yet) and CVE-2026-124851 (zstd, information disclosure; fixed in Debian, not yet in the official Python image). Scanned again on the cloud machine: serve and train show the same two and nothing else, also with the newest base image.
+- **Fix**: the base image moves to its digest of 2026-11-24 (Debian 13.8, OpenSSL 3.5.9), and the two findings enter `.trivyignore.yaml` with reason and expiry as D-029 and D-038 say (Juan chose on 2026-11-25 to keep D-038 now that the images are public, as nothing is deployed until F7): OpenSSL until 2026-12-22, zstd until 2026-12-06 (short on purpose). Neither is reachable: nothing speaks QUIC, nothing loads libzstd.
+- **Prevention**: none needed; this is the brake of D-135 doing its job. New findings appear any day, so a publication can stop for a reason that did not exist when the pull request passed; the expiries force a review.
