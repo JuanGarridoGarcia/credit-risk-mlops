@@ -89,8 +89,9 @@ jobs:
     # The ruleset on main requires this job by its name: rename both or neither (E-025).
     name: integration (image + Postgres)
     runs-on: ubuntu-24.04
-    # Training and promotion tests (F3) added a few minutes.
-    timeout-minutes: 25
+    # Training and promotion tests (F3) added a few minutes; the smoke test and the
+    # rehearsal of the publication (F5, T22.3 and T22.4) about 4 more (E-052).
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

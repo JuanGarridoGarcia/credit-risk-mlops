@@ -59,6 +59,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-049](#e-049) | 2026-11-25 | 5.2 | The unit tests of delivery failed inside the test image: `ci/` and the workflows were not in it | Minor |
 | [E-050](#e-050) | 2026-11-25 | 5.2 | The smoke test, run inside pytest, left MLflow pointing to its own server, and the tracking tests after it failed | Minor |
 | [E-051](#e-051) | 2026-11-25 | 5.2 | In CI, moving `main` gave a new digest: the registry tool wrapped the image in a new index | Moderate |
+| [E-052](#e-052) | 2026-11-25 | 5.2 | The integration job ran past its 25 minute limit and GitHub cancelled it, with every test passed | Minor |
 
 ## Errors
 
@@ -554,4 +555,14 @@ Date: 2026-11-25 · Step: 5.2 · Severity: moderate
 - **Cause**: `main` is put on the image with `docker buildx imagetools create`, in the registry. Given a single plain image manifest, that command does not copy it: it writes a new index (a list of manifests) that contains it, with a digest of its own. On the cloud machine Docker keeps images in the containerd store and pushes an index already, which the command copies as it is; the runners of GitHub use the classic store, which pushes a plain manifest. Checked by hand against a local registry: a plain manifest gets a new digest by default and keeps its digest with `--prefer-index=false`; an index keeps it either way.
 - **Fix**: `--prefer-index=false`, a carbon copy in both cases.
 - **Prevention**: this is why the rehearsal runs on every pull request: it failed in the pull request, not on main. The check that the moved tag has the digest tested stays.
+
+<a id="e-052"></a>
+### E-052 The integration job ran past its 25 minute limit and GitHub cancelled it, with every test passed
+
+Date: 2026-11-25 · Step: 5.2 · Severity: minor
+
+- **Symptom**: the job `integration` of the pull request ended as `cancelled` ("The operation was canceled") at 25 minutes, after all its tests had passed (110 integration, 2 destructive), while it wrote the coverage summary.
+- **Cause**: `timeout-minutes: 25`, set in F3, left a few minutes of margin; the smoke test and the rehearsal of the publication (T22.3, T22.4) add about 4 minutes on the runners of GitHub, which are slower than the cloud machine (the integration tests took 14 minutes).
+- **Fix**: the limit is now 35 minutes. Juan chose on 2026-11-25 not to split the job into parallel ones, to keep a single build (D-133) and a single coverage (D-064).
+- **Prevention**: the limit's comment says what fills it; a limit hit with green tests shows as cancelled, not failed, and is read in the job's log.
 

@@ -40,7 +40,7 @@ Status of every step of the playbook. Updated in every pull request.
 | F4 Automation | 4.1 Orchestrated training flow | Done | #10, #11 | D-098 to D-108; E-037 to E-042; #11: clock, cadence and alerts |
 | | 4.2 Batch prediction flow | Done (in F5) | #13 | Replaced by the simulated investor calling the API (D-008, D-098); D-123 to D-129; E-047 |
 | F5 Deployment | 5.1 API | Done | #12 | D-109 to D-122; E-043 to E-046; API, predictions table, buy rule in MLflow; purchases endpoint in PR 2 (D-124) |
-| | 5.2 Published image and CD | In review | PR 3 of F5 | D-130 to D-136; E-048 to E-051; serve and train published to GHCR after CI on main, smoke tested, Trivy before publishing |
+| | 5.2 Published image and CD | In review | PR 3 of F5 | D-130 to D-136; E-048 to E-052; serve and train published to GHCR after CI on main, smoke tested, Trivy before publishing |
 | F6 Monitoring | 6.1 Drift and metrics | Pending | | |
 | | 6.2 Dashboard and alerts | Pending | | |
 | | 6.3 Triggered retraining | Pending | | |
@@ -991,3 +991,4 @@ A tag is a name on an image, as a branch is a name on a commit. Moving `main` ch
 | E-049 | The unit tests of delivery failed inside the test image: `ci/` and the workflows were not in it |
 | E-050 | The smoke test, run inside pytest, left MLflow pointing to its own server, and the tracking tests after it failed |
 | E-051 | In CI, moving `main` gave a new digest: the registry tool wrapped the image in a new index |
+| E-052 | The integration job ran past its 25 minute limit and GitHub cancelled it, with every test passed |
