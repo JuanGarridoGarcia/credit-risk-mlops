@@ -396,7 +396,7 @@ def test_one_json_line_per_request_without_keys_or_bodies(
     _, client = api
     caplog.set_level(logging.INFO, logger="credit_risk.api.access")
     client.post("/predict", json=loan(1000, desc="my private story"), headers=PREDICT)
-    client.post("/predict", json=loan(1001, term="bad"), headers=PREDICT)
+    client.post("/predict", json=loan(1001, term="sixty months please"), headers=PREDICT)
     client.post("/predict", json=loan(1002))
     client.get("/health")
     lines = [r.getMessage() for r in caplog.records if r.name == "credit_risk.api.access"]
@@ -413,4 +413,5 @@ def test_one_json_line_per_request_without_keys_or_bodies(
     text = "\n".join(lines)
     assert PREDICT_KEY not in text
     assert "my private story" not in text
-    assert "bad" not in text
+    # Not a hex string: a random request id cannot contain it by chance (E-053).
+    assert "sixty months please" not in text
