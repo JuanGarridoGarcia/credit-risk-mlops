@@ -60,6 +60,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-050](#e-050) | 2026-11-25 | 5.2 | The smoke test, run inside pytest, left MLflow pointing to its own server, and the tracking tests after it failed | Minor |
 | [E-051](#e-051) | 2026-11-25 | 5.2 | In CI, moving `main` gave a new digest: the registry tool wrapped the image in a new index | Moderate |
 | [E-052](#e-052) | 2026-11-25 | 5.2 | The integration job ran past its 25 minute limit and GitHub cancelled it, with every test passed | Minor |
+| [E-053](#e-053) | 2026-11-25 | 5.1 (found in 5.2) | A log test failed at random on main: a random request id contained the word it looked for | Minor |
 
 ## Errors
 
@@ -566,3 +567,12 @@ Date: 2026-11-25 · Step: 5.2 · Severity: minor
 - **Fix**: the limit is now 35 minutes. Juan chose on 2026-11-25 not to split the job into parallel ones, to keep a single build (D-133) and a single coverage (D-064).
 - **Prevention**: the limit's comment says what fills it; a limit hit with green tests shows as cancelled, not failed, and is read in the job's log.
 
+<a id="e-053"></a>
+### E-053 A log test failed at random on main: a random request id contained the word it looked for
+
+Date: 2026-11-25 · Step: 5.1 (found in 5.2) · Severity: minor
+
+- **Symptom**: on the run of main after the merge of the third pull request of F5, the job `tests` failed in T18.12 (`test_one_json_line_per_request_without_keys_or_bodies`): `assert 'bad' not in ...`. The word was inside the request id `33a0f2fa-19a0-4bad-8d4e-f461dffd472a`. The same code had passed on the pull request. As `publish` needs the four jobs, nothing was published on that run, and `main` stayed where it was.
+- **Cause**: the test sends a loan with `term="bad"` and checks that the text never reaches the log. Each request id is a random UUID written in hexadecimal, and b, a and d are hexadecimal digits, so an id can hold "bad" by chance: about 0.7% of ids, and with four requests in the test about one run in 35. The API logged nothing it should not; the test was flaky.
+- **Fix**: the value is now `term="sixty months please"`, which has letters that are not hexadecimal and spaces, so no id can contain it. The test checks the same thing.
+- **Prevention**: the values a test looks for in a log are never short words made of hexadecimal letters; the comment in the test says why. No other test of the repository looks for such a word.
