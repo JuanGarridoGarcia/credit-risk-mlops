@@ -38,9 +38,9 @@ Status of every step of the playbook. Updated in every pull request.
 | | 3.4 Model registry | Done | PR 2 | D-082, D-090 |
 | | 3.5 Explainability and model card | Done | PR 3 | D-083, D-095; buy rule, budget and business result D-084, D-085, D-096, D-097 |
 | F4 Automation | 4.1 Orchestrated training flow | Done | #10, #11 | D-098 to D-108; E-037 to E-042; #11: clock, cadence and alerts |
-| | 4.2 Batch prediction flow | In review (in F5) | PR 2 of F5 | Replaced by the simulated investor calling the API (D-008, D-098); D-123 to D-129; E-047 |
+| | 4.2 Batch prediction flow | Done (in F5) | #13 | Replaced by the simulated investor calling the API (D-008, D-098); D-123 to D-129; E-047 |
 | F5 Deployment | 5.1 API | Done | #12 | D-109 to D-122; E-043 to E-046; API, predictions table, buy rule in MLflow; purchases endpoint in PR 2 (D-124) |
-| | 5.2 Published image and CD | Pending | | |
+| | 5.2 Published image and CD | In review | PR 3 of F5 | D-130 to D-136; E-048 to E-052; serve and train published to GHCR after CI on main, smoke tested, Trivy before publishing |
 | F6 Monitoring | 6.1 Drift and metrics | Pending | | |
 | | 6.2 Dashboard and alerts | Pending | | |
 | | 6.3 Triggered retraining | Pending | | |
@@ -800,7 +800,7 @@ At the end of 2014 the PD champion is v5 and the LGD champion is still the mean 
 
 ## 7. F5 Deployment
 
-Every decision of F5 was explained to Juan and taken by him one at a time on 2026-11-24 (D-109 to D-122). Scope (D-109): step 5.1 (the API), the old step 4.2 as a replayer that sends each month to the API (D-098), and step 5.2 (a versioned image published by CD). Three pull requests: (1) the API and the predictions table; (2) the replayer in the simulated clock; (3) the published image.
+Every decision of F5 was explained to Juan and taken by him one at a time, on 2026-11-24 and 2026-11-25 (D-109 to D-136). Scope (D-109): step 5.1 (the API), the old step 4.2 as a replayer that sends each month to the API (D-098), and step 5.2 (a versioned image published by CD). Three pull requests: (1) the API and the predictions table; (2) the replayer in the simulated clock; (3) the published image.
 
 **The design in one page**
 
@@ -822,6 +822,11 @@ Every decision of F5 was explained to Juan and taken by him one at a time on 202
 | Investor | The replayer is the simulated investor, a step of `advance` after publishing a month and before the system's flow (D-123); from the month after T0 (D-127) |
 | Purchases | Reported to `POST /purchases` and stored in `serving.purchases` (D-124), each naming the `prediction_id` of its answer (D-126) and its amount in notes of 25 dollars (D-128), by the client's own order number (D-129) |
 | Investor failures | The API not answering is retried 3 times, then the clock stops; a refused listing is not bought and is counted (D-125) |
+| Registry | GitHub Container Registry, with the token of each CI run; ECR in F7 (D-130) |
+| Published images | `credit-risk-serve` and `credit-risk-train`, from the same commit, public (D-131, D-136) |
+| Tags | `sha-abc1234` (never rewritten) and `main` on every merge; `X.Y.Z` on a release tag `vX.Y.Z`, without building again (D-132) |
+| Publication | A fifth CI job after the four pass on main, with the images they tested (D-133); Trivy blocks HIGH and CRITICAL first (D-135) |
+| Smoke test | The published images answer a real prediction before `main` moves to them (D-134) |
 
 ### First pull request: the API and the predictions table
 
@@ -942,3 +947,48 @@ December is the case Juan asked about: fewer loans pass than K, so all of them a
 |---|---|
 | E-047 | The clock story expected several batches a month with batches of 40; a made-up month has 15 listings |
 
+### Third pull request: versioned images in a registry
+
+Continuous integration checks every change; continuous delivery keeps every version that passed as a product ready to run. Each merge to main ends with two images in GitHub Container Registry, named by their commit, that anyone can download and start. Deploying them somewhere (continuous deployment) comes with AWS in F7.
+
+```
+ merge to main --> CI on main: quality, tests, secrets, integration
+                     | integration keeps the serve and train images it tested (D-133)
+                     v only if the four pass
+                   publish (the only job that may write packages):
+                     1. load those images; build nothing
+                     2. Trivy: a HIGH or CRITICAL not in .trivyignore.yaml -> stop (D-135)
+                     3. push ghcr.io/juangarridogarcia/credit-risk-{serve,train}:sha-abc1234
+                        (a commit tag that holds another image -> stop; never rewritten)
+                     4. pull them back by digest; they must be the tested images
+                     5. smoke test (tests/smoke.py) on what was pulled -> stop if it fails
+                     6. tag main on the same digests, in the registry (D-134)
+
+ git tag v0.2.0 --> CI on the tag, then publish:
+                     pull sha-<commit> (it must exist: merged to main first), Trivy,
+                     smoke test, tag 0.2.0 on the same digests; nothing pushed (D-132)
+```
+
+A tag is a name on an image, as a branch is a name on a commit. Moving `main` changes no image: it moves the name to the newest one that passed everything, so `docker pull ghcr.io/juangarridogarcia/credit-risk-serve:main` always gives the last good version and `:sha-abc1234` gives exactly that commit, for ever.
+
+**Built once.** The job `integration` already builds and tests both images. On main it saves them (`docker save`, an artefact of the run kept one day) with their image ids in `tested.json`; `publish` loads them and checks each id before pushing and again after pulling back. Pulling back by digest checks the registry itself: the upload, the permissions, the package.
+
+**The program** (`ci/`, outside the package: no image carries it). `ci/tags.py` turns the ref and commit of the run into a plan: repositories (owner lowercased, since GHCR refuses capitals), commit tag, tag to move, and whether to push. `ci/publish.py` carries it out through `docker` and `docker buildx imagetools`; the final tag is put in the registry on the very manifest that was smoke tested, without pulling or pushing again (`imagetools create --prefer-index=false`, a carbon copy, E-051). A failure at any step leaves `main` and every version where they were; an image that failed its smoke test stays in the registry under its commit, to be looked at.
+
+**The smoke test** (`tests/smoke.py`). Under a compose project of its own and on free ports, it starts Postgres, the MLflow server (from train) and the API (from serve) with the images given, never building or pulling; applies the migrations; registers made-up champions as the API tests do; and requires the commit and version inside train, `/health` 200 and one `/predict` with PD, LGD and expected loss in range. Everything it started is removed at the end. It found a real bug on its first run (E-048).
+
+**Runs on main wait their turn.** Runs of pull requests are still cancelled by a newer push; runs of main and of tags are not, because a cancelled publication could leave `main` moved on serve and not on train.
+
+**The Monday scan** (`security.yml`) now pulls the published `main` images and scans them with Trivy, instead of rebuilding them: a vulnerability found after publishing shows up there.
+
+**Visibility (D-136).** GHCR creates a package private. After the first publication Juan makes each package public once (package settings, "Change visibility"); it cannot be made private again.
+
+**Tests** (T22, approved by Juan on 2026-11-25; T22.5 added when CI showed the brakes untested): names and tags (T22.1); the rules of the workflows (T22.2); the smoke test on the images of the pull request, passing and failing (T22.3); the whole publication rehearsed against a throwaway registry in a container (T22.4); the brakes of the program, each made to fire with a registry in memory, and its command line (T22.5).
+
+| Error | What happened |
+|---|---|
+| E-048 | The API in compose could not load its champions: the MLflow server refused its Host name |
+| E-049 | The unit tests of delivery failed inside the test image: `ci/` and the workflows were not in it |
+| E-050 | The smoke test, run inside pytest, left MLflow pointing to its own server, and the tracking tests after it failed |
+| E-051 | In CI, moving `main` gave a new digest: the registry tool wrapped the image in a new index |
+| E-052 | The integration job ran past its 25 minute limit and GitHub cancelled it, with every test passed |

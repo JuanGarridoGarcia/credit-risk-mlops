@@ -29,6 +29,8 @@ dev = [
     "pre-commit>=4.7",
     "pytest>=9.2",
     "pytest-cov>=7.1",
+    # T22.2 reads the workflows (already in uv.lock through MLflow and Prefect).
+    "pyyaml>=6.0",
     "ruff>=0.17",
 ]
 # Exact versions used by notebooks/00_data_audit.ipynb in F0 (decision A6 / D-024).
@@ -66,7 +68,7 @@ module-name = "credit_risk"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests"]
+src = ["src", "tests", "ci"]
 extend-include = ["*.ipynb"]
 
 [tool.ruff.lint]
@@ -97,7 +99,7 @@ select = [
 # ---------------------------------------------------------------- mypy
 [tool.mypy]
 python_version = "3.12"
-files = ["src", "tests"]
+files = ["src", "tests", "ci"]
 strict = true
 plugins = ["pydantic.mypy"]
 warn_unreachable = true
@@ -110,7 +112,7 @@ disallow_incomplete_defs = false
 
 [[tool.mypy.overrides]]
 # Libraries without type information (F3).
-module = ["sklearn.*", "lightgbm.*", "scipy.*", "optuna.*", "mlflow.*", "joblib.*", "shap.*"]
+module = ["sklearn.*", "lightgbm.*", "scipy.*", "optuna.*", "mlflow.*", "joblib.*", "shap.*", "yaml.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]
@@ -137,7 +139,8 @@ filterwarnings = [
 
 # ---------------------------------------------------------------- coverage
 [tool.coverage.run]
-source = ["credit_risk"]
+# ci: the delivery tooling (step 5.2), outside the package and every image.
+source = ["credit_risk", "ci"]
 branch = true
 
 [tool.coverage.report]

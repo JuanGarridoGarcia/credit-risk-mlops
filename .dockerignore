@@ -11,5 +11,8 @@
 !docs/validation_rules.md
 # Read by a unit test (B6) in the test stage only.
 !docs/tests.md
+# Read by unit tests (T22.1, T22.2) in the test stage only (E-049).
+!ci/
+!.github/workflows/
 **/__pycache__
 **/*.py[cod]

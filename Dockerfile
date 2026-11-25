@@ -106,6 +106,9 @@ COPY pyproject.toml ./
 COPY tests ./tests
 COPY reports/data_audit/data_dictionary.csv ./reports/data_audit/data_dictionary.csv
 COPY docs/validation_rules.md docs/tests.md ./docs/
+# The delivery tooling and the workflows, read by T22.1 and T22.2 (E-049); never shipped.
+COPY ci ./ci
+COPY .github/workflows ./.github/workflows
 # Prefect writes its settings folder at import; the test user has no home (E-041).
 ENV MPLCONFIGDIR=/tmp/matplotlib \
     PREFECT_HOME=/tmp/prefect

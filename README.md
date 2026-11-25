@@ -34,7 +34,8 @@ Target architecture; the parts already built are marked.
                                                              dashboard
 
    Underneath, from day one [built]: one Python package, pinned environment,
-   Docker image, docker compose, CI on every pull request, weekly security scans.
+   Docker image, docker compose, CI on every pull request, weekly security scans;
+   since F5, every merge publishes the tested images to GHCR (continuous delivery).
 ```
 
 ## Results
@@ -69,6 +70,7 @@ One line per theme; each links to its full card with the alternatives considered
 | Engineering | Three families of tests (code now; data from F2, model from F3), each approved before it is written and listed in the [test catalogue](docs/tests.md) ([D-057](docs/decisions.md#d-057)); CI is the only way into `main`, with no exceptions ([D-028](docs/decisions.md#d-028), [D-032](docs/decisions.md#d-032)); everything from outside is pinned by its fingerprint ([D-030](docs/decisions.md#d-030)) |
 | Orchestration | Prefect runs the monthly cycle: load and validate, version, train PD and LGD, promote; only identifiers travel between tasks ([D-099](docs/decisions.md#d-099), [D-100](docs/decisions.md#d-100)); running a month again changes nothing ([D-101](docs/decisions.md#d-101)); only transient failures are retried ([D-102](docs/decisions.md#d-102)); the simulator stays outside the system ([D-105](docs/decisions.md#d-105)); retraining every quarter ([D-106](docs/decisions.md#d-106)); a simulated clock moves the system one month at a time and never skips or repeats a month ([D-107](docs/decisions.md#d-107)); failures, promotions, rejections and rollbacks recorded as alerts ([D-108](docs/decisions.md#d-108)) |
 | Serving | One API, the only way to a prediction ([D-008](docs/decisions.md#d-008)): it takes listings as the provider delivers them and cleans them with the code of the monthly load ([D-116](docs/decisions.md#d-116)); it answers PD, LGD, expected loss, expected return and whether the loan passes the buy threshold, with four reasons and the versions used ([D-112](docs/decisions.md#d-112)); every answer is stored before it leaves, once per loan and pair of models ([D-113](docs/decisions.md#d-113), [D-114](docs/decisions.md#d-114), [D-121](docs/decisions.md#d-121)); champions come from the MLflow registry and are swapped as a whole after a notice from the flow ([D-110](docs/decisions.md#d-110), [D-111](docs/decisions.md#d-111)); API keys per permission ([D-118](docs/decisions.md#d-118)); a simulated investor sends each month to the API before the system's flow and reports what it bought, so monitoring measures real orders ([D-123](docs/decisions.md#d-123), [D-124](docs/decisions.md#d-124)), each tied to the answer it was decided on and made harmless to repeat by its order number ([D-126](docs/decisions.md#d-126), [D-129](docs/decisions.md#d-129)) |
+| Delivery | Every merge to main publishes the serve and train images that CI tested, without building them again, to GitHub Container Registry ([D-130](docs/decisions.md#d-130), [D-131](docs/decisions.md#d-131), [D-133](docs/decisions.md#d-133)); each is named by its commit for ever, and `main` moves to it only after Trivy finds nothing serious and a smoke test gets a real prediction from the published images ([D-132](docs/decisions.md#d-132), [D-134](docs/decisions.md#d-134), [D-135](docs/decisions.md#d-135)); a release tag `vX.Y.Z` adds the version to what main published ([D-132](docs/decisions.md#d-132)) |
 | Modelling | Baselines use only the grade ([D-004](docs/decisions.md#d-004)); models are judged on ranking and calibration ([D-006](docs/decisions.md#d-006)) and on realised return at equal budget ([D-007](docs/decisions.md#d-007)). Training decisions come in F3 |
 
 ## How to run it
@@ -91,6 +93,15 @@ make rollback MODEL=pd  # put back the previous champion
 make down               # stop; data stays in the volume
 ```
 
+Instead of `make build`, the stack can start from a published version (any commit of main: `:sha-abc1234`; the latest good one: `:main`):
+
+```bash
+docker pull ghcr.io/juangarridogarcia/credit-risk-serve:main
+docker pull ghcr.io/juangarridogarcia/credit-risk-train:main
+SERVE_IMAGE=ghcr.io/juangarridogarcia/credit-risk-serve:main \
+TRAIN_IMAGE=ghcr.io/juangarridogarcia/credit-risk-train:main make up
+```
+
 `make help` lists every command; `make check` runs everything the CI runs. The data audit notebook needs a Kaggle token: see [`notebooks/00_data_audit.ipynb`](notebooks/00_data_audit.ipynb).
 
 ## Status
@@ -102,7 +113,7 @@ make down               # stop; data stays in the volume
 | F2 Data | Ingestion, validation, versioning, features | Done |
 | F3 Model | Baselines, experiments, model tests, registry, explainability | Done |
 | F4 Automation | Orchestrated monthly cycle and simulated clock | Done |
-| F5 Deployment | API, replayer, published image, continuous delivery | In progress (API in #12; simulated investor and purchases in the second pull request) |
+| F5 Deployment | API, replayer, published image, continuous delivery | In progress (API in #12; simulated investor and purchases in #13; published images in the third pull request) |
 | F6 Monitoring | Drift, dashboard, alerts, triggered retraining | Pending |
 | F7 Closing | End to end, AWS with infrastructure as code | Pending |
 

@@ -55,6 +55,11 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-045](#e-045) | 2026-11-24 | 5.1 | The first load test measured its own clients as much as the API | Minor |
 | [E-046](#e-046) | 2026-11-24 | 5.1 | The real-month test sent listings without their empty columns | Minor |
 | [E-047](#e-047) | 2026-11-25 | 4.2 (in F5) | The clock story expected several batches a month with batches of 40; a made-up month has 15 listings | Minor |
+| [E-048](#e-048) | 2026-11-25 | 5.2 | The API in compose could not load its champions: the MLflow server refused its Host name | Major |
+| [E-049](#e-049) | 2026-11-25 | 5.2 | The unit tests of delivery failed inside the test image: `ci/` and the workflows were not in it | Minor |
+| [E-050](#e-050) | 2026-11-25 | 5.2 | The smoke test, run inside pytest, left MLflow pointing to its own server, and the tracking tests after it failed | Minor |
+| [E-051](#e-051) | 2026-11-25 | 5.2 | In CI, moving `main` gave a new digest: the registry tool wrapped the image in a new index | Moderate |
+| [E-052](#e-052) | 2026-11-25 | 5.2 | The integration job ran past its 25 minute limit and GitHub cancelled it, with every test passed | Minor |
 
 ## Errors
 
@@ -510,4 +515,54 @@ Date: 2026-11-25 · Step: 4.2 (in F5) · Severity: minor
 - **Cause**: an error in the test: the batch size of the story (40) was chosen without looking at the size of a month of `tests/synthetic_source.py`, about 15 listings.
 - **Fix**: batches of 4 in the story, so that every month takes four requests and the batching of the replayer is exercised.
 - **Prevention**: the constant's comment states the size of a made-up month.
+
+<a id="e-048"></a>
+### E-048 The API in compose could not load its champions: the MLflow server refused its Host name
+
+Date: 2026-11-25 · Step: 5.2 · Severity: major
+
+- **Symptom**: the first run of the new smoke test (D-134) never got `/health` 200. The API logged `no champion: pd None, lgd None` although the champions were registered; the MLflow server logged `Rejected request with invalid Host header: mlflow:5000` and answered 403.
+- **Cause**: MLflow 3.x protects its server against DNS rebinding: it answers only the Host names it allows, by default localhost and private IP addresses. The services of compose (the API, the worker of the monthly flow and the clock) call it by its compose name, `mlflow:5000`, which is neither. Every test of the API, the flows and the clock calls MLflow from the host through `localhost`, so none could see it; the healthcheck of the API in compose is liveness only (`/health/live`), so `make up` showed everything healthy.
+- **Fix**: `MLFLOW_SERVER_ALLOWED_HOSTS` in the `mlflow` service of compose lists localhost, 127.0.0.1 and `mlflow`, with any port.
+- **Prevention**: the smoke test runs the API of compose against the MLflow server of compose, on every pull request (T22.3) and after every publication. F7 sets the allowed hosts of the server in AWS.
+
+<a id="e-049"></a>
+### E-049 The unit tests of delivery failed inside the test image: `ci/` and the workflows were not in it
+
+Date: 2026-11-25 · Step: 5.2 · Severity: minor
+
+- **Symptom**: `make test-image` stopped at collection: `ModuleNotFoundError: No module named 'ci'` in `tests/unit/test_release.py` and `tests/unit/test_workflows.py`; on the machine they passed.
+- **Cause**: the build context lets in only what the Dockerfile needs (`.dockerignore`), and `ci/` and `.github/workflows/` were new.
+- **Fix**: both enter the context and are copied into the test stage only, as `docs/tests.md` for B6; serve and train still carry neither.
+- **Prevention**: `make check` runs the unit tests inside the image, as CI does; this is how it was caught before the pull request.
+
+<a id="e-050"></a>
+### E-050 The smoke test, run inside pytest, left MLflow pointing to its own server, and the tracking tests after it failed
+
+Date: 2026-11-25 · Step: 5.2 · Severity: minor
+
+- **Symptom**: in `make check`, every test of `tests/integration/test_tracking.py` failed with `Connection refused` on `127.0.0.1` and a port that was not the one of `.env`; alone, they passed.
+- **Cause**: T22.3 called the smoke test as a function. To register its champions it sets the address of MLflow (`mlflow.set_tracking_uri`) to the server it starts; MLflow keeps it in a global of the process, so after the smoke test had removed that server, the next tests of the same pytest process still called it.
+- **Fix**: T22.3 runs the smoke test as `ci/publish.py` does, in a process of its own (`python -m tests.smoke`), and reads its exit code and messages.
+- **Prevention**: the module's docstring says why it must run in its own process.
+
+<a id="e-051"></a>
+### E-051 In CI, moving `main` gave a new digest: the registry tool wrapped the image in a new index
+
+Date: 2026-11-25 · Step: 5.2 · Severity: moderate
+
+- **Symptom**: the rehearsal of the publication (T22.4) passed on the cloud machine and failed in GitHub Actions: `localhost:…/credit-risk-serve:main does not point to sha256:51eb…`. The check of `ci/publish.py` refused to finish a publication whose `main` was not the image smoke tested.
+- **Cause**: `main` is put on the image with `docker buildx imagetools create`, in the registry. Given a single plain image manifest, that command does not copy it: it writes a new index (a list of manifests) that contains it, with a digest of its own. On the cloud machine Docker keeps images in the containerd store and pushes an index already, which the command copies as it is; the runners of GitHub use the classic store, which pushes a plain manifest. Checked by hand against a local registry: a plain manifest gets a new digest by default and keeps its digest with `--prefer-index=false`; an index keeps it either way.
+- **Fix**: `--prefer-index=false`, a carbon copy in both cases.
+- **Prevention**: this is why the rehearsal runs on every pull request: it failed in the pull request, not on main. The check that the moved tag has the digest tested stays.
+
+<a id="e-052"></a>
+### E-052 The integration job ran past its 25 minute limit and GitHub cancelled it, with every test passed
+
+Date: 2026-11-25 · Step: 5.2 · Severity: minor
+
+- **Symptom**: the job `integration` of the pull request ended as `cancelled` ("The operation was canceled") at 25 minutes, after all its tests had passed (110 integration, 2 destructive), while it wrote the coverage summary.
+- **Cause**: `timeout-minutes: 25`, set in F3, left a few minutes of margin; the smoke test and the rehearsal of the publication (T22.3, T22.4) add about 4 minutes on the runners of GitHub, which are slower than the cloud machine (the integration tests took 14 minutes).
+- **Fix**: the limit is now 35 minutes. Juan chose on 2026-11-25 not to split the job into parallel ones, to keep a single build (D-133) and a single coverage (D-064).
+- **Prevention**: the limit's comment says what fills it; a limit hit with green tests shows as cancelled, not failed, and is read in the job's log.
 
