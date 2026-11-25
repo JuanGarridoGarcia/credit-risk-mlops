@@ -109,6 +109,8 @@ COPY docs/validation_rules.md docs/tests.md ./docs/
 # The delivery tooling and the workflows, read by T22.1 and T22.2 (E-049); never shipped.
 COPY ci ./ci
 COPY .github/workflows ./.github/workflows
+# Compose, read by T22.6 (E-056); never shipped.
+COPY docker-compose.yml ./
 # Prefect writes its settings folder at import; the test user has no home (E-041).
 ENV MPLCONFIGDIR=/tmp/matplotlib \
     PREFECT_HOME=/tmp/prefect
