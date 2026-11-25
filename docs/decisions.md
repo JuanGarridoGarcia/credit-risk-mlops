@@ -130,6 +130,13 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-120](#d-120) | 2026-11-24 | 5.1 | The buy rule is registered in MLflow like a model, and chosen again when the champion pair changes | Active |
 | [D-121](#d-121) | 2026-11-24 | 5.1 | A prediction is written before it is answered, in the same transaction | Active |
 | [D-122](#d-122) | 2026-11-24 | 5.1 (changes T18.13) | Latency is measured under an open load of 20 requests a second; capacity is measured apart | Active |
+| [D-123](#d-123) | 2026-11-25 | 4.2 (in F5) | The replayer is the simulated investor: a step of `advance`, after publishing a month and before the system's flow | Active |
+| [D-124](#d-124) | 2026-11-25 | 4.2 (in F5) | The investor reports what it bought to the API (`POST /purchases`, `serving.purchases`) | Active |
+| [D-125](#d-125) | 2026-11-25 | 4.2 (in F5) | The investor retries an API that does not answer, then stops the clock; a refused listing is not bought and is counted | Active |
+| [D-126](#d-126) | 2026-11-25 | 4.2 (in F5) | Every answer carries a `prediction_id`; a purchase names only that id; exceptions to the rule are recorded, not refused | Active |
+| [D-127](#d-127) | 2026-11-25 | 4.2 (in F5) | The investor starts the month after T0 | Active |
+| [D-128](#d-128) | 2026-11-25 | 4.2 (in F5) | A purchase carries its amount, in notes of 25 dollars, up to the loan's amount | Active |
+| [D-129](#d-129) | 2026-11-25 | 4.2 (in F5) | The client's own order number makes a repeated purchase harmless and allows repurchases | Active |
 
 ## Decisions
 
@@ -1414,3 +1421,81 @@ Date: 2026-11-24 · Step: 5.1 (changes T18.13) · Status: Active
 - **Alternatives considered**: (B) keep 20 clients and run several API containers behind a load balancer (nginx): the original test passes and horizontal scaling shows, but more infrastructure now, and real scaling is decided in AWS (F7); (C) keep it and optimise further: one process would need under about 9 ms a request, with no guarantee.
 - **Why**: the standard split of a load test: latency at a given load under capacity, capacity apart. 20 a second is more than a thousand times Lending Club's peak (about 40,000 listings a month in 2018, less than one a minute).
 - **Consequences**: measured here: p95 30 ms at 20 a second; capacity 70 answers a second for one process; a batch of 1,000 in about one second (E-044, E-045).
+
+<a id="d-123"></a>
+### D-123 The replayer is the simulated investor: a step of `advance`, after publishing a month and before the system's flow
+
+Date: 2026-11-25 · Step: 4.2, moved to F5 by D-098 · Status: Active
+
+- **Context**: D-098 replaced the batch prediction flow of step 4.2 by a replayer that sends each month to the API (D-008). In reality the caller of the API is the investor, outside the system. A loan listed in month M must be decided by the champions that existed when it was listed, trained up to M-1, as T18.15 did.
+- **Decision**: the replayer is part of the simulated world (D-043), in `credit_risk.simulator.replayer`. `advance` publishes month M, then the investor sends M's listings to the API and buys, then the system's monthly flow runs (load, and in the cadence months, retraining). A month the investor completed is recorded in `sim.invested` and is not sent again when the clock repeats it after a failure of the system's flow: the investor already acted.
+- **Alternatives considered**: (B) the simulated world, after the system's flow: in January, April, July and October the new champion would score loans listed before it existed, a timing error; (C) a task of the system's flow: the simplest, but the system would call itself in batch, which is the old 4.2 that D-098 replaced, and it mixes the investor with the system.
+- **Why**: each month is decided with the models of its moment, and the system stays apart from its client.
+- **Consequences**: `advance` needs the API up (in compose, `clock` depends on `api`). Tests T21.2, T21.3.
+
+<a id="d-124"></a>
+### D-124 The investor reports what it bought to the API (`POST /purchases`, `serving.purchases`)
+
+Date: 2026-11-25 · Step: 4.2 (in F5) · Status: Active
+
+- **Context**: the investor applies the monthly cap of D-085 (D-112). F6 will watch the realised return of what was bought, and the system never reads `sim` (T17.3). The first recommendation was to keep the purchases in `sim` and let F6 recompute what the rule would buy from `serving.predictions`; Juan pointed out that this measures the policy, not the real orders.
+- **Decision**: the investor reports its purchases to the API, `POST /purchases` with its predict key, and they are stored in `serving.purchases`. F6 measures on these.
+- **Alternatives considered**: (A) only in `sim.purchases`, recomputed by F6: the system does not depend on its client, but it sees the policy, not the orders; in reality they part (a loan filled by others, a purchase skipped by hand, a failed order, no cash) and F6 would measure a portfolio that does not exist; (C) not stored: nothing to check.
+- **Why**: logging the actions taken, not only the predictions, is how a system that decides is monitored. In our simulation both lists are equal because the replayer follows the rule exactly; the design is the one production needs.
+- **Consequences**: one more endpoint, table and tests (T20). D-126, D-128 and D-129 settle what a purchase carries.
+
+<a id="d-125"></a>
+### D-125 The investor retries an API that does not answer, then stops the clock; a refused listing is not bought and is counted
+
+Date: 2026-11-25 · Step: 4.2 (in F5) · Status: Active
+
+- **Context**: two failures differ: the API or its database not answering (passing), and one listing refused with 422 inside a batch (a data problem; it should not happen with real data, cleaned as by the monthly load).
+- **Decision**: no connection, a timeout or a 5xx answer is retried three times, after 10, 30 and 90 seconds, as D-102; then `advance` fails, the clock does not move and the month is repeated later. A refused listing is not bought, stays in `serving.requests` (D-115) and is counted in the month's summary, and the month goes on. A refused purchase stops the month: it would be a bug.
+- **Alternatives considered**: (B) no retries: simpler, but a one-second cut repeats the month; (C) go on: what fails is not bought and the month counts as done, losing purchases with no warning.
+- **Why**: it survives short cuts, never loses or duplicates a month (D-114, D-129), and one bad listing does not stop the clock.
+- **Consequences**: a long outage of the API stops the clock, which is what we want to see. Test T21.4.
+
+<a id="d-126"></a>
+### D-126 Every answer carries a `prediction_id`; a purchase names only that id; exceptions to the rule are recorded, not refused
+
+Date: 2026-11-25 · Step: 4.2 (in F5) · Status: Active
+
+- **Context**: to attribute each dollar to the models behind it, a purchase must point to the answer it was decided on; a loan can have several predictions, one per pair of models (D-114). A first proposal had the client send the versions of PD and LGD; Juan refused it: a client should know nothing of models.
+- **Decision**: every answer of `/predict` and `/predict/batch` carries its `prediction_id`. To buy, the investor sends that id, like the number of a quote. An unknown id refuses that purchase (422). A purchase that does not pass the threshold, has no threshold or is of an uncovered term is accepted and marked (`policy`: `passes`, `below_minimum`, `no_threshold`, `not_covered`).
+- **Alternatives considered**: (B) only the loan id, linked to the last prediction before the purchase: if the investor decided on an earlier answer, F6 would credit the wrong model; (C) no checks: purchases of loans never scored.
+- **Why**: the simplest client and an exact link to the model; exceptions are what F6 must see.
+- **Consequences**: one more field in every answer. Tests T20.1, T20.3, T20.4.
+
+<a id="d-127"></a>
+### D-127 The investor starts the month after T0
+
+Date: 2026-11-25 · Step: 4.2 (in F5) · Status: Active
+
+- **Context**: the first `advance` publishes the history up to T0 (2014-01) and the flow trains the first champions there. Before that there is no model.
+- **Decision**: a fixed rule: the investor sends nothing for the history or T0 itself, and starts the month after (2014-02).
+- **Alternatives considered**: (B) start when the API has a champion, asking `/health`: if a champion vanished by a bug in 2016, the investor would stop buying with nobody noticing; (C) send the history too: models would score the loans they were trained on, a leak that would fill `serving.predictions` with false results for F6.
+- **Why**: it is what happens in reality (one invests once the model exists) and matches T18.15. An API with no model in a later month is an error that stops `advance` (D-125), never read as "no model yet".
+- **Consequences**: test T21.2.
+
+<a id="d-128"></a>
+### D-128 A purchase carries its amount, in notes of 25 dollars, up to the loan's amount
+
+Date: 2026-11-25 · Step: 4.2 (in F5) · Status: Active
+
+- **Context**: Lending Club sold notes of 25 dollars, several of the same loan if wanted. Our investor buys one note per loan (D-085). F6 needs the money behind each purchase.
+- **Decision**: a purchase carries `amount`, a positive multiple of 25 that, with what the client already holds of that loan, does not exceed the loan's amount. The replayer always sends 25.
+- **Alternatives considered**: (B) no amount, always 25: simpler, but the API would assume the investor's strategy.
+- **Why**: as the platform works; F6 weighs each purchase by its money; a change of strategy (more notes on safer loans, if the buy rule of D-097 is revisited) changes only the replayer.
+- **Consequences**: an amount check (T20.3). The 25 is the strategy of D-085, under which the minimum of D-084 and the comparison of D-097 were measured.
+
+<a id="d-129"></a>
+### D-129 The client's own order number makes a repeated purchase harmless and allows repurchases
+
+Date: 2026-11-25 · Step: 4.2 (in F5) · Status: Active
+
+- **Context**: a month repeated after a failure (D-125) must not buy twice. A first proposal made a purchase unique per loan, then per client and loan; Juan pointed out that this forbids an investor to add to its share later, an unwanted restriction.
+- **Decision**: every purchase carries the client's own order number (`order_id`, an idempotency key, as payment APIs use). The same order again returns the stored purchase (`stored_earlier`); the same number with another content is a conflict (409); a new order on the same loan adds to the share (a repurchase), up to the loan's amount. Unique (client, order number) in the database; the replayer's numbers are the month and the loan, so repeating a month gives the same numbers.
+- **Alternatives considered**: (B) one purchase per client and loan: no repurchases; (C) no control, everything adds: repeating a month would duplicate purchases.
+- **Why**: the standard pattern: repurchases allowed and a repeated request harmless.
+- **Consequences**: the request is answered with 200 and a status per purchase (`created`, `stored_earlier`, `refused` with 409 or 422), as a batch (D-117). Each request locks the client's order and its share of the loan until it commits, so two at once cannot both create an order or overfill a loan. Tests T20.2, T20.5.
+

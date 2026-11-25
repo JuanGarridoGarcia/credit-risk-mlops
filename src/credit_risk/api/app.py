@@ -7,6 +7,9 @@ Endpoints:
   versions used;
 - ``POST /predict/batch``: up to ``API_MAX_BATCH`` listings, one result per listing in
   the same order, each a prediction or its errors (D-117);
+- ``POST /purchases``: up to ``API_MAX_BATCH`` purchases the investor reports, each by its
+  own order number, the ``prediction_id`` of the answer it decided on and the amount
+  (D-124 to D-129); one result per purchase, in the same order;
 - ``POST /admin/reload``: load the champions now if an alias moved (D-111);
 - ``GET /health``: whether the API can answer (champions loaded, database reachable);
   ``GET /health/live``: whether the process runs (Docker's healthcheck).
@@ -35,6 +38,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
 from credit_risk import __version__
 from credit_risk.api.champions import Holder, NotReadyError, poll
+from credit_risk.api.purchases import Order, Outcome
 from credit_risk.api.scoring import NOT_COVERED, Champions, cleaning_errors, frame_of, score
 from credit_risk.api.settings import ApiSettings, client_of, parse_keys
 from credit_risk.api.store import Answer, RequestRow, Saver
@@ -46,9 +50,10 @@ access = logging.getLogger("credit_risk.api.access")
 
 PREDICT: Final = "/predict"
 BATCH: Final = "/predict/batch"
+PURCHASES: Final = "/purchases"
 RELOAD: Final = "/admin/reload"
 #: Endpoints whose every request is recorded in ``serving.requests`` (D-115).
-RECORDED: Final = frozenset({PREDICT, BATCH, RELOAD})
+RECORDED: Final = frozenset({PREDICT, BATCH, PURCHASES, RELOAD})
 
 # ---------------------------------------------------------------- input (D-116)
 
@@ -80,6 +85,14 @@ class Batch(BaseModel):
     loans: list[dict[str, Any]] = Field(min_length=1)
 
 
+class Purchases(BaseModel):
+    """Purchases to record together; each is checked on its own (D-117, D-129)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    purchases: list[dict[str, Any]] = Field(min_length=1)
+
+
 def _pydantic_errors(error: ValidationError | RequestValidationError) -> list[dict[str, Any]]:
     out = []
     for e in error.errors():
@@ -95,6 +108,7 @@ def _answer(a: Answer) -> dict[str, Any]:
     v = a.values
     covered = bool(v["covered"])
     return {
+        "prediction_id": v["prediction_id"],
         "loan_id": v["loan_id"],
         "covered": covered,
         "note": None if covered else NOT_COVERED,
@@ -119,6 +133,20 @@ def _answer(a: Answer) -> dict[str, Any]:
             "api": v["api_version"],
         },
         "stored_earlier": a.stored_earlier,
+    }
+
+
+def _bought(o: Outcome) -> dict[str, Any]:
+    s = o.stored
+    assert s is not None  # noqa: S101 - a purchase always has its row
+    return {
+        "purchase_id": s.purchase_id,
+        "order_id": s.order_id,
+        "prediction_id": s.prediction_id,
+        "loan_id": s.loan_id,
+        "amount": float(s.amount),
+        "policy": s.policy,
+        "at": s.at.isoformat() if s.at is not None else None,
     }
 
 
@@ -237,6 +265,18 @@ def create_app(
 
     # ------------------------------------------------------------ scoring
 
+    def too_many(field: str, n: int) -> RequestValidationError:
+        return RequestValidationError(
+            [
+                {
+                    "loc": ("body", field),
+                    "msg": f"at most {settings.max_batch} {field} per request",
+                    "type": "too_long",
+                }
+            ],
+            body={field: f"{n} {field}"},
+        )
+
     def champions_or_503() -> Champions:
         try:
             return holder.current
@@ -277,16 +317,7 @@ def create_app(
     def predict_batch(batch: Batch, request: Request) -> Any:
         """Score up to ``API_MAX_BATCH`` listings; one result per listing, in order."""
         if len(batch.loans) > settings.max_batch:
-            raise RequestValidationError(
-                [
-                    {
-                        "loc": ("body", "loans"),
-                        "msg": f"at most {settings.max_batch} loans per batch",
-                        "type": "too_long",
-                    }
-                ],
-                body={"loans": f"{len(batch.loans)} loans"},
-            )
+            raise too_many("loans", len(batch.loans))
         champions = champions_or_503()
         row = RequestRow(request.state.request_id, BATCH, __version__)
         row.versions = champions.versions()
@@ -319,6 +350,55 @@ def create_app(
             else {"index": i, "errors": errors[i]}
             for i in range(len(batch.loans))
         ]
+        return {"request_id": str(request.state.request_id), "results": results}
+
+    @app.post(PURCHASES, dependencies=[predict_key])
+    def purchases(body: Purchases, request: Request) -> Any:
+        """Record what the investor bought; one result per purchase, in order (D-124)."""
+        if len(body.purchases) > settings.max_batch:
+            raise too_many("purchases", len(body.purchases))
+        row = RequestRow(request.state.request_id, PURCHASES, __version__)
+        request.state.row = row
+        refused: dict[int, list[dict[str, Any]]] = {}
+        valid: list[tuple[int, Order]] = []
+        for i, item in enumerate(body.purchases):
+            try:
+                valid.append((i, Order.model_validate(item)))
+            except ValidationError as error:
+                refused[i] = _pydantic_errors(error)
+        results: list[dict[str, Any]] = []
+
+        def describe(outcomes: list[Outcome]) -> None:
+            """The results, and what the request row keeps of them (D-115)."""
+            decided = dict(zip([i for i, _ in valid], outcomes, strict=True))
+            results.clear()
+            for i in range(len(body.purchases)):
+                o = decided.get(i)
+                if o is None:
+                    results.append({"index": i, "status": "refused", "code": 422,
+                                    "errors": refused[i]})  # fmt: skip
+                elif o.status == "refused":
+                    results.append({"index": i, "status": "refused", "code": o.code,
+                                    "errors": list(o.errors)})  # fmt: skip
+                else:
+                    results.append({"index": i, "status": o.status, "purchase": _bought(o)})
+            bad = {r["index"]: r["errors"] for r in results if r["status"] == "refused"}
+            row.loans, row.rejected = len(results) - len(bad), len(bad)
+            if bad:
+                row.body = {"items": {str(i): body.purchases[i] for i in sorted(bad)}}
+                row.errors = {str(i): bad[i] for i in sorted(bad)}
+
+        row.latency_ms = (time.perf_counter() - request.state.started) * 1000
+        row.client = request.state.client
+        if valid:
+            try:
+                store.purchase(row, [o for _, o in valid], describe)
+            except (psycopg.OperationalError, PoolTimeout) as error:
+                log.error("database unavailable: %r", error)
+                raise HTTPException(503, "database unavailable: nothing was recorded") from error
+            request.state.saved = True
+        else:
+            describe([])
         return {"request_id": str(request.state.request_id), "results": results}
 
     # ------------------------------------------------------------ operations

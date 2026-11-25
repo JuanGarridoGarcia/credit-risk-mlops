@@ -1,18 +1,24 @@
 """T17.4 to T17.8: the simulated clock (D-107), the retraining cadence (D-106) and the
 alerts table (D-108) against the services of docker compose, approved by Juan on
-2026-11-24.
+2026-11-24; T21.2 to T21.5: the simulated investor inside the clock (D-123 to D-129),
+approved by Juan on 2026-11-25.
 
 As in ``test_flows.py``, the flows run in this process on a database of their own and
-model names of their own, with the small made-up source of ``tests/synthetic_source.py``.
-The clock starts at 2012-01 (its first retraining month) and the source goes up to
-2012-06. One story runs once for the module: four advances, one of them on a broken
-delivery of 2012-03; each test checks one part of it.
+model names of their own, with the small made-up source of ``tests/synthetic_source.py``;
+the API runs in a process of its own on the same database and model names. The clock
+starts at 2012-01 (its first retraining month) and the source goes up to 2012-06. One
+story runs once for the module: advances of 2012-01 and 02, one on a broken delivery of
+2012-03, 03 again, one of 04 with the API out of reach, 04 again; each test checks one
+part of it.
 """
 
 import asyncio
+import csv
+import gzip
 import os
 import uuid
 from collections.abc import Iterator
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -26,12 +32,18 @@ from prefect.client.orchestration import get_client
 from psycopg.rows import dict_row
 
 from credit_risk import alerts, flows, registry
+from credit_risk.contracts import LISTING_COLUMNS, LISTINGS, delivery_path
 from credit_risk.flows import Paths
+from credit_risk.ingest import read_delivery
 from credit_risk.settings import Settings
-from credit_risk.simulator import clock
+from credit_risk.simulator import clock, replayer
 from credit_risk.simulator.clock import World
+from tests.api_support import ADMIN_KEY, PREDICT_KEY
+from tests.investor_support import check_month
 from tests.synthetic_source import write_source
+from tests.valid_rows import month_text
 
+from .api_process import api_process, free_port
 from .conftest import database_url, dbmate
 from .test_flows import ENVIRONMENT, _remove_models, _task_runs
 
@@ -41,6 +53,10 @@ TRIALS = 3
 START = "2012-01"
 UNTIL = date(2012, 6, 1)
 BAD_MONTH = date(2012, 3, 1)
+#: Small batches (a month of the made-up source has about 15 listings), so that each
+#: month takes several requests; the API's limit is 1,000.
+SMALL_BATCH = 4
+INVESTED = [date(2012, m, 1) for m in range(2, 7)]
 
 
 @dataclass
@@ -54,6 +70,9 @@ class Story:
     clocks: list[date | None] = field(default_factory=list)
     summaries: dict[str, dict[str, Any]] = field(default_factory=dict)
     failed: Any = None
+    #: The advance of 2012-04 with the API out of reach, and the clock after it.
+    down: Any = None
+    down_clock: date | None = None
 
 
 def _world(folder: Path, name: str, bad: tuple[date, str, str] | None = None) -> World:
@@ -68,20 +87,25 @@ def _advance(story: Story, world: World | None = None, **kwargs: Any) -> Any:
 
 @pytest.fixture(scope="module")
 def story(settings: Settings, tmp_path_factory: pytest.TempPathFactory) -> Iterator[Story]:
-    """An empty clock advanced four times: 2012-01, 02, a failed 03, 03 again, 04."""
+    """An empty clock advanced: 2012-01, 02, a failed 03, 03 again, a failed 04, 04."""
     folder = tmp_path_factory.mktemp("clock")
     name = f"test_clock_{uuid.uuid4().hex[:8]}"
     prefix = f"test-clock-{uuid.uuid4().hex[:8]}-"
     with psycopg.connect(settings.postgres_conninfo(), autocommit=True) as admin:
         admin.execute(f'CREATE DATABASE "{name}"')
-    previous = {k: os.environ.get(k) for k in ENVIRONMENT}
+    previous = {k: os.environ.get(k) for k in (*ENVIRONMENT, "API_PREDICT_KEY")}
     mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5000"))
+    patch = pytest.MonkeyPatch()
+    servers = ExitStack()
     try:
         dbmate(database_url(settings, name), "up")
-        for key in ("API_URL", "API_ADMIN_KEY"):  # not the API of compose (test_flows)
-            os.environ.pop(key, None)
         os.environ["POSTGRES_DB"] = name
         os.environ["CREDIT_RISK_COMMIT"] = "e" * 40
+        url = servers.enter_context(api_process(name, prefix, ready=False))
+        # The API of this story, not the one of compose; the flow tells it of new
+        # champions (D-111) and the investor buys through it (D-124).
+        os.environ.update(API_URL=url, API_ADMIN_KEY=ADMIN_KEY, API_PREDICT_KEY=PREDICT_KEY)
+        patch.setattr(replayer, "BATCH", SMALL_BATCH)
         story = Story(
             paths=Paths(
                 landing=str(folder / "landing"),
@@ -102,12 +126,26 @@ def story(settings: Settings, tmp_path_factory: pytest.TempPathFactory) -> Itera
             story.clocks.append(clock.now())
         story.failed = _advance(story, bad, return_state=True)
         story.clocks.append(clock.now())
-        for _ in range(2):
-            summary = _advance(story)
-            story.summaries[summary["period"]] = summary
-            story.clocks.append(clock.now())
+        summary = _advance(story)
+        story.summaries[summary["period"]] = summary
+        story.clocks.append(clock.now())
+        # 2012-04 with the API out of reach: the investor tries 1 + 3 times (no waits
+        # here) and the clock stays (D-125); then 2012-04 again with the API back.
+        os.environ["API_URL"] = f"http://127.0.0.1:{free_port()}"
+        patch.setattr(
+            clock, "invest_task", replayer.invest_task.with_options(retry_delay_seconds=0)
+        )
+        story.down = _advance(story, return_state=True)
+        story.down_clock = clock.now()
+        os.environ["API_URL"] = url
+        patch.setattr(clock, "invest_task", replayer.invest_task)
+        summary = _advance(story)
+        story.summaries[summary["period"]] = summary
+        story.clocks.append(clock.now())
         yield story
     finally:
+        servers.close()
+        patch.undo()
         for key, value in previous.items():
             if value is None:
                 os.environ.pop(key, None)
@@ -271,3 +309,151 @@ def test_the_clock_is_deployed_paused_and_replay_loops_months(story: Story) -> N
 
     assert months == ["2012-05", "2012-06"]
     assert clock.now() == UNTIL
+
+
+# ---------------------------------------------------------------- the investor (T21)
+
+
+def _count(story: Story, query: str, *args: Any) -> int:
+    with psycopg.connect(story.conninfo) as conn:
+        row = conn.execute(query, args).fetchone()
+    assert row is not None
+    return int(row[0])
+
+
+# T21.2
+def test_the_investor_sends_every_listing_after_t0_once(story: Story) -> None:
+    # Nothing up to T0, the month the first models are trained (D-127).
+    assert story.summaries["2012-01"]["investor"] == {"period": "2012-01", "invested": False}
+    assert (
+        _count(story, "SELECT count(*) FROM serving.predictions WHERE listed <= %s", _month(START))
+        == 0
+    )
+    with psycopg.connect(story.conninfo) as conn:
+        months = [m for (m,) in conn.execute("SELECT month FROM sim.invested ORDER BY month")]
+        batches = [
+            n for (n,) in conn.execute(
+                "SELECT loans + rejected FROM serving.requests"
+                " WHERE endpoint = '/predict/batch' AND status = 200"
+            )
+        ]  # fmt: skip
+    assert months[: len(INVESTED)] == INVESTED
+    # In batches, never more than the limit, several a month.
+    assert max(batches) <= SMALL_BATCH
+    assert len(batches) > len(INVESTED)
+    # Every listing of each month once: one prediction per loan (D-114, D-129).
+    for month in INVESTED:
+        listed = read_delivery(delivery_path(Path(story.paths.landing), month, LISTINGS), LISTINGS)
+        assert (
+            _count(story, "SELECT count(*) FROM serving.predictions WHERE listed = %s", month)
+            == listed.height
+        ), month
+        assert (
+            _count(
+                story,
+                "SELECT count(DISTINCT loan_id) FROM serving.predictions WHERE listed = %s",
+                month,
+            )
+            == listed.height
+        ), month
+
+
+# T21.3
+def test_a_month_is_scored_by_the_champions_of_the_month_before(story: Story) -> None:
+    found = _alerts(story)
+
+    def champion_before(target: str, month: date) -> str:
+        name = f"{story.prefix}{target}"
+        promoted = [
+            a for a in found
+            if a["kind"] == "promoted" and a["model"] == name and a["period"] < month
+        ]  # fmt: skip
+        return str(promoted[-1]["version"])
+
+    # April retrains: its loans are scored before, by the champions of March (D-123).
+    for month in (date(2012, 4, 1), date(2012, 5, 1)):
+        with psycopg.connect(story.conninfo) as conn:
+            pairs = conn.execute(
+                "SELECT DISTINCT pd_version, lgd_version FROM serving.predictions"
+                " WHERE listed = %s",
+                (month,),
+            ).fetchall()
+        assert pairs == [(champion_before("pd", month), champion_before("lgd", month))], month
+
+
+# T21.5
+def test_what_was_bought_is_what_the_rule_gives_on_the_predictions(story: Story) -> None:
+    print("\nT21.5:")
+    for month in INVESTED:
+        counts = check_month(story.conninfo, story.paths.landing, month)
+        print(f"  {month:%Y-%m}: {counts}")
+    assert _count(story, "SELECT count(*) FROM serving.purchases") == _count(
+        story, "SELECT count(DISTINCT loan_id) FROM serving.purchases"
+    ), "no loan bought twice"
+    assert _count(story, "SELECT count(*) FROM serving.purchases") > 0
+
+
+def _write_delivery(landing: Path, month: date, frame: Any) -> None:
+    path = delivery_path(landing, month, LISTINGS)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(path, "wt", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(LISTING_COLUMNS)
+        for row in frame.iter_rows():
+            writer.writerow(["" if v is None else v for v in row])
+
+
+# T21.4
+def test_the_investor_retries_a_missing_api_and_never_buys_twice(
+    story: Story, tmp_path: Path
+) -> None:
+    # The API out of reach: four attempts, then the advance fails and the clock stays.
+    assert story.down.is_failed()
+    assert story.down_clock == date(2012, 3, 1)
+    tasks = asyncio.run(_task_runs(story.down.state_details.flow_run_id))
+    assert tasks["invest"][0].run_count == 1 + replayer.RETRIES
+    assert story.clocks[-1] == date(2012, 4, 1), "the next advance did the month"
+    # March again after the system's flow failed: the investor had already acted.
+    assert story.summaries["2012-03"]["investor"].get("earlier") is True
+
+    # An investor that stopped after buying, before recording its month: sending the
+    # month again stores no prediction and no purchase twice.
+    april = date(2012, 4, 1)
+    before = (
+        _count(story, "SELECT count(*) FROM serving.predictions"),
+        _count(story, "SELECT count(*) FROM serving.purchases"),
+    )
+    with psycopg.connect(story.conninfo) as conn:
+        conn.execute("DELETE FROM sim.invested WHERE month = %s", (april,))
+    again = replayer.invest("2012-04", story.paths.landing, START)
+    assert again["bought"] == story.summaries["2012-04"]["investor"]["bought"]
+    assert (
+        _count(story, "SELECT count(*) FROM serving.predictions"),
+        _count(story, "SELECT count(*) FROM serving.purchases"),
+    ) == before
+
+    # A listing the API refuses: not bought, counted, and the month completes.
+    landing = tmp_path / "landing"
+    source = Path(story.paths.landing)
+    for month, copy in (
+        (date(2013, 1, 1), date(2012, 6, 1)),
+        (date(2012, 12, 1), date(2012, 5, 1)),
+    ):
+        frame = read_delivery(delivery_path(source, copy, LISTINGS), LISTINGS)
+        frame = frame.with_columns(
+            id=(frame["id"].cast(int) + 90_000_000).cast(str),
+            issue_d=frame["issue_d"].str.replace(r".*", month_text(month)),
+        )
+        if month == date(2013, 1, 1):
+            frame = frame.with_columns(int_rate=frame["int_rate"].scatter(0, "not a rate"))
+            refused = int(frame["id"][0])
+        _write_delivery(landing, month, frame)
+    summary = replayer.invest("2013-01", str(landing), START)
+    assert summary["invested"] is True
+    assert summary["refused"] == 1
+    assert summary["scored"] == summary["listings"] - 1
+    assert (
+        _count(story, "SELECT count(*) FROM serving.predictions WHERE loan_id = %s", refused) == 0
+    )
+    assert _count(story, "SELECT count(*) FROM serving.purchases WHERE loan_id = %s", refused) == 0
+    assert _count(story, "SELECT refused FROM sim.invested WHERE month = %s", date(2013, 1, 1)) == 1
