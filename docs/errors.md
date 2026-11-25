@@ -58,6 +58,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-048](#e-048) | 2026-11-25 | 5.2 | The API in compose could not load its champions: the MLflow server refused its Host name | Major |
 | [E-049](#e-049) | 2026-11-25 | 5.2 | The unit tests of delivery failed inside the test image: `ci/` and the workflows were not in it | Minor |
 | [E-050](#e-050) | 2026-11-25 | 5.2 | The smoke test, run inside pytest, left MLflow pointing to its own server, and the tracking tests after it failed | Minor |
+| [E-051](#e-051) | 2026-11-25 | 5.2 | In CI, moving `main` gave a new digest: the registry tool wrapped the image in a new index | Moderate |
 
 ## Errors
 
@@ -543,4 +544,14 @@ Date: 2026-11-25 · Step: 5.2 · Severity: minor
 - **Cause**: T22.3 called the smoke test as a function. To register its champions it sets the address of MLflow (`mlflow.set_tracking_uri`) to the server it starts; MLflow keeps it in a global of the process, so after the smoke test had removed that server, the next tests of the same pytest process still called it.
 - **Fix**: T22.3 runs the smoke test as `ci/publish.py` does, in a process of its own (`python -m tests.smoke`), and reads its exit code and messages.
 - **Prevention**: the module's docstring says why it must run in its own process.
+
+<a id="e-051"></a>
+### E-051 In CI, moving `main` gave a new digest: the registry tool wrapped the image in a new index
+
+Date: 2026-11-25 · Step: 5.2 · Severity: moderate
+
+- **Symptom**: the rehearsal of the publication (T22.4) passed on the cloud machine and failed in GitHub Actions: `localhost:…/credit-risk-serve:main does not point to sha256:51eb…`. The check of `ci/publish.py` refused to finish a publication whose `main` was not the image smoke tested.
+- **Cause**: `main` is put on the image with `docker buildx imagetools create`, in the registry. Given a single plain image manifest, that command does not copy it: it writes a new index (a list of manifests) that contains it, with a digest of its own. On the cloud machine Docker keeps images in the containerd store and pushes an index already, which the command copies as it is; the runners of GitHub use the classic store, which pushes a plain manifest. Checked by hand against a local registry: a plain manifest gets a new digest by default and keeps its digest with `--prefer-index=false`; an index keeps it either way.
+- **Fix**: `--prefer-index=false`, a carbon copy in both cases.
+- **Prevention**: this is why the rehearsal runs on every pull request: it failed in the pull request, not on main. The check that the moved tag has the digest tested stays.
 

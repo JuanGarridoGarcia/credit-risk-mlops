@@ -40,7 +40,7 @@ Status of every step of the playbook. Updated in every pull request.
 | F4 Automation | 4.1 Orchestrated training flow | Done | #10, #11 | D-098 to D-108; E-037 to E-042; #11: clock, cadence and alerts |
 | | 4.2 Batch prediction flow | Done (in F5) | #13 | Replaced by the simulated investor calling the API (D-008, D-098); D-123 to D-129; E-047 |
 | F5 Deployment | 5.1 API | Done | #12 | D-109 to D-122; E-043 to E-046; API, predictions table, buy rule in MLflow; purchases endpoint in PR 2 (D-124) |
-| | 5.2 Published image and CD | In review | PR 3 of F5 | D-130 to D-136; E-048 to E-050; serve and train published to GHCR after CI on main, smoke tested, Trivy before publishing |
+| | 5.2 Published image and CD | In review | PR 3 of F5 | D-130 to D-136; E-048 to E-051; serve and train published to GHCR after CI on main, smoke tested, Trivy before publishing |
 | F6 Monitoring | 6.1 Drift and metrics | Pending | | |
 | | 6.2 Dashboard and alerts | Pending | | |
 | | 6.3 Triggered retraining | Pending | | |
@@ -973,7 +973,7 @@ A tag is a name on an image, as a branch is a name on a commit. Moving `main` ch
 
 **Built once.** The job `integration` already builds and tests both images. On main it saves them (`docker save`, an artefact of the run kept one day) with their image ids in `tested.json`; `publish` loads them and checks each id before pushing and again after pulling back. Pulling back by digest checks the registry itself: the upload, the permissions, the package.
 
-**The program** (`ci/`, outside the package: no image carries it). `ci/tags.py` turns the ref and commit of the run into a plan: repositories (owner lowercased, since GHCR refuses capitals), commit tag, tag to move, and whether to push. `ci/publish.py` carries it out through `docker` and `docker buildx imagetools`; the final tag is put in the registry on the very manifest that was smoke tested, without pulling or pushing again. A failure at any step leaves `main` and every version where they were; an image that failed its smoke test stays in the registry under its commit, to be looked at.
+**The program** (`ci/`, outside the package: no image carries it). `ci/tags.py` turns the ref and commit of the run into a plan: repositories (owner lowercased, since GHCR refuses capitals), commit tag, tag to move, and whether to push. `ci/publish.py` carries it out through `docker` and `docker buildx imagetools`; the final tag is put in the registry on the very manifest that was smoke tested, without pulling or pushing again (`imagetools create --prefer-index=false`, a carbon copy, E-051). A failure at any step leaves `main` and every version where they were; an image that failed its smoke test stays in the registry under its commit, to be looked at.
 
 **The smoke test** (`tests/smoke.py`). Under a compose project of its own and on free ports, it starts Postgres, the MLflow server (from train) and the API (from serve) with the images given, never building or pulling; applies the migrations; registers made-up champions as the API tests do; and requires the commit and version inside train, `/health` 200 and one `/predict` with PD, LGD and expected loss in range. Everything it started is removed at the end. It found a real bug on its first run (E-048).
 
@@ -990,3 +990,4 @@ A tag is a name on an image, as a branch is a name on a commit. Moving `main` ch
 | E-048 | The API in compose could not load its champions: the MLflow server refused its Host name |
 | E-049 | The unit tests of delivery failed inside the test image: `ci/` and the workflows were not in it |
 | E-050 | The smoke test, run inside pytest, left MLflow pointing to its own server, and the tracking tests after it failed |
+| E-051 | In CI, moving `main` gave a new digest: the registry tool wrapped the image in a new index |

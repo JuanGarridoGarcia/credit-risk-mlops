@@ -86,8 +86,12 @@ class Cli:
 
     def copy(self, source: str, target: str) -> str:
         """Put tag ``target`` on the manifest of ``source`` in the registry, as it is."""
+        # A carbon copy: by default a single plain manifest is wrapped in a new index, with
+        # another digest (E-051).
         self._ok(
-            _docker("buildx", "imagetools", "create", "--tag", target, source),
+            _docker(
+                "buildx", "imagetools", "create", "--prefer-index=false", "--tag", target, source
+            ),
             f"tag {source} as {target} in the registry",
         )
         digest = self.remote_digest(target)
