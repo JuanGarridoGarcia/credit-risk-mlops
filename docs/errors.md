@@ -62,6 +62,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-052](#e-052) | 2026-11-25 | 5.2 | The integration job ran past its 25 minute limit and GitHub cancelled it, with every test passed | Minor |
 | [E-053](#e-053) | 2026-11-25 | 5.1 (found in 5.2) | A log test failed at random on main: a random request id contained the word it looked for | Minor |
 | [E-054](#e-054) | 2026-11-25 | 5.2 | The first publication was stopped by Trivy: two new HIGH findings in the Debian base image | Minor |
+| [E-055](#e-055) | 2026-11-25 | 5.2 | The smoke test of the first real publication could not start Postgres: the fresh machine of the publish job had never pulled it | Moderate |
 
 ## Errors
 
@@ -587,3 +588,13 @@ Date: 2026-11-25 · Step: 5.2 · Severity: minor
 - **Cause**: two findings published after the weekly scan of Monday, both in OS packages of the official base image, none in our code or our Python packages: CVE-2026-107494 (OpenSSL, denial of service of a QUIC server; no fix in Debian yet) and CVE-2026-124851 (zstd, information disclosure; fixed in Debian, not yet in the official Python image). Scanned again on the cloud machine: serve and train show the same two and nothing else, also with the newest base image.
 - **Fix**: the base image moves to its digest of 2026-11-24 (Debian 13.8, OpenSSL 3.5.9), and the two findings enter `.trivyignore.yaml` with reason and expiry as D-029 and D-038 say (Juan chose on 2026-11-25 to keep D-038 now that the images are public, as nothing is deployed until F7): OpenSSL until 2026-12-22, zstd until 2026-12-06 (short on purpose). Neither is reachable: nothing speaks QUIC, nothing loads libzstd.
 - **Prevention**: none needed; this is the brake of D-135 doing its job. New findings appear any day, so a publication can stop for a reason that did not exist when the pull request passed; the expiries force a review.
+
+<a id="e-055"></a>
+### E-055 The smoke test of the first real publication could not start Postgres: the fresh machine of the publish job had never pulled it
+
+Date: 2026-11-25 · Step: 5.2 · Severity: moderate
+
+- **Symptom**: on the run of main after the merge of #16, Trivy passed and `ci/publish.py` pushed `sha-5ae1947` of serve and train and pulled them back by digest, then the smoke test stopped: `No such image: postgres:18.7-trixie@sha256:eb63…`. `main` did not move; the two commit tags stay in GHCR, unchanged, as every commit tag does.
+- **Cause**: the smoke test starts its services with `--pull never`, so that it runs the very images pulled by digest and never pulls or builds ours by itself. But it also starts Postgres, which is not ours. On the pull requests it ran in the integration job, where Postgres had been pulled long before (T22.3, T22.4); the publish job runs on a fresh machine of its own, which had never pulled it.
+- **Fix**: the smoke test pulls Postgres first (`docker compose pull postgres`, by the digest pinned in compose) and keeps `--pull never` for the rest. Checked on the cloud machine with the Postgres image deleted first: the smoke test pulls it and passes.
+- **Prevention**: the comment in `tests/smoke.py` says why. A test cannot repeat a fresh machine cheaply: on the runners of the pull requests Postgres is running for the other integration tests, so its image cannot be removed. This is the first real run of the publish job, the one part the rehearsal could not cover; it stopped safely, before moving `main`.

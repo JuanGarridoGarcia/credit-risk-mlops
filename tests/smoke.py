@@ -77,7 +77,12 @@ def services(serve: str, train: str) -> Iterator[dict[str, str]]:
         "API_ADMIN_KEY": ADMIN_KEY,
     }
     try:
-        # The images were pulled before: never build or pull here.
+        # Postgres is not ours and the publish job runs on a fresh machine, which has never
+        # pulled it (E-055): pull it, by the digest pinned in compose.
+        pulled = _compose(project, env, "pull", "--quiet", "postgres")
+        if pulled.returncode != 0:
+            raise SmokeError(f"cannot pull Postgres: {pulled.stderr.strip()[-2000:]}")
+        # Ours were pulled before, by digest: never build or pull them here.
         up = _compose(project, env, "up", "--detach", "--wait", "--no-build", "--pull", "never",
                       *SERVICES)  # fmt: skip
         if up.returncode != 0:
