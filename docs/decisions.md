@@ -137,6 +137,13 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-127](#d-127) | 2026-11-25 | 4.2 (in F5) | The investor starts the month after T0 | Active |
 | [D-128](#d-128) | 2026-11-25 | 4.2 (in F5) | A purchase carries its amount, in notes of 25 dollars, up to the loan's amount | Active |
 | [D-129](#d-129) | 2026-11-25 | 4.2 (in F5) | The client's own order number makes a repeated purchase harmless and allows repurchases | Active |
+| [D-130](#d-130) | 2026-11-25 | 5.2 | The images are published to GitHub Container Registry; ECR comes with AWS in F7 | Active |
+| [D-131](#d-131) | 2026-11-25 | 5.2 | Both application images, serve and train, are published; the test image stays in CI | Active |
+| [D-132](#d-132) | 2026-11-25 | 5.2 | Tags: the commit (`sha-abc1234`) and `main` on every merge, the version `X.Y.Z` on a release tag `vX.Y.Z` | Active |
+| [D-133](#d-133) | 2026-11-25 | 5.2 | Images are published by a fifth CI job, after the four pass on main, without building again | Active |
+| [D-134](#d-134) | 2026-11-25 | 5.2 | The smoke test asks the published images for a real prediction; `main` moves only if it passes | Active |
+| [D-135](#d-135) | 2026-11-25 | 5.2 | Trivy scans each image before it is published and blocks on HIGH or CRITICAL | Active |
+| [D-136](#d-136) | 2026-11-25 | 5.2 | The published images are public | Active |
 
 ## Decisions
 
@@ -1498,4 +1505,81 @@ Date: 2026-11-25 · Step: 4.2 (in F5) · Status: Active
 - **Alternatives considered**: (B) one purchase per client and loan: no repurchases; (C) no control, everything adds: repeating a month would duplicate purchases.
 - **Why**: the standard pattern: repurchases allowed and a repeated request harmless.
 - **Consequences**: the request is answered with 200 and a status per purchase (`created`, `stored_earlier`, `refused` with 409 or 422), as a batch (D-117). Each request locks the client's order and its share of the loan until it commits, so two at once cannot both create an order or overfill a loan. Tests T20.2, T20.5.
+
+<a id="d-130"></a>
+### D-130 The images are published to GitHub Container Registry; ECR comes with AWS in F7
+
+Date: 2026-11-25 · Step: 5.2 · Status: Active
+
+- **Context**: continuous delivery keeps every version of the product as an image in a registry, so that any machine can run exactly that version. The registry has to be reachable from CI and, later, from AWS.
+- **Decision**: GitHub Container Registry (`ghcr.io`), next to the repository. CI pushes with the token GitHub gives each run (`GITHUB_TOKEN`), so no secret is stored. Amazon ECR is added in F7 with Terraform, when there is somewhere in AWS to deploy.
+- **Alternatives considered**: (B) ECR from now on: AWS credentials stored in GitHub and an account to pay for before anything runs there; (C) Docker Hub: another account and a stored token, and pull limits for anonymous users.
+- **Why**: no secret, no cost, the package page shows the history of versions next to the code.
+- **Consequences**: CI needs `packages: write` in one job (D-133). F7 decides how the images reach ECR.
+
+<a id="d-131"></a>
+### D-131 Both application images, serve and train, are published; the test image stays in CI
+
+Date: 2026-11-25 · Step: 5.2 · Status: Active
+
+- **Context**: the Dockerfile has three targets: `serve` (the API), `train` (the monthly flow, training, the MLflow server) and `test` (unit tests against the installed package).
+- **Decision**: each version publishes `credit-risk-serve` and `credit-risk-train`, from the same commit. `test` is only used inside CI.
+- **Alternatives considered**: (B) only serve: the flow would still be built by hand wherever it runs, and could differ from the code that serves; (C) also test: space taken by an image nobody runs outside CI.
+- **Why**: production runs both; publishing them together guarantees that a model is trained and served with the same code.
+- **Consequences**: two packages in GHCR; the smoke test starts both (D-134).
+
+<a id="d-132"></a>
+### D-132 Tags: the commit (`sha-abc1234`) and `main` on every merge, the version `X.Y.Z` on a release tag `vX.Y.Z`
+
+Date: 2026-11-25 · Step: 5.2 · Status: Active
+
+- **Context**: a tag is a name on an image in the registry; one image can carry several. The tags decide which version is deployed and how to go back.
+- **Decision**: every merge to main publishes each image as `sha-` and the first 7 characters of its commit, a tag that is never rewritten, and moves `main` to it, so `main` always names the last good version. A git tag `vX.Y.Z` adds `X.Y.Z` to the image its commit already published from main; the tag must be the version of `pyproject.toml`, and a version is never rewritten either. Any other branch or a pull request publishes nothing. GHCR takes only lowercase names, so the owner is lowered.
+- **Alternatives considered**: (B) only the commit: no readable version and no name for the latest one; (C) `latest` and the version on every merge: the tag no longer says which code is inside and going back is not reliable.
+- **Why**: the commit makes deploying and rolling back unambiguous; versions mark the releases Juan decides.
+- **Consequences**: two details found while implementing, approved by Juan on 2026-11-25: a release builds nothing (D-133) and fails if its commit has no published images; a commit tag that already holds another image stops the publication. Test T22.1.
+
+<a id="d-133"></a>
+### D-133 Images are published by a fifth CI job, after the four pass on main, without building again
+
+Date: 2026-11-25 · Step: 5.2 · Status: Active
+
+- **Context**: the rule of continuous delivery is to build once and publish the very artefact that was tested. Two pull requests green on their own can break main together; and building the same commit twice gives two images with different digests.
+- **Decision**: CI runs again on main after a merge. The job `integration` keeps the images it built and tested (`docker save`, an artefact of the run kept one day); a fifth job, `publish`, needs the four jobs, loads those images and publishes them. On a release tag it takes the images the commit published from main. It is the only job allowed to write packages. Runs on main and on tags are never cancelled by a newer one: they wait their turn, so a publication is never cut halfway.
+- **Alternatives considered**: (B) a separate workflow on every push to main, building again without waiting for the tests: what is published is not what was tested and a broken main is published; (C) by hand: no longer continuous delivery, and Juan's control is already the merge.
+- **Why**: what reaches the registry is byte for byte what passed the tests.
+- **Consequences**: publishing waits for the whole of CI, a few minutes. The steps are a Python program (`ci/publish.py`) rehearsed on every pull request against a local registry (T22.4). Tests T22.2, T22.4.
+
+<a id="d-134"></a>
+### D-134 The smoke test asks the published images for a real prediction; `main` moves only if it passes
+
+Date: 2026-11-25 · Step: 5.2 · Status: Active
+
+- **Context**: the tests already passed, but only after publishing can one see that the image downloads from the registry, starts with its real configuration and answers.
+- **Decision**: after pushing the commit tag, `publish` pulls each image back by its digest, checks it is the one tested, and runs `tests/smoke.py`: under a compose project of its own it starts Postgres, the MLflow server (train) and the API (serve), applies the migrations and registers made-up champions; it then requires the commit and version inside train, `/health` 200 and one `/predict` with PD, LGD and expected loss in range. Only then `main` (or the version) moves to those images, in the registry, without pushing again.
+- **Alternatives considered**: (B) only that it starts (`/health/live`): an image missing a driver or with a wrong setting starts and fails with the first real request; (C) no smoke test: the registry itself is never checked, and step 5.2 asks for one.
+- **Why**: it shows that what is published serves predictions; `main` never names an image that does not.
+- **Consequences**: two or three more minutes. A failed image stays in the registry under its commit, to be looked at. On its first run the smoke test found that the API of compose could not reach the MLflow server (E-048). Tests T22.3, T22.4.
+
+<a id="d-135"></a>
+### D-135 Trivy scans each image before it is published and blocks on HIGH or CRITICAL
+
+Date: 2026-11-25 · Step: 5.2 · Status: Active
+
+- **Context**: an image carries Debian, Python and some 150 libraries; vulnerabilities (CVE) are found in them every week. Trivy already scanned rebuilt images every Monday (D-029).
+- **Decision**: `publish` runs Trivy on the images it is about to publish; a HIGH or CRITICAL finding not listed in `.trivyignore.yaml` (each exception with its reason and expiry date) publishes nothing. The Monday scan now scans the `main` images pulled from GHCR instead of rebuilding them.
+- **Alternatives considered**: (B) only the weekly scan: a vulnerable image can be published for up to six days unseen; (C) scan and only report: a warning that never blocks ends up ignored.
+- **Why**: no image with a known serious flaw reaches the registry, and the exceptions already have their reasoned place.
+- **Consequences**: about a minute more; a new CVE in an untouched library can block an unrelated change until the library is updated or an exception is written. Test T22.2.
+
+<a id="d-136"></a>
+### D-136 The published images are public
+
+Date: 2026-11-25 · Step: 5.2 · Status: Active
+
+- **Context**: each GHCR package has its own visibility. GitHub does not allow a public package to become private again.
+- **Decision**: both packages are public: anyone can `docker pull` any version without an account. Juan switches the visibility once per package, after the first publication (the token of CI cannot).
+- **Alternatives considered**: (B) private: reversible, but anyone outside needs access granted to try the product, and AWS would need a stored token.
+- **Why**: the code is already public and the images carry no data, models or keys: `.dockerignore` lets in only `src/`, `tests/` and four files, and B5 checks every image for secrets on every pull request. API keys arrive as variables when the container starts.
+- **Consequences**: irreversible. The weekly scan (D-135) logs in anyway, so it also works while the packages are private.
 

@@ -29,6 +29,7 @@ Every test of the project, what it checks, where it lives and where it runs. Jua
 - [T19 Buy rule in the flow](#t19-buy-rule-in-the-flow)
 - [T20 Purchases](#t20-purchases)
 - [T21 Simulated investor](#t21-simulated-investor)
+- [T22 Delivery](#t22-delivery)
 - [Change history](#change-history)
 
 ## How tests are organised
@@ -78,7 +79,8 @@ Changing what an approved test checks needs Juan's approval again. B6 fails if a
 | T19 Buy rule in the flow | F5, step 5.1, first pull request | 2 | 2026-11-24 | [technical.md, F5](technical.md#first-pull-request-the-api-and-the-predictions-table) |
 | T20 Purchases | F5, old step 4.2, second pull request | 5 | 2026-11-25 | [technical.md, F5](technical.md#second-pull-request-the-simulated-investor-and-its-purchases) |
 | T21 Simulated investor | F5, old step 4.2, second pull request | 5 | 2026-11-25 | [technical.md, F5](technical.md#second-pull-request-the-simulated-investor-and-its-purchases) |
-| **Total** | | **180** | | |
+| T22 Delivery | F5, step 5.2, third pull request | 4 | 2026-11-25 (T22.1 and T22.4 extended the same day) | [technical.md, F5](technical.md#third-pull-request-versioned-images-in-a-registry) |
+| **Total** | | **184** | | |
 
 ## B Foundations
 
@@ -414,6 +416,17 @@ F5, old step 4.2, second pull request (D-123, D-125, D-127). T21.1 is a unit tes
 | T21.4 | Failures (D-125): with the API out of reach, the investor's task runs 1 + 3 times (waits set to 0), the advance fails and the clock stays; the next advance does the month; a month repeated after the system's flow failed is not sent again; an investor that stopped after buying sends the month again with no prediction or purchase stored twice; a listing the API refuses is not bought, is counted in the month's summary and the month completes | `tests/integration/test_clock.py::test_the_investor_retries_a_missing_api_and_never_buys_twice` | Integration | CI |
 | T21.5 | The whole story: for every month invested, the purchases in `serving.purchases` are exactly what the rule gives on the predictions in `serving.predictions` (same loans, linked to their predictions, 25 dollars, `passes`), and `sim.invested` has its counts; no loan is bought twice | `tests/integration/test_clock.py::test_what_was_bought_is_what_the_rule_gives_on_the_predictions` | Integration | CI |
 
+## T22 Delivery
+
+F5, step 5.2, third pull request (D-130 to D-136). What runs only on main (the job `publish`) is checked here on every pull request: its rules in the YAML (T22.2), its smoke test on the images just built (T22.3) and its program against a registry of its own (T22.4). The smoke test and the rehearsal start their own services under a compose project of their own, on free ports, and remove them at the end.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T22.1 | Names and tags (D-132): main gives `sha-` and 7 characters of the commit, then `main`; a tag `vX.Y.Z` gives the same commit tag, reused, then `X.Y.Z`; the owner is lowercase for GHCR; a tag that is not the version of `pyproject.toml`, not of the form `vX.Y.Z`, another branch, a pull request or a commit that is not a full hash publish nothing and say why; a release of a commit with no published images fails and changes nothing | `tests/unit/test_release.py::test_main_publishes_the_commit_tag_and_then_moves_main`<br>`tests/unit/test_release.py::test_a_release_tag_reuses_the_commit_and_adds_its_version`<br>`tests/unit/test_release.py::test_anything_else_publishes_nothing_and_says_why`<br>`tests/unit/test_release.py::test_a_release_of_a_commit_never_published_from_main_fails` | Unit | CI, image |
+| T22.2 | The rules in the workflows (D-133, D-135): `publish` needs the four jobs and runs only on a push to main or a tag `v*`; only it can write packages, every other job reads; it builds nothing and takes the images the integration job saved; Trivy (HIGH and CRITICAL, blocking, with the exceptions file) runs before the publication; runs are cancelled only on pull requests; every action is pinned by its commit; the Monday scan reads the published `main` images | `tests/unit/test_workflows.py::test_publish_runs_only_on_main_and_releases_after_the_four_jobs`<br>`tests/unit/test_workflows.py::test_only_publish_can_write_packages`<br>`tests/unit/test_workflows.py::test_publish_builds_nothing_and_goes_scan_push_smoke_promote`<br>`tests/unit/test_workflows.py::test_every_action_is_pinned_by_its_commit`<br>`tests/unit/test_workflows.py::test_the_weekly_scan_reads_the_published_main_images` | Unit | CI, image |
+| T22.3 | The smoke test (D-134) on the images of the pull request: it passes on good images (`/health` 200, a prediction with PD and LGD in range, train carrying its commit); it fails, saying where, when the API never gets ready (no champion: `/health` 503) and when train carries another commit; it leaves no service behind | `tests/integration/test_smoke.py::test_the_smoke_test_passes_on_good_images_and_leaves_nothing`<br>`tests/integration/test_smoke.py::test_the_smoke_test_fails_when_the_api_never_gets_ready`<br>`tests/integration/test_smoke.py::test_the_smoke_test_fails_when_train_carries_another_commit` | Integration | CI |
+| T22.4 | Rehearsal of the publication against a throwaway registry (D-132 to D-134): the images pulled back are the tested ones and `main` points to their digest; a failed smoke test leaves `main` where it was and the failed images under their commit; the tag of a commit is never rewritten with other images; a release tags the published images with the version without pushing anything else | `tests/integration/test_release.py::test_the_published_images_are_the_tested_ones_and_main_points_to_them`<br>`tests/integration/test_release.py::test_a_failed_smoke_test_leaves_main_where_it_was`<br>`tests/integration/test_release.py::test_the_tag_of_a_commit_is_never_rewritten`<br>`tests/integration/test_release.py::test_a_release_tags_the_published_images_without_pushing` | Integration | CI |
+
 ## Change history
 
 | Date | Test | Change | Why |
@@ -454,4 +467,4 @@ F5, old step 4.2, second pull request (D-123, D-125, D-127). T21.1 is a unit tes
 | 2026-11-25 | T17.9 | Also checks the investor: from 2014-02 every listing has one prediction through the API, no month buys more than K, and the purchases are what the rule gives; the API runs in a process of its own during the replay | The replayer lives inside the clock ([D-123](decisions.md#d-123)); checked on the real year rather than repeating its 25 minutes in another test. Approved by Juan |
 | 2026-11-25 | T17.4 to T17.8 | The clock story runs with an API in a process of its own, batches of 4 listings and one more advance of 2012-04 with the API out of reach. What each test checks is unchanged | Each advance now sends its month to the API ([D-123](decisions.md#d-123)); approved by Juan with T21 |
 | 2026-11-25 | T18.6 to T18.8, T18.11, T18.13 | T18.13: the API process is started by `tests/integration/api_process.py`, shared with the clock story. The module's fixture also empties `serving.purchases`, which refers to the predictions. What each test checks is unchanged | The same server is needed by T21; the new table of [D-124](decisions.md#d-124) |
-
+| 2026-11-25 | T22.1 to T22.4 | Written (F5, third pull request). T22.1 also checks the release of a commit never published; T22.4 also the release without pushing and the commit tag never rewritten | Approved by Juan; the two cases were added the same day, when the implementation showed a release must not build again ([D-132](decisions.md#d-132), [D-133](decisions.md#d-133)) |

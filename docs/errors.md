@@ -55,6 +55,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-045](#e-045) | 2026-11-24 | 5.1 | The first load test measured its own clients as much as the API | Minor |
 | [E-046](#e-046) | 2026-11-24 | 5.1 | The real-month test sent listings without their empty columns | Minor |
 | [E-047](#e-047) | 2026-11-25 | 4.2 (in F5) | The clock story expected several batches a month with batches of 40; a made-up month has 15 listings | Minor |
+| [E-048](#e-048) | 2026-11-25 | 5.2 | The API in compose could not load its champions: the MLflow server refused its Host name | Major |
 
 ## Errors
 
@@ -510,4 +511,14 @@ Date: 2026-11-25 · Step: 4.2 (in F5) · Severity: minor
 - **Cause**: an error in the test: the batch size of the story (40) was chosen without looking at the size of a month of `tests/synthetic_source.py`, about 15 listings.
 - **Fix**: batches of 4 in the story, so that every month takes four requests and the batching of the replayer is exercised.
 - **Prevention**: the constant's comment states the size of a made-up month.
+
+<a id="e-048"></a>
+### E-048 The API in compose could not load its champions: the MLflow server refused its Host name
+
+Date: 2026-11-25 · Step: 5.2 · Severity: major
+
+- **Symptom**: the first run of the new smoke test (D-134) never got `/health` 200. The API logged `no champion: pd None, lgd None` although the champions were registered; the MLflow server logged `Rejected request with invalid Host header: mlflow:5000` and answered 403.
+- **Cause**: MLflow 3.x protects its server against DNS rebinding: it answers only the Host names it allows, by default localhost and private IP addresses. The services of compose (the API, the worker of the monthly flow and the clock) call it by its compose name, `mlflow:5000`, which is neither. Every test of the API, the flows and the clock calls MLflow from the host through `localhost`, so none could see it; the healthcheck of the API in compose is liveness only (`/health/live`), so `make up` showed everything healthy.
+- **Fix**: `MLFLOW_SERVER_ALLOWED_HOSTS` in the `mlflow` service of compose lists localhost, 127.0.0.1 and `mlflow`, with any port.
+- **Prevention**: the smoke test runs the API of compose against the MLflow server of compose, on every pull request (T22.3) and after every publication. F7 sets the allowed hosts of the server in AWS.
 

@@ -47,6 +47,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # The server answers only the Host names listed (DNS rebinding protection); its
+      # default (localhost and private IPs) refuses the services that call it by its
+      # compose name, the API among them (E-048).
+      MLFLOW_SERVER_ALLOWED_HOSTS: "localhost,localhost:*,127.0.0.1,127.0.0.1:*,mlflow,mlflow:*"
     # Metadata go to the database "mlflow" of the same Postgres, created if missing;
     # artefacts go to the volume below through the server (an S3 bucket in AWS).
     command: ["python", "-m", "credit_risk.tracking", "server"]

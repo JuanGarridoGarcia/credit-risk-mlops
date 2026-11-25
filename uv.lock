@@ -648,6 +648,7 @@ dev = [
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "pyyaml" },
     { name = "ruff" },
 ]
 notebooks = [
@@ -691,6 +692,7 @@ dev = [
     { name = "pre-commit", specifier = ">=4.7" },
     { name = "pytest", specifier = ">=9.2" },
     { name = "pytest-cov", specifier = ">=7.1" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", specifier = ">=0.17" },
 ]
 notebooks = [
