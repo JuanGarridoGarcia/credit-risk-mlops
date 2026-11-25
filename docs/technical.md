@@ -983,7 +983,7 @@ A tag is a name on an image, as a branch is a name on a commit. Moving `main` ch
 
 **Visibility (D-136).** GHCR creates a package private. After the first publication Juan makes each package public once (package settings, "Change visibility"); it cannot be made private again.
 
-**Tests** (T22, approved by Juan on 2026-11-25): names and tags (T22.1); the rules of the workflows (T22.2); the smoke test on the images of the pull request, passing and failing (T22.3); the whole publication rehearsed against a throwaway registry in a container (T22.4).
+**Tests** (T22, approved by Juan on 2026-11-25; T22.5 added when CI showed the brakes untested): names and tags (T22.1); the rules of the workflows (T22.2); the smoke test on the images of the pull request, passing and failing (T22.3); the whole publication rehearsed against a throwaway registry in a container (T22.4); the brakes of the program, each made to fire with a registry in memory, and its command line (T22.5).
 
 | Error | What happened |
 |---|---|

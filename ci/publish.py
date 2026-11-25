@@ -216,7 +216,9 @@ def publish(
     return done
 
 
-def main(argv: list[str] | None = None, docker: Docker | None = None) -> int:
+def main(
+    argv: list[str] | None = None, docker: Docker | None = None, smoke: Smoke = smoke_process
+) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--ref", required=True, help="GITHUB_REF of the run")
     parser.add_argument("--sha", required=True, help="the commit of the run")
@@ -230,7 +232,7 @@ def main(argv: list[str] | None = None, docker: Docker | None = None) -> int:
         tested = json.loads(args.tested.read_text()) if run.push and args.tested else {}
         if run.push and set(tested) != set(IMAGES):
             raise PublishError(f"--tested must give the id of {', '.join(IMAGES)}")
-        done = publish(run, args.sha, tested, docker or Cli(), fresh_pull=args.fresh_pull)
+        done = publish(run, args.sha, tested, docker or Cli(), smoke, fresh_pull=args.fresh_pull)
     except (PlanError, PublishError) as error:
         print(f"publish: {error}", file=sys.stderr)
         return 1
