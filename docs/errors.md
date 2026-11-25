@@ -63,6 +63,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-053](#e-053) | 2026-11-25 | 5.1 (found in 5.2) | A log test failed at random on main: a random request id contained the word it looked for | Minor |
 | [E-054](#e-054) | 2026-11-25 | 5.2 | The first publication was stopped by Trivy: two new HIGH findings in the Debian base image | Minor |
 | [E-055](#e-055) | 2026-11-25 | 5.2 | The smoke test of the first real publication could not start Postgres: the fresh machine of the publish job had never pulled it | Moderate |
+| [E-056](#e-056) | 2026-11-25 | 5.2 | In the demo from the published images, the investor of 2014-02 bought nothing: the clock could not tell the API about the new buy rule | Moderate |
 
 ## Errors
 
@@ -598,3 +599,13 @@ Date: 2026-11-25 · Step: 5.2 · Severity: moderate
 - **Cause**: the smoke test starts its services with `--pull never`, so that it runs the very images pulled by digest and never pulls or builds ours by itself. But it also starts Postgres, which is not ours. On the pull requests it ran in the integration job, where Postgres had been pulled long before (T22.3, T22.4); the publish job runs on a fresh machine of its own, which had never pulled it.
 - **Fix**: the smoke test pulls Postgres first (`docker compose pull postgres`, by the digest pinned in compose) and keeps `--pull never` for the rest. Checked on the cloud machine with the Postgres image deleted first: the smoke test pulls it and passes.
 - **Prevention**: the comment in `tests/smoke.py` says why. A test cannot repeat a fresh machine cheaply: on the runners of the pull requests Postgres is running for the other integration tests, so its image cannot be removed. This is the first real run of the publish job, the one part the rehearsal could not cover; it stopped safely, before moving `main`.
+
+<a id="e-056"></a>
+### E-056 In the demo from the published images, the investor of 2014-02 bought nothing: the clock could not tell the API about the new buy rule
+
+Date: 2026-11-25 · Step: 5.2 · Severity: moderate
+
+- **Symptom**: the stack started from the images of `sha-ff1c554` pulled from GHCR without logging in, empty volumes, `make replay TO=2014-02`. The month 2014-01 trained and promoted PD, LGD and the buy rule; then the investor of 2014-02 sent its 15,269 listings to the API and bought none (`sim.invested`: scored 15,269, bought 0). Every prediction was stored with `rule_version` empty. The log of the clock said `API_URL or API_ADMIN_KEY not set: the API will notice by polling`.
+- **Cause**: the clock runs the monthly flow in its own process (D-107), and after a promotion the flow tells the API to reload with the admin key (D-111). In `docker-compose.yml` the worker had that key but the clock did not, so the notice was skipped. The investor of the next month started 10 seconds after the buy rule was promoted, and the API only loaded it by polling 50 seconds later. The integration tests of the clock set the key in the environment of the test process, so they never went through compose.
+- **Fix**: the clock service gets `API_ADMIN_KEY`, like the worker. Checked on the cloud machine with the same published images: with the clock recreated, the reload step of the flow, run inside it, reaches the API (`/admin/reload` answers); the investors of 2014-03 and 2014-04 bought 1,526 and 1,651 notes with buy rule 1.
+- **Prevention**: T22.6 reads compose: the services that run the monthly flow (worker and clock) have the admin key and no other service has it; a new service of the train image fails the test until someone decides whether it runs the flow. Juan chose this unit test over an integration test that would train a model in compose, slower in a job already close to its limit (E-052); a wrong key already leaves a `reload_failed` alert.

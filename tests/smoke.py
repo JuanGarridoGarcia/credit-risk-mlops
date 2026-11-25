@@ -72,7 +72,7 @@ def services(serve: str, train: str) -> Iterator[dict[str, str]]:
         "API_PORT": str(ports["api"]),
         "API_KEYS_PREDICT": f"smoke:{PREDICT_KEY}",
         "API_KEYS_ADMIN": f"smoke-admin:{ADMIN_KEY}",
-        # Only read by services the smoke test does not start (the clock).
+        # Only read by services the smoke test does not start (the worker and the clock).
         "API_PREDICT_KEY": PREDICT_KEY,
         "API_ADMIN_KEY": ADMIN_KEY,
     }

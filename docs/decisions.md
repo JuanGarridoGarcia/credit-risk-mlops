@@ -1582,4 +1582,5 @@ Date: 2026-11-25 · Step: 5.2 · Status: Active
 - **Alternatives considered**: (B) private: reversible, but anyone outside needs access granted to try the product, and AWS would need a stored token.
 - **Why**: the code is already public and the images carry no data, models or keys: `.dockerignore` lets in only `src/`, `tests/` and four files, and B5 checks every image for secrets on every pull request. API keys arrive as variables when the container starts.
 - **Consequences**: irreversible. The weekly scan (D-135) logs in anyway, so it also works while the packages are private.
+- **Update 2026-11-25**: the manual step was not needed. Published by a workflow of this public repository with its token, both packages were linked to the repository and took its visibility: after the first publication (`sha-ff1c554`) they already pulled without logging in, with the digests the publish job printed. Juan pointed it out.
 
