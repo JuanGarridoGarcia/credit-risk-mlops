@@ -1,7 +1,8 @@
 # Services of the system (decision A9, D-027): Postgres, MLflow since F3 (D-079), the
 # Prefect server and the worker of the monthly flow since F4 (D-099, D-103), and the
 # simulated clock (D-107), which belongs to the simulated world, and the prediction API
-# since F5 (D-008, D-110). Grafana enters in F6 with the step that uses it and its tests.
+# since F5 (D-008, D-110), and Grafana since F6 (D-147 to D-155): the dashboards and the
+# delivery of the alerts.
 # Credentials come from .env (git-ignored); see .env.example.
 
 name: credit-risk
@@ -188,7 +189,61 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  grafana:
+    # Dashboards and delivery of the alerts (D-147, D-152, D-153). Everything it shows and
+    # does is provisioned from grafana/ when it starts; nothing is made by hand. It reads
+    # Postgres as grafana_reader, which can only SELECT what the dashboards need (D-155).
+    # Pinned by version and digest; 12.4 is the line whose provisioning formats we test.
+    image: grafana/grafana:12.4.16@sha256:982fa6bf18cc38280a30bf08c3b673486067d4805b25a9d4756688a689a993c7
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      # No anonymous access until F8 decides how the demo is published (D-155).
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # No plugin is downloaded at start: the core Postgres source is all it needs.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/system.json
+      # Read by grafana/provisioning/datasources/postgres.yaml.
+      GRAFANA_DB_NAME: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?set GRAFANA_DB_PASSWORD in .env}
+      # The channel (D-148): Telegram when both are set; a webhook only for the tests.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      GRAFANA_WEBHOOK_URL: ${GRAFANA_WEBHOOK_URL:-}
+    # Writes the contact points of the channels that are set, then starts Grafana.
+    entrypoint: ["/bin/sh", "/etc/grafana/start.sh"]
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    extra_hosts:
+      # The tests' receiver listens on the host (T32.4).
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./grafana/start.sh:/etc/grafana/start.sh:ro
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/provisioning/alerting:/etc/grafana/alerting:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      # Alert state survives a restart: an alert already sent is not sent again.
+      - grafanadata:/var/lib/grafana
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/api/health"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 10s
+    restart: unless-stopped
+
 volumes:
   pgdata:
   mlartifacts:
   flowdata:
+  grafanadata:

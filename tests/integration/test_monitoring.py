@@ -31,14 +31,19 @@ MATURED = date(2008, 1, 1)  # 36 months + 5 = 41 months before EVALUATED
 
 @pytest.fixture
 def mdb(db: PgConnection, monkeypatch: pytest.MonkeyPatch) -> PgConnection:
-    """The migrated database with ``serving`` and ``monitoring`` emptied too."""
+    """The migrated database with ``serving``, ``monitoring`` and the alerts emptied too.
+
+    The training cutoff and the validation AUC of a version live in MLflow; here they
+    are given directly (since 6.2 the AUC too, for the rule of a performance drop).
+    """
     db.execute(
         "TRUNCATE serving.purchases, serving.predictions, serving.requests, "
         "monitoring.drift, monitoring.early_warning, monitoring.performance, "
-        "monitoring.reference"
+        "monitoring.reference, ops.alerts"
     )
     cutoffs = {"1": date(2009, 1, 1), "2": date(2009, 4, 1)}
     monkeypatch.setattr(store, "cutoff", lambda _conn, _name, version: cutoffs[version])
+    monkeypatch.setattr(store, "validation_auc", lambda _name, _version: 0.7)
     return db
 
 

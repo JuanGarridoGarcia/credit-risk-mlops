@@ -2,7 +2,8 @@
 alerts table (D-108) against the services of docker compose, approved by Juan on
 2026-11-24; T21.2 to T21.5: the simulated investor inside the clock (D-123 to D-129),
 approved by Juan on 2026-11-25; T24.1 to T24.3, T27.2, T27.4 and T27.5: the monitoring of
-each month inside the clock (D-138 to D-146), approved by Juan on 2026-11-26.
+each month inside the clock (D-138 to D-146), and T31.1, T31.2: the run of every task in
+``ops.task_runs`` (D-154), approved by Juan on 2026-11-26.
 
 As in ``test_flows.py``, the flows run in this process on a database of their own and
 model names of their own, with the small made-up source of ``tests/synthetic_source.py``;
@@ -330,6 +331,47 @@ def test_building_a_reference_writes_nothing_to_the_predictions(story: Story) ->
         after = [conn.execute(f"SELECT count(*) FROM {t}").fetchone() for t in tables]  # noqa: S608
         assert monitoring.has_reference(conn, pair)
     assert after == before
+
+
+def _recorded_runs(story: Story) -> list[dict[str, Any]]:
+    with psycopg.connect(story.conninfo, row_factory=dict_row) as conn:
+        return conn.execute("SELECT * FROM ops.task_runs ORDER BY task_run_id").fetchall()
+
+
+# T31.1
+def test_every_task_of_a_month_leaves_its_run(story: Story) -> None:
+    runs = _recorded_runs(story)
+    for period, summary in story.summaries.items():
+        month = _month(period)
+        done = {r["task"] for r in runs if r["period"] == month and r["state"] == "completed"}
+        expected = {"load", "monitor"}
+        if summary["retrained"]:
+            expected |= {"version", "train-pd", "train-lgd", "buy-rule", "reference"}
+            if summary["api_reloaded"] is not None:
+                expected.add("reload")
+        assert done == expected, period
+    for run in runs:
+        assert run["flow"] == "monthly"
+        assert run["seconds"] >= 0
+        assert run["attempt"] >= 1
+        assert run["flow_run"]
+        assert run["started"] is not None
+        assert (run["state"] == "failed") == (run["error"] is not None)
+
+
+# T31.2
+def test_a_failed_task_leaves_its_failed_run_and_the_month_again_adds_rows(
+    story: Story,
+) -> None:
+    loads = [r for r in _recorded_runs(story) if r["period"] == BAD_MONTH and r["task"] == "load"]
+    failed = [r for r in loads if r["state"] == "failed"]
+    completed = [r for r in loads if r["state"] == "completed"]
+    assert len(failed) == 1, "a failed validation is not retried (D-102)"
+    assert "ValidationFailed" in failed[0]["error"]
+    assert len(completed) == 1
+    assert failed[0]["task_run_id"] < completed[0]["task_run_id"]
+    assert failed[0]["started"] < completed[0]["started"]
+    assert failed[0]["flow_run"] != completed[0]["flow_run"], "two runs of the month"
 
 
 # T17.7

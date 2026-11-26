@@ -65,6 +65,12 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-055](#e-055) | 2026-11-25 | 5.2 | The smoke test of the first real publication could not start Postgres: the fresh machine of the publish job had never pulled it | Moderate |
 | [E-056](#e-056) | 2026-11-25 | 5.2 | In the demo from the published images, the investor of 2014-02 bought nothing: the clock could not tell the API about the new buy rule | Moderate |
 | [E-057](#e-057) | 2026-11-26 | 6.1 | The Wilson interval of a cohort with no early default started a hair above zero, which the table refuses | Minor |
+| [E-058](#e-058) | 2026-11-26 | 6.2 | Grafana kept sending to a channel that was no longer configured: provisioned contact points stay in its volume | Moderate |
+| [E-059](#e-059) | 2026-11-26 | 6.2 | The study of the thresholds stopped at its first LGD cutoffs: no matured loan yet, and a temporary table left by the cutoff before | Minor |
+| [E-060](#e-060) | 2026-11-26 | 6.2 | Three tests of the clock story failed: a new helper of T31 had the name of one they import | Minor |
+| [E-061](#e-061) | 2026-11-26 | 6.2 | The receiver of the delivery test left its socket open, and pytest turned the warning into an error | Minor |
+| [E-062](#e-062) | 2026-11-26 | 6.2 | The study read `sim.clock` to know whether the exam was over; T17.3 caught it | Minor |
+| [E-063](#e-063) | 2026-11-26 | 6.2 | In CI, T33.3 failed inside the test image: the summary of the study was not copied into it | Minor |
 
 ## Errors
 
@@ -620,3 +626,63 @@ Date: 2026-11-26 · Step: 6.1 · Severity: minor
 - **Cause**: in exact arithmetic the Wilson interval always contains the observed proportion, and at 0 defaults its lower end is exactly 0; in floating point `centre - half` can land a few units of rounding above it. `monitoring.early_warning` checks `ratio_low <= ratio`, so a cohort with no default in its first year (observed ratio 0) would have failed the whole month in the flow.
 - **Fix**: the bounds are clamped to contain the observed proportion (`outcomes.wilson`).
 - **Prevention**: T25.3 checks both edges (0 of 50 and 50 of 50), and the check in the table stays: an impossible row still fails loudly.
+
+<a id="e-058"></a>
+### E-058 Grafana kept sending to a channel that was no longer configured: provisioned contact points stay in its volume
+
+Date: 2026-11-26 · Step: 6.2 · Severity: moderate
+
+- **Symptom**: T32.4 failed: the new warning never reached the receiver within 2 minutes, although the rule fired. Grafana's contact point still pointed at the port of a receiver of an earlier run, which no longer existed.
+- **Cause**: `start.sh` wrote the file of contact points only for the channels that were set. Grafana stores what it provisions in its own database (the volume `grafanadata`), and a contact point that disappears from the files is not removed: it stays until a file asks for its deletion. The policy kept routing to it.
+- **Fix**: `start.sh` also writes `deleteContactPoints` for every channel that is not set, and with no channel at all resets the notification policy (`resetPolicies`), so Grafana starts with no destination and the alerts are only shown. Checked by starting Grafana with no channel (contact points `[]`, policy back to the default) and by T32.4 and T32.5.
+- **Prevention**: T32.5 checks that the contact point holds exactly the channels set; the fixture of T32 starts Grafana again without the webhook at the end, which goes through the deletion every time.
+
+<a id="e-059"></a>
+### E-059 The study of the thresholds stopped at its first LGD cutoffs: no matured loan yet, and a temporary table left by the cutoff before
+
+Date: 2026-11-26 · Step: 6.2 · Severity: minor
+
+- **Symptom**: the first run of `calibrate.study` failed in `level_study`: `build_frames` raised "no matured loan" at the cutoff 2011-01; once that was skipped, the next cutoff failed with "relation training_ids already exists".
+- **Cause**: the early quarterly cutoffs have no 36-month loan matured yet (the data starts in 2007), which the snapshot refuses, as it should. `build_frames` creates a temporary table that lives until the end of the transaction; on a connection that is not in autocommit, the failed cutoff left the transaction, and its table, open for the next one.
+- **Fix**: a cutoff that raises `SnapshotError` is skipped (the first one with matured loans is 2011-07), and each cutoff runs in its own transaction on an autocommit connection (`make calibrate` opens it so).
+- **Prevention**: T33.1 and T33.2 run the whole study on the exam's database.
+
+<a id="e-060"></a>
+### E-060 Three tests of the clock story failed: a new helper of T31 had the name of one they import
+
+Date: 2026-11-26 · Step: 6.2 · Severity: minor
+
+- **Symptom**: T17.6, T27.2 and T21.4 failed with `AttributeError: 'UUID' object has no attribute 'conninfo'` after T31 was added.
+- **Cause**: the helper that reads `ops.task_runs` was named `_task_runs`, the name of the helper imported from `test_flows.py` that asks Prefect for the task runs of a flow run; the new definition replaced the import for the whole module.
+- **Fix**: the new helper is `_recorded_runs`. The 17 tests of the story pass.
+- **Prevention**: none beyond running the module; a linter does not flag a redefinition of an import used later (it was not unused).
+
+<a id="e-061"></a>
+### E-061 The receiver of the delivery test left its socket open, and pytest turned the warning into an error
+
+Date: 2026-11-26 · Step: 6.2 · Severity: minor
+
+- **Symptom**: with every test of T32 passed, the run ended with an error at the teardown of the module: `PytestUnraisableExceptionWarning ... socket.socket ... laddr=('0.0.0.0', ...)`.
+- **Cause**: the fixture stopped the receiver with `shutdown()`, which ends its loop but does not close its socket; the project turns warnings into errors.
+- **Fix**: `server_close()` after `shutdown()`.
+- **Prevention**: warnings stay errors, which is what found it.
+
+<a id="e-062"></a>
+### E-062 The study read `sim.clock` to know whether the exam was over; T17.3 caught it
+
+Date: 2026-11-26 · Step: 6.2 · Severity: minor
+
+- **Symptom**: T17.3 failed: `credit_risk/monitoring/calibrate.py` mentions the schema `sim`.
+- **Cause**: the command line of the study read the clock to decide whether to write the table of the exam. The system must never touch the clock of the simulated world (D-043, D-107).
+- **Fix**: it reads the last month monitored (`monitoring.drift`) instead; the test of the exam, which is not system code, still reads the clock.
+- **Prevention**: T17.3 itself.
+
+<a id="e-063"></a>
+### E-063 In CI, T33.3 failed inside the test image: the summary of the study was not copied into it
+
+Date: 2026-11-26 · Step: 6.2 · Severity: minor
+
+- **Symptom**: the integration job of PR #20 failed at `docker run --rm credit-risk:test`: `FileNotFoundError: /app/reports/thresholds/summary.json`; 308 of 309 unit tests passed. The jobs after it then failed for lack of `coverage.xml` and `.env`.
+- **Cause**: the test image copies, one by one, the files outside the package that tests read (the data dictionary, the catalogue). The new summary of the study was not among them; locally the tests run from the repository, where it is.
+- **Fix**: the test image also copies `reports/thresholds/summary.json` (Dockerfile and `.dockerignore`). Checked with `make test-image`.
+- **Prevention**: `make test-image` is part of `make check`; it was skipped locally because the machine was busy with the exam, which is how this reached CI.

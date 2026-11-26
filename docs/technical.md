@@ -13,7 +13,7 @@ Related documents: [problem definition](problem.md), [data audit](data_audit.md)
 5. F3 Model (steps 3.1 to 3.5)
 6. F4 Automation (step 4.1)
 7. F5 Deployment (steps 5.1, 5.2 and old step 4.2)
-8. F6 Monitoring (step 6.1; 6.2 and 6.3 to come)
+8. F6 Monitoring (steps 6.1 and 6.2; 6.3 to come)
 
 ---
 
@@ -43,7 +43,7 @@ Status of every step of the playbook. Updated in every pull request.
 | F5 Deployment | 5.1 API | Done | #12 | D-109 to D-122; E-043 to E-046; API, predictions table, buy rule in MLflow; purchases endpoint in PR 2 (D-124) |
 | | 5.2 Published image and CD | Done | #14 to #17 | D-130 to D-136; E-048 to E-056; serve and train published to GHCR after CI on main, smoke tested, Trivy before publishing; first publication `sha-ff1c554` on 2026-11-25 |
 | F6 Monitoring | 6.1 Drift and metrics | Done | PR 1 of F6 | D-137 to D-146; E-057; drift, early warning and real performance stored every month in `monitoring` |
-| | 6.2 Dashboard and alerts | Pending | | |
+| | 6.2 Dashboard and alerts | Done | PR 2 of F6 | D-147 to D-156; E-058 to E-063; alert rules in the flow, thresholds calibrated at T0 and examined on 2014 to 2018 ([thresholds.md](thresholds.md)), three Grafana dashboards, delivery to Telegram |
 | | 6.3 Triggered retraining | Pending | | |
 | F7 Closing | 7.1 End to end and reproducibility | Pending | | |
 | | 7.2 Cloud and infrastructure as code | Pending | | |
@@ -1052,3 +1052,65 @@ The question of 6.1 is "how do we know the models are getting worse?", and the d
 | E-057 | The Wilson interval of a cohort with no early default started a hair above zero, which the table refuses |
 
 **For F8** (noted, not built): the dashboards of 6.2 will read these tables; a public demo will need read-only access to them.
+
+### Second pull request: dashboards and alerts
+
+The question of 6.2 is "who finds out, and when?". 6.1 stores the measures; 6.2 decides which of them are alerts, sets the thresholds, shows everything in Grafana and sends the alerts to a person.
+
+```
+ month M, task "monitor" (D-145)
+   measures of M ──> rules of alerting.py ──> ops.alerts          (same transaction)
+                     thresholds.toml           one row per signal and month
+
+ Grafana (docker compose, read-only role, login)
+   dashboards System / Data / Model  <── monitoring.*, ops.*, serving.requests
+   rule every 10 s: warnings and errors of ops.alerts, last 7 days
+     └─> one message per alert_id, never repeated ──> Telegram (if its secrets are set)
+```
+
+**Where the rule lives (D-147).** In Python, in the flow: `monitor` applies `credit_risk/monitoring/alerting.py` to what it just measured and writes the alerts in the same transaction. The rules run inside the simulated clock (Grafana's own rules evaluate on real time), they are tested like the rest, and the triggered retraining of 6.3 will read the same table. Grafana only shows and delivers.
+
+**What alerts (D-149).** Input drift never alerts: before T0 `initial_list_status` reached a PSI of 2.4 and `int_rate` 1.5 against a fresh reference, so an alert on them would ring every month. Four new kinds of `ops.alerts`, ten in all (migration `20261126130000_alerts_for_monitoring.sql`):
+
+| Kind | Severity | Fires when | Signal (recorded once per month) |
+|---|---|---|---|
+| `prediction_drift` | warning | PSI of the PD, LGD or expected loss rate above its threshold | prediction and pair |
+| `early_warning` | warning | the whole interval of observed / expected first-year defaults above 1.0 | term, PD version and cohort |
+| `performance_drop` | error | a matured cohort's whole AUC interval below validation minus 0.01, whole calibration interval above 0.01, or LGD level error beyond 0.15 (whole cohort; grades are for the dashboard) | metric, term, pair and cohort |
+| `lgd_level_shift` | warning | a new LGD needed a level correction beyond 0.15; the verdict is left to the usual rules (D-151) | model and version |
+
+A value equal to its threshold does not alert. The intervals of the AUC and of the calibration error of each cohort are now stored in `monitoring.performance` (bootstrap of `compare.interval`, as at promotion); the validation AUC of the champion is read from its MLflow run.
+
+**The thresholds (D-150, D-156).** In `src/credit_risk/monitoring/thresholds.toml`, each with its reason; loading refuses a missing section or value, a value out of its possible range or a missing reason. They were calibrated by a study that reads only what was known at T0 (up to 2013-12) with the pair of champions trained at T0, and they are frozen for the simulation 2014 to 2018, which is their exam. The study, its rules, its findings and the exam are in [thresholds.md](thresholds.md). The main finding: the T0 model underestimates the first-year defaults of the newer cohorts (observed / expected 1.2 to 1.4 on the cohorts of 2011-12 to 2012-07), so the early warning was expected to fire from the start of the exam.
+
+**Commands.** `make exam` replays 2014-01 to 2018-12 from an empty clock on a database of its own (`threshold_exam`, models `exam-`), with the real number of trials; it resumes where it stopped (`FRESH=1` starts again). `make calibrate` runs the study on that database (about a minute) and writes `reports/thresholds/summary.json`, `reports/thresholds/exam.json` once the exam is over, and the tables of `docs/thresholds.md`.
+
+**Task runs (D-154).** A decorator, `flows.recorded`, wraps every task function: it times the call and writes one row per attempt to `ops.task_runs` (month, flow, task, flow run, attempt, start, seconds, completed or failed with the error; migration `20261126130100_create_task_runs.sql`). A failure to write it is logged and never fails the task. `reference_task` now takes the month, like the others.
+
+**Grafana (D-152, D-153, D-155).** Image `grafana/grafana:12.4.16`, pinned by digest, on `127.0.0.1:3000`. Everything is provisioned from `grafana/` when it starts:
+
+| File | What it holds |
+|---|---|
+| `provisioning/datasources/postgres.yaml` | The Postgres source, as `grafana_reader` |
+| `provisioning/dashboards/dashboards.yaml`, `dashboards/*.json` | The three dashboards, in the folder "Credit risk", not editable in the interface |
+| `provisioning/alerting/rules.yaml`, `policies.yaml` | The delivery rule and its policy |
+| `start.sh` | Writes the contact point of each channel that is set and deletes the others (E-058), then starts Grafana |
+
+The dashboards: **System** (months loaded, failed attempts, last month, open errors, seconds per task, p95 latency and answers of the API over the last 7 days of real time, latest alerts, training sets), **Data** (PSI of every input by month, one variable in detail: PSI, KS, missing and new values; the variables that moved most), **Model** (PSI of the predictions with their thresholds, early warning by term with the line at 1, AUC with its interval, calibration error and LGD level, realised return, by grade, champions). The time axis is the simulated month (2013-06 to 2019-01). `credit_risk.monitoring.grafana.queries` takes out the SQL of every panel; T32.2 runs each one.
+
+The role `grafana_reader` is created by a migration with no login (`20261126130200_create_grafana_reader.sql`): SELECT on `monitoring.*`, `ops.alerts`, `ops.task_runs`, `ops.training_sets` and `serving.requests`, read-only by default, 30 s statement timeout. `make migrate` then gives it its login with `GRAFANA_DB_PASSWORD` (`python -m credit_risk.monitoring.grafana`), so no password is in a migration. Grafana asks for the admin login (`GRAFANA_ADMIN_PASSWORD`); anonymous access and sign-up are off until F8.
+
+**Delivery (D-147, D-148).** The rule queries every 10 seconds the warnings and errors of `ops.alerts` of the last 7 days, one instance per `alert_id` with its kind, severity, month and message as labels; the policy groups by `alert_id`, waits 0 s, repeats every 8,760 hours (never in practice) and sends no "resolved" message, so each alert is sent once. If Grafana was down for less than 7 days, it sends what is pending when it comes back. `info` alerts (rejections) are only shown. With `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` set, alerts go to the Telegram chat; without them, Grafana starts with no channel. The tests use a webhook (`GRAFANA_WEBHOOK_URL`) to a receiver in the test process; a new warning took about 50 s to arrive under load.
+
+**Tests** (T29 to T33, approved by Juan on 2026-11-26): the rules and the thresholds file (T29); an injected change of the PD raises the alert, once (T30); the task runs in the clock story (T31); Grafana: provisioning, every panel's SQL, the read-only role, delivery once, no Telegram, no anonymous access (T32); the study does not look at the future, is reproducible, and the file follows its rules, and the exam (T33, data tests apart from T33.3 and the unit part of T33.1). Two independent databases built by the clock up to T0 gave exactly the same study.
+
+| Error | What happened |
+|---|---|
+| E-058 | Grafana kept sending to a channel no longer configured: provisioned contact points stay in its volume |
+| E-059 | The study stopped at its first LGD cutoffs: no matured loan, and a temporary table left open |
+| E-060 | A new helper of T31 had the name of one the clock story imports |
+| E-061 | The receiver of the delivery test left its socket open |
+| E-062 | The study read `sim.clock`; T17.3 caught it |
+| E-063 | The summary of the study was not copied into the test image |
+
+**For F8** (noted, not built): the Model dashboard is the base of the demo; publishing it needs a decision on anonymous, read-only access.

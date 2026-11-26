@@ -1,0 +1,498 @@
+{
+  "uid": "credit-risk-model",
+  "title": "Credit risk: Model",
+  "description": "Is it still right, and still earning? Drift of the predictions, early warning, real performance and the champions (D-143, D-144, D-149).",
+  "tags": [
+    "credit-risk"
+  ],
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 1,
+  "time": {
+    "from": "2013-06-01T00:00:00.000Z",
+    "to": "2019-01-31T00:00:00.000Z"
+  },
+  "timepicker": {},
+  "timezone": "utc",
+  "refresh": "1m",
+  "links": [
+    {
+      "title": "System",
+      "url": "/d/credit-risk-system",
+      "type": "link",
+      "icon": "dashboard"
+    },
+    {
+      "title": "Data",
+      "url": "/d/credit-risk-data",
+      "type": "link",
+      "icon": "dashboard"
+    },
+    {
+      "title": "Model",
+      "url": "/d/credit-risk-model",
+      "type": "link",
+      "icon": "dashboard"
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Drift of the predictions (alerts above the dashed lines, D-156)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "title": "PSI of the PD and the expected loss",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "credit-risk-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "description": "Alert above 0.25 (thresholds.toml).",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "credit-risk-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT period::timestamptz AS time, subject AS metric, max(psi) AS value\nFROM monitoring.drift\nWHERE subject IN ('pd', 'el_rate') AND $__timeFilter(period)\nGROUP BY period, subject\nORDER BY period"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.25
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 3,
+      "title": "PSI of the LGD",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "credit-risk-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "description": "Alert above 0.15 (thresholds.toml).",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "credit-risk-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT period::timestamptz AS time, max(psi) AS \"lgd\"\nFROM monitoring.drift\nWHERE subject = 'lgd' AND $__timeFilter(period)\nGROUP BY period\nORDER BY period"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.15
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 4,
+      "type": "row",
+      "title": "Early warning: first-year defaults against expected (17 months after)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "panels": []
+    },
+    {
+      "id": 5,
+      "title": "Observed / expected, 36 months",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "credit-risk-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
+      "description": "Alert when the whole interval is above 1 (D-156).",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "credit-risk-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT evaluated::timestamptz AS time, ratio AS \"ratio\", ratio_low AS \"95% low\",\n       ratio_high AS \"95% high\"\nFROM monitoring.early_warning\nWHERE term = 36 AND $__timeFilter(evaluated)\nORDER BY evaluated"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 6,
+      "title": "Observed / expected, 60 months",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "credit-risk-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      },
+      "description": "The 60-month loans: only this signal exists for them before 2018 (D-144).",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "credit-risk-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT evaluated::timestamptz AS time, ratio AS \"ratio\", ratio_low AS \"95% low\",\n       ratio_high AS \"95% high\"\nFROM monitoring.early_warning\nWHERE term = 60 AND $__timeFilter(evaluated)\nORDER BY evaluated"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 7,
+      "type": "row",
+      "title": "Real performance of the matured cohorts (term + 5 months)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "panels": []
+    },
+    {
+      "id": 8,
+      "title": "AUC of each matured cohort",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "credit-risk-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 19
+      },
+      "description": "Alert when the whole interval is below the validation AUC minus 0.01.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "credit-risk-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT evaluated::timestamptz AS time, auc AS \"AUC\", auc_low AS \"95% low\",\n       auc_high AS \"95% high\"\nFROM monitoring.performance\nWHERE segment = 'all' AND $__timeFilter(evaluated)\nORDER BY evaluated"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "decimals": 3
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 9,
+      "title": "Calibration and LGD level",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "credit-risk-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 19
+      },
+      "description": "Calibration error alerts when its whole interval is above 0.01; the LGD level error beyond 0.15.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "credit-risk-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT evaluated::timestamptz AS time, calibration_error AS \"PD calibration error\",\n       lgd_level AS \"LGD level error\"\nFROM monitoring.performance\nWHERE segment = 'all' AND $__timeFilter(evaluated)\nORDER BY evaluated"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "decimals": 3
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 10,
+      "title": "Realised return of what was bought",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "credit-risk-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 27
+      },
+      "description": "What the simulated investor got back over what it put in, per matured cohort.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "credit-risk-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT evaluated::timestamptz AS time, realised_return AS \"realised return\"\nFROM monitoring.performance\nWHERE segment = 'all' AND $__timeFilter(evaluated)\nORDER BY evaluated"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 11,
+      "title": "By grade, latest matured cohort",
+      "type": "table",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "credit-risk-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 27
+      },
+      "description": "Mean PD against the observed default rate, grade by grade.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "credit-risk-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT segment, loans, defaults, round(auc::numeric, 3) AS \"AUC\",\n       round(mean_pd::numeric, 3) AS \"mean PD\", round(default_rate::numeric, 3)\n           AS \"default rate\"\nFROM monitoring.performance\nWHERE evaluated = (SELECT max(evaluated) FROM monitoring.performance)\nORDER BY segment"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 12,
+      "type": "row",
+      "title": "Champions",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
+      "panels": []
+    },
+    {
+      "id": 13,
+      "title": "Changes of champion",
+      "type": "table",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "credit-risk-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "description": "Every promotion and rollback (D-108), and the LGD versions that needed a large level correction (D-151).",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "credit-risk-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT to_char(period, 'YYYY-MM') AS \"month\", kind, model, previous AS \"from\",\n       version AS \"to\", message\nFROM ops.alerts\nWHERE kind IN ('promoted', 'rolled_back', 'lgd_level_shift')\nORDER BY alert_id DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {}
+    }
+  ]
+}

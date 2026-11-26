@@ -1,0 +1,702 @@
+{
+ "early_warning": [
+  {
+   "cohort": "2010-09",
+   "defaults": 22,
+   "evaluated": "2012-02",
+   "loans": 732,
+   "ratio": 0.809,
+   "ratio_high": 1.214,
+   "ratio_low": 0.537,
+   "term": 36
+  },
+  {
+   "cohort": "2010-10",
+   "defaults": 26,
+   "evaluated": "2012-03",
+   "loans": 732,
+   "ratio": 0.947,
+   "ratio_high": 1.374,
+   "ratio_low": 0.649,
+   "term": 36
+  },
+  {
+   "cohort": "2010-11",
+   "defaults": 20,
+   "evaluated": "2012-04",
+   "loans": 765,
+   "ratio": 0.767,
+   "ratio_high": 1.175,
+   "ratio_low": 0.498,
+   "term": 36
+  },
+  {
+   "cohort": "2010-12",
+   "defaults": 20,
+   "evaluated": "2012-05",
+   "loans": 896,
+   "ratio": 0.754,
+   "ratio_high": 1.156,
+   "ratio_low": 0.49,
+   "term": 36
+  },
+  {
+   "cohort": "2011-01",
+   "defaults": 26,
+   "evaluated": "2012-06",
+   "loans": 949,
+   "ratio": 0.951,
+   "ratio_high": 1.382,
+   "ratio_low": 0.651,
+   "term": 36
+  },
+  {
+   "cohort": "2011-02",
+   "defaults": 26,
+   "evaluated": "2012-07",
+   "loans": 831,
+   "ratio": 1.094,
+   "ratio_high": 1.589,
+   "ratio_low": 0.75,
+   "term": 36
+  },
+  {
+   "cohort": "2011-03",
+   "defaults": 32,
+   "evaluated": "2012-08",
+   "loans": 837,
+   "ratio": 1.379,
+   "ratio_high": 1.928,
+   "ratio_low": 0.981,
+   "term": 36
+  },
+  {
+   "cohort": "2011-04",
+   "defaults": 38,
+   "evaluated": "2012-09",
+   "loans": 947,
+   "ratio": 1.401,
+   "ratio_high": 1.907,
+   "ratio_low": 1.026,
+   "term": 36
+  },
+  {
+   "cohort": "2011-05",
+   "defaults": 36,
+   "evaluated": "2012-10",
+   "loans": 957,
+   "ratio": 1.317,
+   "ratio_high": 1.807,
+   "ratio_low": 0.955,
+   "term": 36
+  },
+  {
+   "cohort": "2011-06",
+   "defaults": 34,
+   "evaluated": "2012-11",
+   "loans": 1259,
+   "ratio": 0.883,
+   "ratio_high": 1.226,
+   "ratio_low": 0.634,
+   "term": 36
+  },
+  {
+   "cohort": "2011-07",
+   "defaults": 49,
+   "evaluated": "2012-12",
+   "loans": 1288,
+   "ratio": 1.234,
+   "ratio_high": 1.619,
+   "ratio_low": 0.937,
+   "term": 36
+  },
+  {
+   "cohort": "2011-08",
+   "defaults": 46,
+   "evaluated": "2013-01",
+   "loans": 1295,
+   "ratio": 1.203,
+   "ratio_high": 1.593,
+   "ratio_low": 0.905,
+   "term": 36
+  },
+  {
+   "cohort": "2011-09",
+   "defaults": 48,
+   "evaluated": "2013-02",
+   "loans": 1368,
+   "ratio": 1.227,
+   "ratio_high": 1.616,
+   "ratio_low": 0.929,
+   "term": 36
+  },
+  {
+   "cohort": "2011-10",
+   "defaults": 51,
+   "evaluated": "2013-03",
+   "loans": 1411,
+   "ratio": 1.284,
+   "ratio_high": 1.678,
+   "ratio_low": 0.981,
+   "term": 36
+  },
+  {
+   "cohort": "2011-11",
+   "defaults": 60,
+   "evaluated": "2013-04",
+   "loans": 1544,
+   "ratio": 1.242,
+   "ratio_high": 1.588,
+   "ratio_low": 0.969,
+   "term": 36
+  },
+  {
+   "cohort": "2011-12",
+   "defaults": 65,
+   "evaluated": "2013-05",
+   "loans": 1415,
+   "ratio": 1.412,
+   "ratio_high": 1.787,
+   "ratio_low": 1.113,
+   "term": 36
+  },
+  {
+   "cohort": "2012-01",
+   "defaults": 92,
+   "evaluated": "2013-06",
+   "loans": 2058,
+   "ratio": 1.311,
+   "ratio_high": 1.599,
+   "ratio_low": 1.073,
+   "term": 36
+  },
+  {
+   "cohort": "2012-02",
+   "defaults": 99,
+   "evaluated": "2013-07",
+   "loans": 2083,
+   "ratio": 1.42,
+   "ratio_high": 1.718,
+   "ratio_low": 1.171,
+   "term": 36
+  },
+  {
+   "cohort": "2012-03",
+   "defaults": 106,
+   "evaluated": "2013-08",
+   "loans": 2357,
+   "ratio": 1.423,
+   "ratio_high": 1.713,
+   "ratio_low": 1.181,
+   "term": 36
+  },
+  {
+   "cohort": "2012-04",
+   "defaults": 109,
+   "evaluated": "2013-09",
+   "loans": 2680,
+   "ratio": 1.191,
+   "ratio_high": 1.43,
+   "ratio_low": 0.991,
+   "term": 36
+  },
+  {
+   "cohort": "2012-05",
+   "defaults": 128,
+   "evaluated": "2013-10",
+   "loans": 2741,
+   "ratio": 1.38,
+   "ratio_high": 1.632,
+   "ratio_low": 1.165,
+   "term": 36
+  },
+  {
+   "cohort": "2012-06",
+   "defaults": 157,
+   "evaluated": "2013-11",
+   "loans": 3048,
+   "ratio": 1.324,
+   "ratio_high": 1.541,
+   "ratio_low": 1.137,
+   "term": 36
+  },
+  {
+   "cohort": "2012-07",
+   "defaults": 205,
+   "evaluated": "2013-12",
+   "loans": 3781,
+   "ratio": 1.34,
+   "ratio_high": 1.53,
+   "ratio_low": 1.173,
+   "term": 36
+  }
+ ],
+ "input_drift": [
+  {
+   "max": 2.42,
+   "noise": 0.0,
+   "subject": "initial_list_status"
+  },
+  {
+   "max": 1.457,
+   "noise": 0.003,
+   "subject": "int_rate"
+  },
+  {
+   "max": 0.522,
+   "noise": 0.003,
+   "subject": "mths_since_last_delinq"
+  },
+  {
+   "max": 0.344,
+   "noise": 0.004,
+   "subject": "mths_since_last_record"
+  },
+  {
+   "max": 0.336,
+   "noise": 0.003,
+   "subject": "revol_bal"
+  }
+ ],
+ "last_known": "2013-12",
+ "level": [
+  {
+   "cutoff": "2011-07",
+   "observed": 0.587,
+   "shift": 0.1,
+   "train": 5,
+   "validation": 75
+  },
+  {
+   "cutoff": "2011-10",
+   "observed": 0.592,
+   "shift": 0.126,
+   "train": 25,
+   "validation": 132
+  },
+  {
+   "cutoff": "2012-01",
+   "observed": 0.602,
+   "shift": 0.073,
+   "train": 94,
+   "validation": 100
+  },
+  {
+   "cutoff": "2012-04",
+   "observed": 0.667,
+   "shift": 0.134,
+   "train": 170,
+   "validation": 75
+  },
+  {
+   "cutoff": "2012-07",
+   "observed": 0.657,
+   "shift": 0.113,
+   "train": 204,
+   "validation": 127
+  },
+  {
+   "cutoff": "2012-10",
+   "observed": 0.656,
+   "shift": 0.098,
+   "train": 254,
+   "validation": 178
+  },
+  {
+   "cutoff": "2013-01",
+   "observed": 0.665,
+   "shift": 0.091,
+   "train": 344,
+   "validation": 206
+  },
+  {
+   "cutoff": "2013-04",
+   "observed": 0.68,
+   "shift": 0.103,
+   "train": 455,
+   "validation": 297
+  },
+  {
+   "cutoff": "2013-07",
+   "observed": 0.655,
+   "shift": 0.068,
+   "train": 585,
+   "validation": 354
+  },
+  {
+   "cutoff": "2013-10",
+   "observed": 0.648,
+   "shift": 0.047,
+   "train": 799,
+   "validation": 350
+  }
+ ],
+ "pair": [
+  "2",
+  "1"
+ ],
+ "performance": {
+  "cohorts": [
+   {
+    "auc": 0.726,
+    "auc_high": 0.794,
+    "auc_low": 0.662,
+    "calibration_error": 0.012,
+    "calibration_high": 0.017,
+    "calibration_low": 0.008,
+    "cohort": "2010-02",
+    "defaults": 62,
+    "loans": 625
+   },
+   {
+    "auc": 0.663,
+    "auc_high": 0.721,
+    "auc_low": 0.602,
+    "calibration_error": 0.013,
+    "calibration_high": 0.018,
+    "calibration_low": 0.009,
+    "cohort": "2010-03",
+    "defaults": 69,
+    "loans": 736
+   },
+   {
+    "auc": 0.73,
+    "auc_high": 0.78,
+    "auc_low": 0.678,
+    "calibration_error": 0.006,
+    "calibration_high": 0.01,
+    "calibration_low": 0.002,
+    "cohort": "2010-04",
+    "defaults": 82,
+    "loans": 825
+   },
+   {
+    "auc": 0.675,
+    "auc_high": 0.738,
+    "auc_low": 0.612,
+    "calibration_error": 0.013,
+    "calibration_high": 0.018,
+    "calibration_low": 0.009,
+    "cohort": "2010-05",
+    "defaults": 87,
+    "loans": 750
+   },
+   {
+    "auc": 0.654,
+    "auc_high": 0.72,
+    "auc_low": 0.585,
+    "calibration_error": 0.01,
+    "calibration_high": 0.015,
+    "calibration_low": 0.005,
+    "cohort": "2010-06",
+    "defaults": 64,
+    "loans": 602
+   },
+   {
+    "auc": 0.611,
+    "auc_high": 0.676,
+    "auc_low": 0.538,
+    "calibration_error": 0.0,
+    "calibration_high": 0.005,
+    "calibration_low": 0.0,
+    "cohort": "2010-07",
+    "defaults": 65,
+    "loans": 742
+   }
+  ],
+  "pooled": {
+   "auc": 0.675,
+   "calibration_error": 0.002
+  }
+ },
+ "prediction_drift": [
+  {
+   "lag": 0,
+   "max": 0.159,
+   "median": 0.035,
+   "months": 28,
+   "noise": 0.004,
+   "subject": "el_rate"
+  },
+  {
+   "lag": 1,
+   "max": 0.182,
+   "median": 0.052,
+   "months": 27,
+   "noise": 0.004,
+   "subject": "el_rate"
+  },
+  {
+   "lag": 2,
+   "max": 0.217,
+   "median": 0.054,
+   "months": 26,
+   "noise": 0.004,
+   "subject": "el_rate"
+  },
+  {
+   "lag": 3,
+   "max": 0.264,
+   "median": 0.057,
+   "months": 25,
+   "noise": 0.004,
+   "subject": "el_rate"
+  },
+  {
+   "lag": 4,
+   "max": 0.313,
+   "median": 0.106,
+   "months": 24,
+   "noise": 0.004,
+   "subject": "el_rate"
+  },
+  {
+   "lag": 5,
+   "max": 0.366,
+   "median": 0.16,
+   "months": 23,
+   "noise": 0.003,
+   "subject": "el_rate"
+  },
+  {
+   "lag": 6,
+   "max": 0.425,
+   "median": 0.188,
+   "months": 22,
+   "noise": 0.004,
+   "subject": "el_rate"
+  },
+  {
+   "lag": 7,
+   "max": 0.49,
+   "median": 0.208,
+   "months": 21,
+   "noise": 0.004,
+   "subject": "el_rate"
+  },
+  {
+   "lag": 8,
+   "max": 0.515,
+   "median": 0.242,
+   "months": 20,
+   "noise": 0.003,
+   "subject": "el_rate"
+  },
+  {
+   "lag": 9,
+   "max": 0.547,
+   "median": 0.249,
+   "months": 19,
+   "noise": 0.003,
+   "subject": "el_rate"
+  },
+  {
+   "lag": 10,
+   "max": 0.564,
+   "median": 0.286,
+   "months": 18,
+   "noise": 0.003,
+   "subject": "el_rate"
+  },
+  {
+   "lag": 11,
+   "max": 0.593,
+   "median": 0.351,
+   "months": 17,
+   "noise": 0.003,
+   "subject": "el_rate"
+  },
+  {
+   "lag": 0,
+   "max": 0.097,
+   "median": 0.028,
+   "months": 28,
+   "noise": 0.003,
+   "subject": "lgd"
+  },
+  {
+   "lag": 1,
+   "max": 0.107,
+   "median": 0.037,
+   "months": 27,
+   "noise": 0.003,
+   "subject": "lgd"
+  },
+  {
+   "lag": 2,
+   "max": 0.121,
+   "median": 0.041,
+   "months": 26,
+   "noise": 0.002,
+   "subject": "lgd"
+  },
+  {
+   "lag": 3,
+   "max": 0.134,
+   "median": 0.049,
+   "months": 25,
+   "noise": 0.002,
+   "subject": "lgd"
+  },
+  {
+   "lag": 4,
+   "max": 0.135,
+   "median": 0.061,
+   "months": 24,
+   "noise": 0.002,
+   "subject": "lgd"
+  },
+  {
+   "lag": 5,
+   "max": 0.164,
+   "median": 0.076,
+   "months": 23,
+   "noise": 0.002,
+   "subject": "lgd"
+  },
+  {
+   "lag": 6,
+   "max": 0.196,
+   "median": 0.1,
+   "months": 22,
+   "noise": 0.002,
+   "subject": "lgd"
+  },
+  {
+   "lag": 7,
+   "max": 0.233,
+   "median": 0.123,
+   "months": 21,
+   "noise": 0.002,
+   "subject": "lgd"
+  },
+  {
+   "lag": 8,
+   "max": 0.25,
+   "median": 0.145,
+   "months": 20,
+   "noise": 0.002,
+   "subject": "lgd"
+  },
+  {
+   "lag": 9,
+   "max": 0.271,
+   "median": 0.159,
+   "months": 19,
+   "noise": 0.002,
+   "subject": "lgd"
+  },
+  {
+   "lag": 10,
+   "max": 0.275,
+   "median": 0.179,
+   "months": 18,
+   "noise": 0.002,
+   "subject": "lgd"
+  },
+  {
+   "lag": 11,
+   "max": 0.313,
+   "median": 0.193,
+   "months": 17,
+   "noise": 0.002,
+   "subject": "lgd"
+  },
+  {
+   "lag": 0,
+   "max": 0.161,
+   "median": 0.033,
+   "months": 28,
+   "noise": 0.004,
+   "subject": "pd"
+  },
+  {
+   "lag": 1,
+   "max": 0.187,
+   "median": 0.05,
+   "months": 27,
+   "noise": 0.004,
+   "subject": "pd"
+  },
+  {
+   "lag": 2,
+   "max": 0.219,
+   "median": 0.055,
+   "months": 26,
+   "noise": 0.004,
+   "subject": "pd"
+  },
+  {
+   "lag": 3,
+   "max": 0.267,
+   "median": 0.056,
+   "months": 25,
+   "noise": 0.004,
+   "subject": "pd"
+  },
+  {
+   "lag": 4,
+   "max": 0.313,
+   "median": 0.104,
+   "months": 24,
+   "noise": 0.004,
+   "subject": "pd"
+  },
+  {
+   "lag": 5,
+   "max": 0.368,
+   "median": 0.155,
+   "months": 23,
+   "noise": 0.004,
+   "subject": "pd"
+  },
+  {
+   "lag": 6,
+   "max": 0.428,
+   "median": 0.185,
+   "months": 22,
+   "noise": 0.004,
+   "subject": "pd"
+  },
+  {
+   "lag": 7,
+   "max": 0.487,
+   "median": 0.21,
+   "months": 21,
+   "noise": 0.004,
+   "subject": "pd"
+  },
+  {
+   "lag": 8,
+   "max": 0.512,
+   "median": 0.241,
+   "months": 20,
+   "noise": 0.003,
+   "subject": "pd"
+  },
+  {
+   "lag": 9,
+   "max": 0.546,
+   "median": 0.249,
+   "months": 19,
+   "noise": 0.003,
+   "subject": "pd"
+  },
+  {
+   "lag": 10,
+   "max": 0.562,
+   "median": 0.282,
+   "months": 18,
+   "noise": 0.003,
+   "subject": "pd"
+  },
+  {
+   "lag": 11,
+   "max": 0.595,
+   "median": 0.341,
+   "months": 17,
+   "noise": 0.003,
+   "subject": "pd"
+  }
+ ]
+}

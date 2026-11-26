@@ -27,7 +27,7 @@ import numpy.typing as npt
 import polars as pl
 
 from credit_risk.business import NOTE, received
-from credit_risk.compare import auc, brier, calibration_error, rmse
+from credit_risk.compare import auc, brier, calibration_error, interval, rmse
 
 #: Months after listing when the 12-month default rate of a cohort is known: 12 months,
 #: plus the 5 months to the charge-off (data_audit.md 4.2), with one to spare.
@@ -40,6 +40,8 @@ MIN_DEFAULTS: Final = 50
 Z: Final = 1.959963984540054
 #: The segment of a performance row that holds the whole cohort.
 ALL: Final = "all"
+#: Seed of the bootstrap intervals of a whole cohort.
+SEED: Final = 0
 
 
 @dataclass(frozen=True)
@@ -166,6 +168,25 @@ class Performance:
     invested: float | None = None
     received: float | None = None
     realised_return: float | None = None
+    #: 95% bootstrap intervals, of the whole cohort only: the rule of a drop reads them.
+    auc_low: float | None = None
+    auc_high: float | None = None
+    calibration_low: float | None = None
+    calibration_high: float | None = None
+
+
+def _intervals(row: Performance, group: pl.DataFrame) -> Performance:
+    """``row`` with the 95% bootstrap intervals of its AUC and calibration error (D-156)."""
+    if group.height == 0:
+        return row
+    y = group["label"].to_numpy().astype(np.float64)
+    p = group["pd"].to_numpy().astype(np.float64)
+    _, calibration_low, calibration_high = interval(y, p, "calibration_error", seed=SEED)
+    row = replace(row, calibration_low=calibration_low, calibration_high=calibration_high)
+    if 0 < y.sum() < y.size:  # an AUC needs both outcomes
+        _, auc_low, auc_high = interval(y, p, "auc", seed=SEED)
+        row = replace(row, auc_low=auc_low, auc_high=auc_high)
+    return row
 
 
 def _pd_metrics(term: int, segment: str, group: pl.DataFrame, unresolved: int) -> Performance:
@@ -217,7 +238,7 @@ def performance(loans: pl.DataFrame) -> list[Performance]:
             lgd_level = float(predicted.mean() - actual.mean())
         out.append(
             replace(
-                overall,
+                _intervals(overall, known),
                 lgd_loans=lgd.height,
                 lgd_rmse=lgd_rmse,
                 lgd_level=lgd_level,

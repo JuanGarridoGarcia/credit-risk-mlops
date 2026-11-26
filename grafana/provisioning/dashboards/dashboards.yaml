@@ -1,0 +1,14 @@
+# The three dashboards of D-152, as code (D-153): read from the JSON files of
+# grafana/dashboards when Grafana starts; changes made in the interface are not kept.
+apiVersion: 1
+
+providers:
+  - name: credit-risk
+    folder: Credit risk
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false
