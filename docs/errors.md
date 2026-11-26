@@ -71,6 +71,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-061](#e-061) | 2026-11-26 | 6.2 | The receiver of the delivery test left its socket open, and pytest turned the warning into an error | Minor |
 | [E-062](#e-062) | 2026-11-26 | 6.2 | The study read `sim.clock` to know whether the exam was over; T17.3 caught it | Minor |
 | [E-063](#e-063) | 2026-11-26 | 6.2 | In CI, T33.3 failed inside the test image: the summary of the study was not copied into it | Minor |
+| [E-064](#e-064) | 2026-11-26 | 6.2 (found on main) | The publication of the merge of #20 stopped: the smoke test could not read compose without the two Grafana passwords | Moderate |
 
 ## Errors
 
@@ -686,3 +687,13 @@ Date: 2026-11-26 · Step: 6.2 · Severity: minor
 - **Cause**: the test image copies, one by one, the files outside the package that tests read (the data dictionary, the catalogue). The new summary of the study was not among them; locally the tests run from the repository, where it is.
 - **Fix**: the test image also copies `reports/thresholds/summary.json` (Dockerfile and `.dockerignore`). Checked with `make test-image`.
 - **Prevention**: `make test-image` is part of `make check`; it was skipped locally because the machine was busy with the exam, which is how this reached CI.
+
+<a id="e-064"></a>
+### E-064 The publication of the merge of #20 stopped: the smoke test could not read compose without the two Grafana passwords
+
+Date: 2026-11-26 · Step: 6.2 (found on main) · Severity: moderate
+
+- **Symptom**: on main, after the merge of PR #20, the job `publish (GHCR)` failed: `smoke: FAILED: SmokeError('cannot pull Postgres: error while interpolating services.grafana.environment.GF_SECURITY_ADMIN_PASSWORD: required variable GRAFANA_ADMIN_PASSWORD is missing a value')`. Nothing was published and `main` in the registry stayed on the commit of #19, as D-134 intends.
+- **Cause**: the smoke test (`tests/smoke.py`, D-134) runs compose with an environment of its own, not `.env`. Compose reads the whole file before starting any service, and 6.2 added two variables it requires (`GRAFANA_ADMIN_PASSWORD`, `GRAFANA_DB_PASSWORD`, written `${...:?}`). The smoke test does not start Grafana, but compose refuses to interpolate the file without them. The publish job runs only on main, so the pull request could not show it.
+- **Fix**: the smoke test gives both a placeholder, as it already did for the keys of the worker and the clock. Reproduced with `docker compose config` and the smoke environment alone: it fails without them and passes with them.
+- **Prevention**: proposed to Juan: a unit test that every variable compose requires (`${NAME:?...}`) is set by the smoke test, so a new required variable fails in the pull request, not on main.

@@ -72,9 +72,12 @@ def services(serve: str, train: str) -> Iterator[dict[str, str]]:
         "API_PORT": str(ports["api"]),
         "API_KEYS_PREDICT": f"smoke:{PREDICT_KEY}",
         "API_KEYS_ADMIN": f"smoke-admin:{ADMIN_KEY}",
-        # Only read by services the smoke test does not start (the worker and the clock).
+        # Only read by services the smoke test does not start (the worker, the clock and
+        # Grafana); compose refuses to read the file without them (E-064).
         "API_PREDICT_KEY": PREDICT_KEY,
         "API_ADMIN_KEY": ADMIN_KEY,
+        "GRAFANA_ADMIN_PASSWORD": PASSWORD,
+        "GRAFANA_DB_PASSWORD": PASSWORD,
     }
     try:
         # Postgres is not ours and the publish job runs on a fresh machine, which has never
