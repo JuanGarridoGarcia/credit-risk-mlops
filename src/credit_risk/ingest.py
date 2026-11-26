@@ -276,7 +276,7 @@ def load_raw(conn: Connection, landing: Path, period: date, stream: str) -> Load
     return _guarded(conn, stream, "raw", period, sha, run)
 
 
-def _raw_frame(conn: Connection, stream: str, period: date) -> pl.DataFrame:
+def raw_frame(conn: Connection, stream: str, period: date) -> pl.DataFrame:
     """One period of a raw table, as text, in contract and id order."""
     q = _query("copy_out").format(
         table=_table("raw", stream), columns=_columns(COLUMNS[stream]), period=sql.Literal(period)
@@ -453,10 +453,10 @@ def _validate(
     """Clean both streams and run every rule that does not need the load transaction."""
     frames: dict[str, pl.DataFrame] = {}
     for stream in STREAMS:
-        raw_frame = _raw_frame(conn, stream, period)
-        report.rows[stream] = raw_frame.height
+        raw = raw_frame(conn, stream, period)
+        report.rows[stream] = raw.height
         try:
-            frames[stream] = CLEANERS[stream](raw_frame)
+            frames[stream] = CLEANERS[stream](raw)
         except CleaningError as exc:
             report.findings += cleaning_findings(stream, exc)
     if not report.passed:

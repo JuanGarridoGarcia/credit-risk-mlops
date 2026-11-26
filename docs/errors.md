@@ -64,6 +64,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-054](#e-054) | 2026-11-25 | 5.2 | The first publication was stopped by Trivy: two new HIGH findings in the Debian base image | Minor |
 | [E-055](#e-055) | 2026-11-25 | 5.2 | The smoke test of the first real publication could not start Postgres: the fresh machine of the publish job had never pulled it | Moderate |
 | [E-056](#e-056) | 2026-11-25 | 5.2 | In the demo from the published images, the investor of 2014-02 bought nothing: the clock could not tell the API about the new buy rule | Moderate |
+| [E-057](#e-057) | 2026-11-26 | 6.1 | The Wilson interval of a cohort with no early default started a hair above zero, which the table refuses | Minor |
 
 ## Errors
 
@@ -609,3 +610,13 @@ Date: 2026-11-25 · Step: 5.2 · Severity: moderate
 - **Cause**: the clock runs the monthly flow in its own process (D-107), and after a promotion the flow tells the API to reload with the admin key (D-111). In `docker-compose.yml` the worker had that key but the clock did not, so the notice was skipped. The investor of the next month started 10 seconds after the buy rule was promoted, and the API only loaded it by polling 50 seconds later. The integration tests of the clock set the key in the environment of the test process, so they never went through compose.
 - **Fix**: the clock service gets `API_ADMIN_KEY`, like the worker. Checked on the cloud machine with the same published images: with the clock recreated, the reload step of the flow, run inside it, reaches the API (`/admin/reload` answers); the investors of 2014-03 and 2014-04 bought 1,526 and 1,651 notes with buy rule 1.
 - **Prevention**: T22.6 reads compose: the services that run the monthly flow (worker and clock) have the admin key and no other service has it; a new service of the train image fails the test until someone decides whether it runs the flow. Juan chose this unit test over an integration test that would train a model in compose, slower in a job already close to its limit (E-052); a wrong key already leaves a `reload_failed` alert.
+
+<a id="e-057"></a>
+### E-057 The Wilson interval of a cohort with no early default started a hair above zero, which the table refuses
+
+Date: 2026-11-26 · Step: 6.1 · Severity: minor
+
+- **Symptom**: T25.3 failed while being written: `wilson(0, 50)` gave a lower end of `6.9e-18` instead of 0.
+- **Cause**: in exact arithmetic the Wilson interval always contains the observed proportion, and at 0 defaults its lower end is exactly 0; in floating point `centre - half` can land a few units of rounding above it. `monitoring.early_warning` checks `ratio_low <= ratio`, so a cohort with no default in its first year (observed ratio 0) would have failed the whole month in the flow.
+- **Fix**: the bounds are clamped to contain the observed proportion (`outcomes.wilson`).
+- **Prevention**: T25.3 checks both edges (0 of 50 and 50 of 50), and the check in the table stays: an impossible row still fails loudly.

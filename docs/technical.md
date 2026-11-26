@@ -12,7 +12,8 @@ Related documents: [problem definition](problem.md), [data audit](data_audit.md)
 4. F2 Data (steps 2.1 to 2.4)
 5. F3 Model (steps 3.1 to 3.5)
 6. F4 Automation (step 4.1)
-7. F5 Deployment (step 5.1 and old step 4.2; step 5.2 to come)
+7. F5 Deployment (steps 5.1, 5.2 and old step 4.2)
+8. F6 Monitoring (step 6.1; 6.2 and 6.3 to come)
 
 ---
 
@@ -41,7 +42,7 @@ Status of every step of the playbook. Updated in every pull request.
 | | 4.2 Batch prediction flow | Done (in F5) | #13 | Replaced by the simulated investor calling the API (D-008, D-098); D-123 to D-129; E-047 |
 | F5 Deployment | 5.1 API | Done | #12 | D-109 to D-122; E-043 to E-046; API, predictions table, buy rule in MLflow; purchases endpoint in PR 2 (D-124) |
 | | 5.2 Published image and CD | Done | #14 to #17 | D-130 to D-136; E-048 to E-056; serve and train published to GHCR after CI on main, smoke tested, Trivy before publishing; first publication `sha-ff1c554` on 2026-11-25 |
-| F6 Monitoring | 6.1 Drift and metrics | Pending | | |
+| F6 Monitoring | 6.1 Drift and metrics | Done | PR 1 of F6 | D-137 to D-146; E-057; drift, early warning and real performance stored every month in `monitoring` |
 | | 6.2 Dashboard and alerts | Pending | | |
 | | 6.3 Triggered retraining | Pending | | |
 | F7 Closing | 7.1 End to end and reproducibility | Pending | | |
@@ -996,3 +997,58 @@ A tag is a name on an image, as a branch is a name on a commit. Moving `main` ch
 | E-054 | The first publication was stopped by Trivy: two new HIGH findings in the Debian base image |
 | E-055 | The smoke test of the first real publication could not start Postgres: the fresh machine of the publish job had never pulled it |
 | E-056 | In the demo from the published images, the investor of 2014-02 bought nothing: the clock could not tell the API about the new buy rule |
+
+---
+
+## 8. F6 Monitoring
+
+Every decision of F6 is explained to Juan and taken by him one at a time (D-137 onwards). Scope (D-137): one pull request per step of the playbook, in order: (1) drift and metrics, (2) Grafana dashboards and alerts with thresholds calibrated on history, (3) retraining triggered by those thresholds. F8 (a public interface, after F7) is kept in mind: dashboards that can be shown, read-only access to be decided then.
+
+### First pull request: drift and metrics
+
+The question of 6.1 is "how do we know the models are getting worse?", and the difficulty of this project is that the answer (default or not) arrives 3 to 5 years after the decision. So the monitoring has three layers, each available sooner than the next:
+
+```
+ month M of the simulation (after load, before training: task "monitor", D-145)
+
+ 1. drift of the loans listed in M          known at once
+    30 features + PD, LGD, expected loss rate, as received and answered by the
+    models (serving.predictions, D-141), against the reference of the pair of
+    champions that answered (D-138): PSI, missing share, new values, KS (D-139)
+
+ 2. early warning of the cohort M - 17      known 17 months later
+    loans that stopped paying within 12 months of issue, against
+    PD x share of first-year defaults (by term and grade, at the PD's cutoff);
+    ratio with a 95% Wilson interval; AUC on that label (D-143)
+
+ 3. real performance of the cohorts         known at term + 5 months
+    M - 41 (36 months) and M - 65 (60 months): the metrics of promotion overall
+    and by grade, LGD error and level, realised return of the purchases (D-144)
+```
+
+**The reference (D-138, D-142).** Each pair of champions gets, once, the listings of the 12 months before its cutoff (the later training cutoff of its PD and its LGD), exactly as the provider delivered them (`raw.listings`), cleaned and scored with the API's own `scoring.score`. The training set is not used as reference: it holds loans listed at least 41 months before the cutoff, and against it every month would drift. Only the bins are stored (`monitoring.reference`, one row per variable): cut points or categories, the share of the reference in each bin, the missing-value bin, the range, and a fixed sample of 5,000 values for the KS statistic. Nothing reaches `serving.predictions`: the reference is compared with, never used to decide, the second written exception to D-008. The flow's task `reference` builds it after training when the pair changed; `monitor` builds it for any pair that answered and has none (after a rollback, for example).
+
+**The PSI (D-139).** For each bin, `(month share - reference share) x ln(month share / reference share)`, summed; every share floored at 0.01%. Numeric variables are cut at the deciles of the reference (a repeated cut point is kept once, so a variable that is almost always 0 makes two or three bins); categorical ones have one bin per category of the reference and one for categories never seen; both have a bin for missing values. Shares, not counts: a month of 40,000 loans does not drift more than one of 10,000, unlike a p-value. Our own code (D-140), `credit_risk/monitoring/drift.py`.
+
+**What is stored (D-146).** Schema `monitoring`, one table per kind, each with checks that refuse impossible rows:
+
+| Table | One row per | Main columns |
+|---|---|---|
+| `reference` | pair of champions and variable | cutoff, months, bins, shares, range, KS sample |
+| `drift` | month, pair and variable | PSI, KS, missing share, new values |
+| `early_warning` | cohort, term and PD version | loans, early defaults, expected, ratio and interval, AUC |
+| `performance` | cohort, term, pair and segment (`all`, `grade=X`) | AUC, Brier, calibration error, LGD RMSE and level, purchases and realised return |
+
+`monitor` replaces the month's rows in one transaction, so a month run again changes nothing (T27.3). If it fails, the month fails, `ops.alerts` gets a `flow_failed` naming the task, and the clock does not move (T27.4). A month with no predictions (T0, before the investor starts) is noted in the flow's summary.
+
+**What the simulation can show.** The investor starts in 2014-02 and the simulation ends in 2018-12: early warning from 2015-07, about 18 matured cohorts of 36 months from 2017-07, and no matured 60-month cohort (the first would be 2019-07). For 60-month loans only the early warning exists; a known limitation, written in D-144.
+
+**Code.** `credit_risk/monitoring/` with `drift.py` (bins, PSI, KS), `outcomes.py` (first-year shares, Wilson interval, early warning, performance; pure) and `store.py` (the reference, the month, the SQL in `sql/first_year.sql`, `sql/cohort_outcomes.sql`, `sql/month_predictions.sql`). Migration `20261126090000_create_monitoring.sql`. The flow gets the tasks `monitor` and `reference`.
+
+**Tests** (T23 to T28, approved by Juan on 2026-11-26): drift by hand and on made-up loans (T23); the reference in the clock story, equal to the API's answers (T24); the early warning and real performance on loans written into Postgres with the months that matter (T25, T26); the tables and the task in the flow (T27); the first-year share and the drift of the real year 2014 (T28, local).
+
+| Error | What happened |
+|---|---|
+| E-057 | The Wilson interval of a cohort with no early default started a hair above zero, which the table refuses |
+
+**For F8** (noted, not built): the dashboards of 6.2 will read these tables; a public demo will need read-only access to them.

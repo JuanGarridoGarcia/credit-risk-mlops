@@ -144,6 +144,16 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-134](#d-134) | 2026-11-25 | 5.2 | The smoke test asks the published images for a real prediction; `main` moves only if it passes | Active |
 | [D-135](#d-135) | 2026-11-25 | 5.2 | Trivy scans each image before it is published and blocks on HIGH or CRITICAL | Active |
 | [D-136](#d-136) | 2026-11-25 | 5.2 | The published images are public | Active |
+| [D-137](#d-137) | 2026-11-25 | 6.1 | Scope of F6 and three pull requests: drift and metrics, dashboard and alerts, triggered retraining | Active |
+| [D-138](#d-138) | 2026-11-26 | 6.1 | The drift reference is the 12 months of listings before the champions' cutoff, renewed with each promotion | Active |
+| [D-139](#d-139) | 2026-11-26 | 6.1 | Drift is measured with the PSI, bins from the reference and a bin for missing and new values; KS for information | Active |
+| [D-140](#d-140) | 2026-11-26 | 6.1 | Drift is computed with our own code, not with Evidently | Active |
+| [D-141](#d-141) | 2026-11-26 | 6.1 | What is watched is what the models received and answered (`serving.predictions`) | Active |
+| [D-142](#d-142) | 2026-11-26 | 6.1 | The reference is scored by the flow with the API's own scoring; only its bins are kept | Active |
+| [D-143](#d-143) | 2026-11-26 | 6.1 | Early warning: the 12-month default rate of a cohort against PD x the first-year share of defaults | Active |
+| [D-144](#d-144) | 2026-11-26 | 6.1 | A matured cohort is measured with the metrics of promotion, the LGD and the realised return | Active |
+| [D-145](#d-145) | 2026-11-26 | 6.1 | Monitoring is a task of the system's flow, every month, after loading and before training | Active |
+| [D-146](#d-146) | 2026-11-26 | 6.1 | One table per kind of measure, in a schema `monitoring` | Active |
 
 ## Decisions
 
@@ -220,6 +230,7 @@ Date: 2026-11-20 · Step: 0.1 · Status: Active
 - **Decision**: **Single prediction path: the API** (single loan and batch endpoint), with every prediction stored. In the simulation, a replayer sends each month's loans to the API. A monthly job only monitors and decides retraining. The held portfolio is re-scored only when the champion model changes
 - **Alternatives considered**: API for single loans plus a monthly batch that scores every loan of the month
 - **Why**: Juan noticed that scoring the same loans twice is redundant. The investor decides at listing time, so one path is realistic, removes the risk of two implementations disagreeing and load-tests the API. Cost: a batch endpoint so the replay does not take hours
+- **Update 2026-11-26 (D-142)**: a second exception, besides rescoring the held portfolio: the monitoring reference of each pair of champions is scored by the flow with the same function as the API, and only its bins are stored. It is never used to decide, and nothing is written to `serving.predictions`.
 
 <a id="d-009"></a>
 ### D-009 Constraints: explainability, latency, cost, fairness, no future data
@@ -1584,3 +1595,112 @@ Date: 2026-11-25 · Step: 5.2 · Status: Active
 - **Consequences**: irreversible. The weekly scan (D-135) logs in anyway, so it also works while the packages are private.
 - **Update 2026-11-25**: the manual step was not needed. Published by a workflow of this public repository with its token, both packages were linked to the repository and took its visibility: after the first publication (`sha-ff1c554`) they already pulled without logging in, with the digests the publish job printed. Juan pointed it out.
 
+<a id="d-137"></a>
+### D-137 Scope of F6 and three pull requests: drift and metrics, dashboard and alerts, triggered retraining
+
+Date: 2026-11-25 · Step: 6.1 · Status: Active
+
+- **Context**: F6 has three steps in the playbook: 6.1 drift and metrics, 6.2 dashboard and alerts (Grafana, thresholds calibrated on history, the channel of D-108, the LGD shift above 0.15 left open in F3), 6.3 retraining when a threshold is crossed.
+- **Decision**: one pull request per step, in that order.
+- **Alternatives considered**: (B) two pull requests, 6.1 with 6.3 and then 6.2: measuring and reacting together, but one large pull request with two subjects, and the trigger designed before its thresholds are calibrated; (C) one pull request for the phase: one review, too large to review properly.
+- **Why**: small pull requests, each built on the previous one already merged; the thresholds calibrated in 6.2 are the ones the trigger of 6.3 uses.
+- **Consequences**: the integration job is close to its limit (E-052): every integration test of F6 is kept small. F8 (public interface, after F7) is kept in mind: demo-friendly dashboards, read-only access noted for later.
+
+<a id="d-138"></a>
+### D-138 The drift reference is the 12 months of listings before the champions' cutoff, renewed with each promotion
+
+Date: 2026-11-26 · Step: 6.1 · Status: Active
+
+- **Context**: drift compares each month with a reference taken as normal. The models train on matured cohorts only, listed at least 41 months before the cutoff (D-040): a champion trained in January 2014 learned from loans of 2007 to 2010, and Lending Club changed a lot in those years.
+- **Decision**: the reference of a pair of champions is the listings of the 12 months before its cutoff (the later training cutoff of its PD and its LGD): `cutoff - 12` to `cutoff - 1`. A new pair gets a new reference; earlier ones are kept as history.
+- **Alternatives considered**: (A) the champion's training set, the usual choice: it would raise an alarm every month because of the 41-month lag, and an alarm that always rings is useless; (B) a fixed window, 2013: simple, but never renewed, so by 2017 everything drifts against 2013 even after several retrainings; (C) a rolling window of the 12 months before each month: sees sudden changes but adapts to slow ones, which are the ones that wear a model down.
+- **Why**: recent data, tied to the models in service, renewed with each promotion; slow changes add up until a retraining.
+- **Consequences**: the reference depends on the pair (D-142). The comparison with the training set can be shown for information in 6.2, without alerting.
+
+<a id="d-139"></a>
+### D-139 Drift is measured with the PSI, bins from the reference and a bin for missing and new values; KS for information
+
+Date: 2026-11-26 · Step: 6.1 · Status: Active
+
+- **Context**: each month brings tens of thousands of listings. With samples that large a hypothesis test calls tiny, harmless changes significant.
+- **Decision**: the population stability index (PSI) of each of the 30 features and of the PD, the LGD and the expected loss rate. Numeric variables are cut at the deciles of the reference (repeated cut points kept once); categorical ones have a bin per category of the reference and one for categories never seen; both have a bin for missing values. Every share is floored at 0.01% so that an empty bin never gives infinity. The share of missing values and the number of new values (new categories, or numbers outside the range of the reference) are stored apart. The Kolmogorov-Smirnov statistic is stored for information only, for numeric variables, against a fixed sample of 5,000 values of the reference.
+- **Alternatives considered**: (B) KS and chi-squared tests: a clear statistical basis, but with our samples they would fire almost every month, a p-value says nothing of the size of a change, and 30 variables need a correction for multiple tests; (C) Wasserstein or Jensen-Shannon distances: no bins, but Wasserstein is in the units of each variable, so each would need its own threshold, and they are less known in credit.
+- **Why**: the PSI is the standard of credit risk, measures the size of a change on shares (not on counts) and works the same for numeric and categorical variables. The usual thresholds (0.1 watch, 0.25 act) are a habit: 6.2 calibrates ours on history.
+- **Consequences**: module `credit_risk/monitoring/drift.py`. Tests T23.1 to T23.6. Juan asked for worked examples of the PSI before deciding; they are T23.1.
+
+<a id="d-140"></a>
+### D-140 Drift is computed with our own code, not with Evidently
+
+Date: 2026-11-26 · Step: 6.1 · Status: Active
+
+- **Context**: Evidently, the library of module 5 of the MLOps Zoomcamp, computes drift metrics and an HTML report from a reference and a current frame.
+- **Decision**: our own module on polars, numpy and scipy (already installed through scikit-learn). No new dependency.
+- **Alternatives considered**: (B) Evidently for everything: the course's tool and a name seen in job offers, with a free HTML report; but a large dependency whose API changed a lot between versions, pandas instead of polars, and its own way of binning and treating missing and new values, to be checked against D-139; (C) our code for what is stored and alerts, Evidently for a monthly HTML report: two computations of drift that can disagree, and the dependency comes in anyway.
+- **Why**: the PSI is a few dozen lines and every detail of D-139 is ours to control and test; the dashboards are Grafana's (6.2).
+- **Consequences**: no change to the lock (D-103 already cost three downgrades).
+
+<a id="d-141"></a>
+### D-141 What is watched is what the models received and answered (`serving.predictions`)
+
+Date: 2026-11-26 · Step: 6.1 · Status: Active
+
+- **Context**: each month there are two places to look: the provider's delivery (`clean.listings`) and what the models received, since every prediction stores its 30 features and its PD, LGD and expected loss (D-113). In the simulation the investor sends every listing to the API, so today both hold the same loans; in production a client may send only part of them, or the API may compute a feature differently from training (training-serving skew).
+- **Decision**: drift is measured on the features and predictions of `serving.predictions`, the first prediction of each loan listed in the month, per pair of models that answered. The reference is built with the same feature module on the months of D-138.
+- **Alternatives considered**: (B) the delivery: does not depend on the API being used, but sees nothing of the API, and the quality of the delivery is already watched by the validation of F2 (missing values per column R4.6, volume R5); (C) both: separates "the world changed" from "our API fails", but twice the metrics and dashboards, identical in the simulation.
+- **Why**: the delivery is already watched; what was missing is what goes into and comes out of the models, including skew.
+- **Consequences**: a month with no predictions has no drift, and says so (T27.2). Adding the delivery later is the same computation on another frame. Predictions are measured only on the loans a model covers.
+
+<a id="d-142"></a>
+### D-142 The reference is scored by the flow with the API's own scoring; only its bins are kept
+
+Date: 2026-11-26 · Step: 6.1 · Status: Active
+
+- **Context**: the PSI of the predictions needs the predictions of the pair on the 12 months of its reference, loans that never went through the API: when a champion is chosen, those months are past. D-008 makes the API the single prediction path, and already allows rescoring the held portfolio when the champion changes.
+- **Decision**: when a pair of champions has no reference, the flow builds it: the listings of the 12 months exactly as delivered (`raw.listings`), cleaned and scored by the same function as the API (`credit_risk.api.scoring.score`). Only the bins and their shares are stored, in `monitoring.reference`; nothing goes to `serving.predictions`. A task `reference` does it after training when the pair changed, and `monitor` does it for any pair that answered and has none (a rollback, D-090). Written as the second exception to D-008: the reference is only compared, never used to decide.
+- **Alternatives considered**: (B) sending the 12 months to the API: D-008 to the letter, but about 200,000 predictions nobody asked for, dated 2013, mixed with the real ones in every query (purchases, audit, dashboards), and training would depend on the API being up; (C) no reference predictions, the first month in service as reference: no extra work, but features and predictions would have different references, one month is noisy, and a first month already changed would be taken as normal.
+- **Why**: the same code as the API, so no two implementations can disagree (T24.2), and the predictions table keeps only real decisions (T24.3).
+- **Consequences**: D-008 gets an update. A reference is built once per pair (about 135,000 loans for 2013 with the real data).
+
+<a id="d-143"></a>
+### D-143 Early warning: the 12-month default rate of a cohort against PD x the first-year share of defaults
+
+Date: 2026-11-26 · Step: 6.1 · Status: Active
+
+- **Context**: drift says the loans changed, not whether the models are right, and the full label arrives 3 to 5 years late. D-003 chose the default rate within 12 months as early warning; the audit checked it can be computed and is known about 17 months after listing (12 months plus the charge-off lag). The PD is a lifetime probability, so it must be turned into "what we would expect to see at 12 months".
+- **Decision**: in month M, the cohort listed in M - 17 is measured. A loan counts as an early default when it is bad and its first missed payment (the month after its last payment, or issue + 1 if it never paid) is no later than issue + 12, as known from the outcomes delivered by M. Expected = sum over its loans of PD x the share of the defaults that came in the first year, by term and grade, among the cohorts matured at the PD's cutoff (D-040); a grade with fewer than 50 defaults takes the share of its term. Stored: observed and expected rates, the ratio and a 95% Wilson interval of the observed rate divided by the expected one, per term and per PD version that predicted the cohort; the AUC of the PD on the 12-month default for information.
+- **Alternatives considered**: (B) the 12-month rate against that of the reference cohorts, without the model: simple, but cannot tell "the model is wrong" from "riskier loans arrive", which drift already says; (C) only the AUC on the 12-month default: needs no translation of the PD, but a model can rank well and be miscalibrated, which costs the investor money.
+- **Why**: it accounts for the mix of loans and checks the level of the PD early; the AUC watches the ranking too.
+- **Consequences**: assumes the timing of defaults is stable: in a crisis defaults come earlier and the ratio rises even if the lifetime total is the same, which is also worth knowing. Tests T25.1 to T25.4.
+
+<a id="d-144"></a>
+### D-144 A matured cohort is measured with the metrics of promotion, the LGD and the realised return
+
+Date: 2026-11-26 · Step: 6.1 · Status: Active
+
+- **Context**: a cohort is fully known when it matures, at term + 5 months, the rule of training (D-040); measuring earlier is biased because defaults end before good loans. In the simulation the investor starts in 2014-02 and the simulation ends in 2018-12: about 18 matured cohorts of 36 months, and none of 60 months (the first would mature in 2019-07).
+- **Decision**: in month M, the cohorts listed in M - 41 (36 months) and M - 65 (60 months) are measured, per pair of models that predicted them: AUC, Brier score and calibration error of the PD with the functions of promotion (`credit_risk.compare`), overall and by grade, on the loans with a final outcome delivered by M (the others counted as unresolved); the RMSE and the level (mean predicted minus mean observed) of the LGD on the defaults resolved at least 12 months before M (D-017); and the realised return of what the investor bought, with the payments of `credit_risk.business`.
+- **Alternatives considered**: (B) only AUC and calibration of the PD: the essentials, but nothing of the LGD or of the money, where F3 found the model did not beat the baseline (D-097); (C) also the cohorts not yet matured: numbers sooner, but biased, exactly what D-040 avoids; the early warning is there for that.
+- **Why**: comparable with the validation of the champion, reuses tested code, and measures what matters to the investor.
+- **Consequences**: known limitation: the 60-month loans have only the early warning in the simulation. Tests T26.1 and T26.2.
+
+<a id="d-145"></a>
+### D-145 Monitoring is a task of the system's flow, every month, after loading and before training
+
+Date: 2026-11-26 · Step: 6.1 · Status: Active
+
+- **Context**: in a simulated month the clock publishes M, the investor scores its listings through the API, then the system's flow runs for M (D-107, D-123): when the flow starts, the month's predictions are stored.
+- **Decision**: a task `monitor` runs every month right after `load` and before any training: drift of M, early warning of M - 17, performance of the cohorts that matured. It replaces the month's rows in one transaction, so running the month again changes nothing; it is retried only on transient failures (D-102). If it fails, the month fails, a `flow_failed` alert names the task and the clock does not move.
+- **Alternatives considered**: (B) a separate flow after the system's: a monitoring failure would not stop training, but the trigger of 6.3 would see the drift of M a month late, and in production two schedules can overlap; (C) inside the API, on every request: nothing gained with monthly data, and work that is not the API's.
+- **Why**: the order is guaranteed and the trigger of 6.3 can decide in the same month; a month not monitored is a month in which we do not know whether the models are right, so it must show and be retried.
+- **Consequences**: the flow has two more tasks, `monitor` (every month) and `reference` (retraining months). T16.8 and T17.6 list them. Tests T27.2 to T27.5.
+
+<a id="d-146"></a>
+### D-146 One table per kind of measure, in a schema `monitoring`
+
+Date: 2026-11-26 · Step: 6.1 · Status: Active
+
+- **Context**: what is stored is what Grafana reads in 6.2 and the trigger in 6.3. The measures have different shapes: drift by month and variable, early warning by cohort, performance by cohort and segment, and the reference by pair and variable.
+- **Decision**: schema `monitoring` with `reference`, `drift`, `early_warning` and `performance`, each with its own typed columns and checks (PSI never negative, interval ordered around the ratio, the month of evaluation tied to the cohort), and a unique key per month and model so that a month run again replaces its rows.
+- **Alternatives considered**: (A) one long table (month, model, subject, metric, value): no migration for a new metric, but weak types, no checks, and every query filters by metric name; (C) MLflow metrics of a monitoring run per month: next to the models, but MLflow is for experiments, not time series, and Grafana does not read it well.
+- **Why**: types and checks in the database, direct queries for dashboards and trigger, the criterion of D-113.
+- **Consequences**: migration `20261126090000_create_monitoring.sql`; a new metric needs a migration (D-048). Test T27.1.

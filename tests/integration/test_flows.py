@@ -210,7 +210,7 @@ def test_a_critical_validation_failure_stops_the_flow(
     assert [t.state.type.value for t in tasks["load"]] == ["FAILED"]
     assert tasks["load"][0].run_count == 1, "a failed validation is never retried"
     assert "ValidationFailed" in (tasks["load"][0].state.message or "")
-    for later in ("version", "train-pd", "train-lgd", "buy-rule", "reload"):
+    for later in ("monitor", "version", "train-pd", "train-lgd", "buy-rule", "reference", "reload"):
         assert later not in tasks, f"{later} ran after a failed validation"
     after = _footprint(scenario)
     # Raw keeps the delivery as it came, by design (D-044): validation stops it at clean.
