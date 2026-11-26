@@ -1,0 +1,262 @@
+{
+ "alerts": [
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2016-02",
+   "what": "36m 2014-09 1.00"
+  },
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2016-03",
+   "what": "36m 2014-10 1.02"
+  },
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2016-10",
+   "what": "36m 2015-05 1.07"
+  },
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2016-11",
+   "what": "36m 2015-06 1.02"
+  },
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2016-12",
+   "what": "36m 2015-07 1.01"
+  },
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2017-02",
+   "what": "36m 2015-09 1.11"
+  },
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2017-03",
+   "what": "36m 2015-10 1.06"
+  },
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2017-05",
+   "what": "36m 2015-12 1.03"
+  },
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2017-06",
+   "what": "36m 2016-01 1.06"
+  },
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2017-07",
+   "what": "36m 2016-02 1.03"
+  },
+  {
+   "alerts": 1,
+   "kind": "performance_drop",
+   "month": "2017-07",
+   "what": "auc 36m 2014-02"
+  },
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2017-08",
+   "what": "36m 2016-03 1.04"
+  },
+  {
+   "alerts": 1,
+   "kind": "performance_drop",
+   "month": "2017-08",
+   "what": "auc 36m 2014-03"
+  },
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2017-09",
+   "what": "36m 2016-04 1.10"
+  },
+  {
+   "alerts": 2,
+   "kind": "performance_drop",
+   "month": "2017-09",
+   "what": "auc 36m 2014-04; calibration_error 36m 2014-04"
+  },
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2017-10",
+   "what": "36m 2016-05 1.11"
+  },
+  {
+   "alerts": 2,
+   "kind": "performance_drop",
+   "month": "2017-10",
+   "what": "auc 36m 2014-05; calibration_error 36m 2014-05"
+  },
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2017-11",
+   "what": "36m 2016-06 1.06"
+  },
+  {
+   "alerts": 2,
+   "kind": "performance_drop",
+   "month": "2017-11",
+   "what": "auc 36m 2014-06; calibration_error 36m 2014-06"
+  },
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2017-12",
+   "what": "36m 2016-07 1.07"
+  },
+  {
+   "alerts": 1,
+   "kind": "performance_drop",
+   "month": "2017-12",
+   "what": "auc 36m 2014-07"
+  },
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2018-01",
+   "what": "36m 2016-08 1.07"
+  },
+  {
+   "alerts": 1,
+   "kind": "early_warning",
+   "month": "2018-02",
+   "what": "36m 2016-09 1.06"
+  },
+  {
+   "alerts": 1,
+   "kind": "performance_drop",
+   "month": "2018-02",
+   "what": "calibration_error 36m 2014-09"
+  },
+  {
+   "alerts": 1,
+   "kind": "performance_drop",
+   "month": "2018-03",
+   "what": "calibration_error 36m 2014-10"
+  },
+  {
+   "alerts": 2,
+   "kind": "early_warning",
+   "month": "2018-04",
+   "what": "36m 2016-11 1.28; 60m 2016-11 1.37"
+  },
+  {
+   "alerts": 1,
+   "kind": "performance_drop",
+   "month": "2018-04",
+   "what": "calibration_error 36m 2014-11"
+  },
+  {
+   "alerts": 2,
+   "kind": "early_warning",
+   "month": "2018-05",
+   "what": "36m 2016-12 1.34; 60m 2016-12 1.47"
+  },
+  {
+   "alerts": 1,
+   "kind": "performance_drop",
+   "month": "2018-05",
+   "what": "calibration_error 36m 2014-12"
+  },
+  {
+   "alerts": 2,
+   "kind": "early_warning",
+   "month": "2018-06",
+   "what": "36m 2017-01 1.20; 60m 2017-01 1.28"
+  },
+  {
+   "alerts": 1,
+   "kind": "performance_drop",
+   "month": "2018-06",
+   "what": "calibration_error 36m 2015-01"
+  },
+  {
+   "alerts": 2,
+   "kind": "early_warning",
+   "month": "2018-07",
+   "what": "36m 2017-02 1.26; 60m 2017-02 1.22"
+  },
+  {
+   "alerts": 1,
+   "kind": "performance_drop",
+   "month": "2018-07",
+   "what": "calibration_error 36m 2015-02"
+  },
+  {
+   "alerts": 2,
+   "kind": "early_warning",
+   "month": "2018-08",
+   "what": "36m 2017-03 1.21; 60m 2017-03 1.31"
+  },
+  {
+   "alerts": 1,
+   "kind": "performance_drop",
+   "month": "2018-08",
+   "what": "calibration_error 36m 2015-03"
+  },
+  {
+   "alerts": 2,
+   "kind": "early_warning",
+   "month": "2018-09",
+   "what": "36m 2017-04 1.37; 60m 2017-04 1.29"
+  },
+  {
+   "alerts": 1,
+   "kind": "performance_drop",
+   "month": "2018-09",
+   "what": "calibration_error 36m 2015-04"
+  },
+  {
+   "alerts": 2,
+   "kind": "early_warning",
+   "month": "2018-10",
+   "what": "36m 2017-05 1.39; 60m 2017-05 1.14"
+  },
+  {
+   "alerts": 1,
+   "kind": "performance_drop",
+   "month": "2018-10",
+   "what": "calibration_error 36m 2015-05"
+  },
+  {
+   "alerts": 2,
+   "kind": "early_warning",
+   "month": "2018-11",
+   "what": "36m 2017-06 1.37; 60m 2017-06 1.21"
+  },
+  {
+   "alerts": 1,
+   "kind": "performance_drop",
+   "month": "2018-11",
+   "what": "calibration_error 36m 2015-06"
+  },
+  {
+   "alerts": 2,
+   "kind": "early_warning",
+   "month": "2018-12",
+   "what": "36m 2017-07 1.36; 60m 2017-07 1.28"
+  },
+  {
+   "alerts": 1,
+   "kind": "performance_drop",
+   "month": "2018-12",
+   "what": "calibration_error 36m 2015-07"
+  }
+ ]
+}

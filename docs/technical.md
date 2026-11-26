@@ -43,7 +43,7 @@ Status of every step of the playbook. Updated in every pull request.
 | F5 Deployment | 5.1 API | Done | #12 | D-109 to D-122; E-043 to E-046; API, predictions table, buy rule in MLflow; purchases endpoint in PR 2 (D-124) |
 | | 5.2 Published image and CD | Done | #14 to #17 | D-130 to D-136; E-048 to E-056; serve and train published to GHCR after CI on main, smoke tested, Trivy before publishing; first publication `sha-ff1c554` on 2026-11-25 |
 | F6 Monitoring | 6.1 Drift and metrics | Done | PR 1 of F6 | D-137 to D-146; E-057; drift, early warning and real performance stored every month in `monitoring` |
-| | 6.2 Dashboard and alerts | Done | PR 2 of F6 (#20), its fixes (#21) and the result of the exam | D-147 to D-157; E-058 to E-066 (#21 fixed the publication of #20 on main, E-064, and two faults the exam found, E-065 and E-066); alert rules in the flow, thresholds calibrated at T0 and examined on 2014 to 2018 ([thresholds.md](thresholds.md)), three Grafana dashboards, delivery to Telegram |
+| | 6.2 Dashboard and alerts | Done | PR 2 of F6 (#20), its fixes (#21) and the result of the exam | D-147 to D-157; E-058 to E-067 (#21 fixed the publication of #20 on main, E-064, and two faults the exam found, E-065 and E-066; E-067 while running the exam); alert rules in the flow, thresholds calibrated at T0 and examined on 2014 to 2018 ([thresholds.md](thresholds.md)), three Grafana dashboards, delivery to Telegram |
 | | 6.3 Triggered retraining | Pending | | |
 | F7 Closing | 7.1 End to end and reproducibility | Pending | | |
 | | 7.2 Cloud and infrastructure as code | Pending | | |
@@ -1112,5 +1112,18 @@ The role `grafana_reader` is created by a migration with no login (`202611261302
 | E-061 | The receiver of the delivery test left its socket open |
 | E-062 | The study read `sim.clock`; T17.3 caught it |
 | E-063 | The summary of the study was not copied into the test image |
+
+**After the merge: PR #21 and the exam.** The merge of #20 did not publish its images: the smoke test, which runs only on main, gave compose an environment without the two new Grafana passwords (E-064). PR #21 fixed it, together with two faults the exam found: the inner search of the LGD scored a term the PD does not cover, so every score was NaN at 2016-04 (E-065, a fault the real monthly flow would have hit too), and a fresh start of the exam kept the models of the previous one (E-066). The images of the merge of #21 were published; the commit of #20 has none, by design (D-134). Their prevention tests came in the pull request of the exam: T22.7 (every variable compose requires is set by the smoke test) and T12.8 (the LGD search with an uncovered term).
+
+The exam then ran 2014-01 to 2018-12 from an empty clock: 60 months, 20 retrainings, no month failed. Two lessons on running it. The cloud machine is suspended when the session is idle, so a long job must run as a task the session follows. And two LightGBM trainings on the same 4 cores slow each other down many times over (one fit took 0.4 s alone and 7.7 s beside another), which is why the first attempts looked so slow. Stopping it with SIGTERM left its API running alone and writing false alerts (E-067); the exam now stops its API on SIGTERM.
+
+The result is in [thresholds.md, section 6](thresholds.md#6-the-exam-2014-to-2018-with-the-thresholds-frozen): no false alarm on predictions or LGD (largest PSI 0.066 to 0.098 against 0.15 to 0.25), 35 early warnings and 20 performance drops on a PD that underestimates default more and more. The early warning saw the five cohorts it flagged fail at maturity 24 months later. Retraining did not fix it, because the labels arrive 41 months late; that is the subject of step 6.3.
+
+| Error | What happened |
+|---|---|
+| E-064 | The publication of the merge of #20 stopped: the smoke test lacked the Grafana passwords |
+| E-065 | The exam stopped at 2016-04: the LGD search scored a term the PD does not cover |
+| E-066 | A fresh exam kept the models of the previous one |
+| E-067 | Stopping the exam left its API running alone, writing false alerts |
 
 **For F8** (noted, not built): the Model dashboard is the base of the demo; publishing it needs a decision on anonymous, read-only access.
