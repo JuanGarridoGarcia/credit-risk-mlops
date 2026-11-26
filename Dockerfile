@@ -106,6 +106,8 @@ COPY pyproject.toml ./
 COPY tests ./tests
 COPY reports/data_audit/data_dictionary.csv ./reports/data_audit/data_dictionary.csv
 COPY docs/validation_rules.md docs/tests.md ./docs/
+# The summary of the study of the thresholds, read by T33.3 (E-063); never shipped.
+COPY reports/thresholds/summary.json ./reports/thresholds/summary.json
 # The delivery tooling and the workflows, read by T22.1 and T22.2 (E-049); never shipped.
 COPY ci ./ci
 COPY .github/workflows ./.github/workflows

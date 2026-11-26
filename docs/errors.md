@@ -70,6 +70,7 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-060](#e-060) | 2026-11-26 | 6.2 | Three tests of the clock story failed: a new helper of T31 had the name of one they import | Minor |
 | [E-061](#e-061) | 2026-11-26 | 6.2 | The receiver of the delivery test left its socket open, and pytest turned the warning into an error | Minor |
 | [E-062](#e-062) | 2026-11-26 | 6.2 | The study read `sim.clock` to know whether the exam was over; T17.3 caught it | Minor |
+| [E-063](#e-063) | 2026-11-26 | 6.2 | In CI, T33.3 failed inside the test image: the summary of the study was not copied into it | Minor |
 
 ## Errors
 
@@ -675,3 +676,13 @@ Date: 2026-11-26 · Step: 6.2 · Severity: minor
 - **Cause**: the command line of the study read the clock to decide whether to write the table of the exam. The system must never touch the clock of the simulated world (D-043, D-107).
 - **Fix**: it reads the last month monitored (`monitoring.drift`) instead; the test of the exam, which is not system code, still reads the clock.
 - **Prevention**: T17.3 itself.
+
+<a id="e-063"></a>
+### E-063 In CI, T33.3 failed inside the test image: the summary of the study was not copied into it
+
+Date: 2026-11-26 · Step: 6.2 · Severity: minor
+
+- **Symptom**: the integration job of PR #20 failed at `docker run --rm credit-risk:test`: `FileNotFoundError: /app/reports/thresholds/summary.json`; 308 of 309 unit tests passed. The jobs after it then failed for lack of `coverage.xml` and `.env`.
+- **Cause**: the test image copies, one by one, the files outside the package that tests read (the data dictionary, the catalogue). The new summary of the study was not among them; locally the tests run from the repository, where it is.
+- **Fix**: the test image also copies `reports/thresholds/summary.json` (Dockerfile and `.dockerignore`). Checked with `make test-image`.
+- **Prevention**: `make test-image` is part of `make check`; it was skipped locally because the machine was busy with the exam, which is how this reached CI.

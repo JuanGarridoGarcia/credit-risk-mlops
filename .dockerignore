@@ -16,5 +16,7 @@
 !.github/workflows/
 # Read by a unit test (T22.6) in the test stage only (E-056).
 !docker-compose.yml
+# Read by a unit test (T33.3) in the test stage only (E-063).
+!reports/thresholds/summary.json
 **/__pycache__
 **/*.py[cod]

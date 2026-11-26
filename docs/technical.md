@@ -43,7 +43,7 @@ Status of every step of the playbook. Updated in every pull request.
 | F5 Deployment | 5.1 API | Done | #12 | D-109 to D-122; E-043 to E-046; API, predictions table, buy rule in MLflow; purchases endpoint in PR 2 (D-124) |
 | | 5.2 Published image and CD | Done | #14 to #17 | D-130 to D-136; E-048 to E-056; serve and train published to GHCR after CI on main, smoke tested, Trivy before publishing; first publication `sha-ff1c554` on 2026-11-25 |
 | F6 Monitoring | 6.1 Drift and metrics | Done | PR 1 of F6 | D-137 to D-146; E-057; drift, early warning and real performance stored every month in `monitoring` |
-| | 6.2 Dashboard and alerts | Done | PR 2 of F6 | D-147 to D-156; E-058 to E-062; alert rules in the flow, thresholds calibrated at T0 and examined on 2014 to 2018 ([thresholds.md](thresholds.md)), three Grafana dashboards, delivery to Telegram |
+| | 6.2 Dashboard and alerts | Done | PR 2 of F6 | D-147 to D-156; E-058 to E-063; alert rules in the flow, thresholds calibrated at T0 and examined on 2014 to 2018 ([thresholds.md](thresholds.md)), three Grafana dashboards, delivery to Telegram |
 | | 6.3 Triggered retraining | Pending | | |
 | F7 Closing | 7.1 End to end and reproducibility | Pending | | |
 | | 7.2 Cloud and infrastructure as code | Pending | | |
@@ -1111,5 +1111,6 @@ The role `grafana_reader` is created by a migration with no login (`202611261302
 | E-060 | A new helper of T31 had the name of one the clock story imports |
 | E-061 | The receiver of the delivery test left its socket open |
 | E-062 | The study read `sim.clock`; T17.3 caught it |
+| E-063 | The summary of the study was not copied into the test image |
 
 **For F8** (noted, not built): the Model dashboard is the base of the demo; publishing it needs a decision on anonymous, read-only access.
