@@ -1,4 +1,6 @@
-"""T12.1 to T12.5: the LGD procedure (D-087) on made-up data."""
+"""T12.1 to T12.8: the LGD procedure (D-087) on made-up data."""
+
+import math
 
 import numpy as np
 import polars as pl
@@ -6,10 +8,10 @@ import pytest
 
 from credit_risk import registry
 from credit_risk.compare import LGD_MARGINS, segment_check, segments, segments_pass
-from credit_risk.lgd import fit_baseline, fit_level, fit_ridge, lgd_rows, train_lgd
+from credit_risk.lgd import _rmse, fit_baseline, fit_level, fit_ridge, lgd_rows, train_lgd
 from credit_risk.model import LGDModel
 from credit_risk.snapshot import LGD, SPLIT
-from credit_risk.train import prepare_frame
+from credit_risk.train import inner_split, prepare_frame
 from tests.synthetic import CUTOFF, training_set
 
 
@@ -129,3 +131,25 @@ def test_the_level_is_corrected_on_validation_only(frame: pl.DataFrame) -> None:
     shifts = {m.name: m.shift for m in (training.ridge, training.lightgbm, training.baseline)}
     assert all(s != 0.0 for s in shifts.values()), shifts
     assert len(set(shifts.values())) == 3, shifts
+
+
+# T12.8
+def test_the_search_scores_only_the_terms_the_pd_covers() -> None:
+    """E-065: the PD covers 36 months only, but the inner validation of the LGD already
+    holds 60-month loans with a known LGD, whose prediction is null."""
+    frame = prepare_frame(training_set(12_000, seed=10, terms=(36, 60)))
+    train = lgd_rows(frame.filter(pl.col(SPLIT) == "train"))
+    inner_train, inner_validation = inner_split(train, CUTOFF)
+    assert (inner_validation["term"] == 60).sum() > 0, "the case of 2016-04 is in the data"
+
+    training = train_lgd(frame, CUTOFF, (36,), trials=3)  # ended in NaN before E-065
+
+    for name, search in training.searches.items():
+        scores = [score for _, score in search.trials]
+        assert all(math.isfinite(s) for s in scores), name
+    # The score of each alpha is the error on the covered loans only; training keeps
+    # every term.
+    covered = inner_validation.filter(pl.col("term") == 36)
+    for params, score in training.searches["ridge"].trials:
+        model = fit_ridge(inner_train, params["alpha"], (36,))
+        assert score == pytest.approx(-_rmse(model, covered))
