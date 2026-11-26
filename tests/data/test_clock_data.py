@@ -8,7 +8,8 @@ model names of its own, and replays 2014-01 to 2014-12 with the real number of t
 twelve months loaded, four retrainings (January, April, July and October), every
 verdict in MLflow and in ``ops.alerts``. The API runs in a process of its own on the same
 database and model names; from 2014-02 every listing goes through it, and what the
-investor bought is what its rule gives.
+investor bought is what its rule gives. T28.2, approved by Juan on 2026-11-26: every month
+with predictions keeps its drift (D-145).
 """
 
 import os
@@ -27,6 +28,7 @@ from psycopg.rows import dict_row
 
 from credit_risk import registry
 from credit_risk.flows import Paths
+from credit_risk.monitoring import store as monitoring
 from credit_risk.settings import Settings
 from credit_risk.simulator import clock
 from credit_risk.simulator.clock import World
@@ -137,3 +139,33 @@ def test_a_real_year_runs_twelve_months_and_retrains_four_times(year: dict[str, 
         counts = check_month(year["conninfo"], year["landing"], month)
         assert counts["bought"] <= counts["k"]
         print(f"  {period}: {counts}")
+
+
+# T28.2
+def test_every_month_of_the_real_year_with_predictions_has_its_drift(
+    year: dict[str, Any],
+) -> None:
+    with psycopg.connect(year["conninfo"]) as conn:
+        found: dict[date, int] = dict(
+            conn.execute(
+                "SELECT period, count(*) FROM monitoring.drift GROUP BY period ORDER BY period"
+            ).fetchall()
+        )
+        pairs: dict[date, int] = dict(
+            conn.execute(
+                "SELECT listed, count(DISTINCT (pd_version, lgd_version))"
+                " FROM serving.predictions GROUP BY listed"
+            ).fetchall()
+        )
+        worst = conn.execute(
+            "SELECT period, subject, round(psi::numeric, 3) FROM monitoring.drift d"
+            " WHERE psi = (SELECT max(psi) FROM monitoring.drift WHERE period = d.period)"
+            " ORDER BY period"
+        ).fetchall()
+    months = [date.fromisoformat(f"{p}-01") for p in YEAR[1:]]
+    assert date(2014, 1, 1) not in found, "no predictions at T0"
+    for month in months:
+        assert found[month] == len(monitoring.SUBJECTS) * pairs[month], month
+    print("\nlargest PSI of each month of 2014 (no threshold yet, 6.2 calibrates them):")
+    for period, subject, value in worst:
+        print(f"  {period:%Y-%m}: {subject} {value}")

@@ -1,7 +1,8 @@
 """T17.4 to T17.8: the simulated clock (D-107), the retraining cadence (D-106) and the
 alerts table (D-108) against the services of docker compose, approved by Juan on
 2026-11-24; T21.2 to T21.5: the simulated investor inside the clock (D-123 to D-129),
-approved by Juan on 2026-11-25.
+approved by Juan on 2026-11-25; T24.1 to T24.3, T27.2, T27.4 and T27.5: the monitoring of
+each month inside the clock (D-138 to D-146), approved by Juan on 2026-11-26.
 
 As in ``test_flows.py``, the flows run in this process on a database of their own and
 model names of their own, with the small made-up source of ``tests/synthetic_source.py``;
@@ -25,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import mlflow
+import polars as pl
 import psycopg
 import pytest
 from mlflow import MlflowClient
@@ -35,6 +37,7 @@ from credit_risk import alerts, flows, registry
 from credit_risk.contracts import LISTING_COLUMNS, LISTINGS, delivery_path
 from credit_risk.flows import Paths
 from credit_risk.ingest import read_delivery
+from credit_risk.monitoring import store as monitoring
 from credit_risk.settings import Settings
 from credit_risk.simulator import clock, replayer
 from credit_risk.simulator.clock import World
@@ -212,15 +215,121 @@ def test_only_the_cadence_months_retrain(story: Story) -> None:
         summary = story.summaries[period]
         assert summary["retrained"] is retrained, period
         tasks = asyncio.run(_task_runs(summary["flow_run"]))
-        names = ["load"]
+        names = ["load", "monitor"]
         if retrained:
-            names += ["version", "train-pd", "train-lgd", "buy-rule"]
+            names += ["version", "train-pd", "train-lgd", "buy-rule", "reference"]
             # The API is told only when a champion changed (D-111).
             if summary["pd"].changed or summary["lgd"].changed or summary["buy_rule_moved"]:
                 names.append("reload")
         assert sorted(tasks) == sorted(names), period
         assert all(t.state.is_completed() for runs in tasks.values() for t in runs)
     assert story.summaries["2012-04"]["training_set"] != story.summaries["2012-01"]["training_set"]
+
+
+# T27.2
+def test_monitor_runs_every_month_after_load_and_before_training(story: Story) -> None:
+    for period in ("2012-01", "2012-04"):
+        tasks = asyncio.run(_task_runs(story.summaries[period]["flow_run"]))
+        order = [
+            name
+            for name, _ in sorted(
+                ((n, r[0].start_time) for n, r in tasks.items()), key=lambda item: item[1]
+            )
+        ]
+        assert order[:3] == ["load", "monitor", "version"], (period, order)
+    # T0 has no predictions yet (the investor starts the month after): noted, not failed.
+    first = story.summaries["2012-01"]["monitoring"]
+    assert first["drift"] == 0
+    assert first["notes"] == ["no predictions for the loans listed in 2012-01: no drift"]
+
+
+# T27.5
+def test_every_month_with_predictions_keeps_its_drift(story: Story) -> None:
+    with psycopg.connect(story.conninfo) as conn:
+        found: dict[date, int] = dict(
+            conn.execute(
+                "SELECT period, count(*) FROM monitoring.drift GROUP BY period ORDER BY period"
+            ).fetchall()
+        )
+        pairs = conn.execute(
+            "SELECT listed, count(DISTINCT (pd_version, lgd_version)) FROM serving.predictions"
+            " GROUP BY listed"
+        ).fetchall()
+    per_month = len(monitoring.SUBJECTS)  # 30 features and 3 predictions
+    for listed, n_pairs in pairs:
+        if listed <= date(2012, 4, 1):
+            assert found[listed] == per_month * n_pairs, listed
+    assert date(2012, 1, 1) not in found
+    assert set(found) >= {date(2012, m, 1) for m in (2, 3, 4)}
+
+
+# T24.1
+def test_each_pair_of_champions_has_the_reference_of_the_12_months_before_its_cutoff(
+    story: Story,
+) -> None:
+    with psycopg.connect(story.conninfo) as conn:
+        references = conn.execute(
+            "SELECT pd_version, lgd_version, min(cutoff), max(cutoff), min(first_month),"
+            " max(last_month), count(*) FROM monitoring.reference"
+            " GROUP BY pd_version, lgd_version"
+        ).fetchall()
+        used = set(conn.execute("SELECT DISTINCT pd_version, lgd_version FROM serving.predictions"))
+        found = {(r[0], r[1]): r[2:] for r in references}
+        current = monitoring.current_pair(story.prefix)
+        assert current is not None
+        # The pair in service and every pair that answered have one; none is deleted.
+        assert used | {current} <= set(found)
+        for pair, (low, high, first, last, rows) in found.items():
+            at = monitoring.pair_cutoff(conn, pair, story.prefix)
+            assert low == high == at, pair
+            assert (first, last) == (monitoring.add_months(at, -12), monitoring.add_months(at, -1))
+            assert rows == len(monitoring.SUBJECTS)
+    # The first champions were trained at T0 (2012-01): their reference is 2011.
+    first_pair = sorted(found, key=lambda p: found[p][0])[0]
+    assert found[first_pair][:2] == (date(2012, 1, 1), date(2012, 1, 1))
+    assert found[first_pair][2:4] == (date(2011, 1, 1), date(2011, 12, 1))
+
+
+# T24.2
+def test_the_reference_scores_a_loan_exactly_as_the_api_did(story: Story) -> None:
+    month = date(2012, 2, 1)
+    with psycopg.connect(story.conninfo) as conn:
+        answered = conn.execute(
+            "SELECT loan_id, pd_version, lgd_version, pd, lgd, el_rate"
+            " FROM serving.predictions WHERE listed = %s AND covered ORDER BY loan_id",
+            (month,),
+        ).fetchall()
+        assert answered
+        pair = (answered[0][1], answered[0][2])
+        frame = monitoring.scored_reference(
+            conn, monitoring._champions(pair, story.prefix), [month]
+        )
+    ours = {
+        r["loan_id"]: (r["pd"], r["lgd"], r["el_rate"])
+        for r in frame.filter(pl.col("pd").is_not_null()).iter_rows(named=True)
+    }
+    assert ours == {loan: (pd_, lgd, el) for loan, _, _, pd_, lgd, el in answered}
+
+
+# T24.3
+def test_building_a_reference_writes_nothing_to_the_predictions(story: Story) -> None:
+    client = MlflowClient()
+    pd_versions = [v.version for v in client.search_model_versions(f"name='{story.prefix}pd'")]
+    lgd_versions = [v.version for v in client.search_model_versions(f"name='{story.prefix}lgd'")]
+    with psycopg.connect(story.conninfo, autocommit=True) as conn:
+        pair = next(
+            (p, q)
+            for p in pd_versions
+            for q in lgd_versions
+            if not monitoring.has_reference(conn, (p, q))
+        )
+        tables = ("serving.predictions", "serving.requests", "serving.purchases")
+        before = [conn.execute(f"SELECT count(*) FROM {t}").fetchone() for t in tables]  # noqa: S608
+        assert monitoring.ensure_reference(conn, pair, story.prefix)
+        assert not monitoring.ensure_reference(conn, pair, story.prefix), "built once"
+        after = [conn.execute(f"SELECT count(*) FROM {t}").fetchone() for t in tables]  # noqa: S608
+        assert monitoring.has_reference(conn, pair)
+    assert after == before
 
 
 # T17.7
@@ -457,3 +566,30 @@ def test_the_investor_retries_a_missing_api_and_never_buys_twice(
     )
     assert _count(story, "SELECT count(*) FROM serving.purchases WHERE loan_id = %s", refused) == 0
     assert _count(story, "SELECT refused FROM sim.invested WHERE month = %s", date(2013, 1, 1)) == 1
+
+
+# T27.4
+def test_a_failed_monitor_fails_the_month_and_the_clock_stays(
+    story: Story, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    last = clock.now()
+    assert last is not None
+    back = monitoring.add_months(last, -1)
+    with psycopg.connect(story.conninfo, autocommit=True) as conn:
+        conn.execute("UPDATE sim.clock SET month = %s", (back,))
+
+    def broken(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("monitor broken on purpose")
+
+    monkeypatch.setattr(monitoring, "monitor", broken)
+    state = _advance(story, return_state=True)
+    assert state.is_failed()
+    assert clock.now() == back, "the clock did not move"
+    failed = [a for a in _alerts(story) if a["kind"] == "flow_failed" and a["period"] == last]
+    assert len(failed) == 1
+    assert failed[0]["task"] == "monitor"
+    assert "monitor broken on purpose" in failed[0]["message"]
+
+    monkeypatch.undo()
+    _advance(story)
+    assert clock.now() == last

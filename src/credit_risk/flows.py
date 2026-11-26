@@ -2,17 +2,20 @@
 
 The flow only coordinates: every task is one call into the functions of ``src/``, and
 between tasks only identifiers travel (a month, a training set version, a registered
-version, the covered terms), never data (D-100). Four tasks, each cut where its result is
+version, the covered terms), never data (D-100). The tasks, each cut where its result is
 already stored:
 
 1. ``load``: every delivery that has arrived up to the month is loaded and validated
    (Postgres, D-104);
-2. ``version``: the training set at the month (object storage and manifest);
-3. ``train-pd``: PD trained, registered and judged for promotion (MLflow);
-4. ``train-lgd``: the same for the LGD, on the terms the PD covers (MLflow);
-5. ``buy-rule``: the buy rule of the champion pair, chosen again when the pair changed
+2. ``monitor``: every month, the drift, early warning and real performance of the
+   models in service (Postgres, D-145), before any training;
+3. ``version``: the training set at the month (object storage and manifest);
+4. ``train-pd``: PD trained, registered and judged for promotion (MLflow);
+5. ``train-lgd``: the same for the LGD, on the terms the PD covers (MLflow);
+6. ``buy-rule``: the buy rule of the champion pair, chosen again when the pair changed
    (MLflow, D-120);
-6. ``reload``: when any champion changed, tell the API to load it now (D-111).
+7. ``reference``: the monitoring reference of the champion pair, built once (D-142);
+8. ``reload``: when any champion changed, tell the API to load it now (D-111).
 
 The flow starts from the deliveries in the landing folder, as it would with a real
 provider. Publishing them belongs to the simulated world, never to the system (D-043,
@@ -33,7 +36,7 @@ import os
 import shutil
 import time
 import urllib.request
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import date
 from pathlib import Path
 from typing import Any, Final
@@ -51,6 +54,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from credit_risk import alerts, buy_rule, pipeline, registry
 from credit_risk.ingest import catch_up
+from credit_risk.monitoring import store as monitoring
 from credit_risk.settings import Settings
 from credit_risk.snapshot import ROOT, build, git_commit, read_evaluation, read_features
 from credit_risk.storage import LocalStore
@@ -142,6 +146,24 @@ def load_task(period: str, paths: Paths) -> int:
     with _connect() as conn:
         loaded = catch_up(conn, Path(paths.landing), _month(period), reports=Path(paths.reports))
     return len(loaded)
+
+
+@task(name="monitor", **RETRY)
+def monitor_task(period: str, prefix: str) -> dict[str, Any]:
+    """Measure the month against the reference of its champions and store it (D-145)."""
+    with _connect() as conn:
+        month = monitoring.monitor(conn, _month(period), prefix)
+    return asdict(month)
+
+
+@task(name="reference", **RETRY)
+def reference_task(prefix: str) -> bool:
+    """Build the reference of the champion pair if it has none yet (D-142)."""
+    pair = monitoring.current_pair(prefix)
+    if pair is None:
+        return False
+    with _connect() as conn:
+        return monitoring.ensure_reference(conn, pair, prefix)
 
 
 @task(name="version", **RETRY)
@@ -404,23 +426,33 @@ def monthly(
     due = retrains(month, cadence)  # and so does an unknown cadence
     run = str(flow_run.id)
     months = load_task(period, paths)
+    monitored = monitor_task(period, prefix)
     if not due:
         log.info("monthly %s: loaded; no retraining this month (%s)", period, cadence)
-        return {"period": period, "months_loaded": months, "retrained": False, "flow_run": run}
+        return {
+            "period": period,
+            "months_loaded": months,
+            "monitoring": monitored,
+            "retrained": False,
+            "flow_run": run,
+        }
     version = version_task(period, paths)
     pd_ = train_pd_task(period, version, paths, prefix, trials)
     lgd = train_lgd_task(period, version, pd_.covered_terms, paths, prefix, trials)
     rule_moved = buy_rule_task(period, version, paths, prefix)
+    referenced = reference_task(prefix)
     reloaded = reload_task(period) if pd_.changed or lgd.changed or rule_moved else None
     summary = {
         "period": period,
         "months_loaded": months,
+        "monitoring": monitored,
         "retrained": True,
         "flow_run": run,
         "training_set": version,
         "pd": pd_,
         "lgd": lgd,
         "buy_rule_moved": rule_moved,
+        "reference_built": referenced,
         "api_reloaded": reloaded,
     }
     log.info("monthly %s: %s", period, summary)

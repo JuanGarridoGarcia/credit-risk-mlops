@@ -30,6 +30,12 @@ Every test of the project, what it checks, where it lives and where it runs. Jua
 - [T20 Purchases](#t20-purchases)
 - [T21 Simulated investor](#t21-simulated-investor)
 - [T22 Delivery](#t22-delivery)
+- [T23 Drift](#t23-drift)
+- [T24 Monitoring reference](#t24-monitoring-reference)
+- [T25 Early warning](#t25-early-warning)
+- [T26 Real performance](#t26-real-performance)
+- [T27 Monitoring in the flow](#t27-monitoring-in-the-flow)
+- [T28 Monitoring on the real data](#t28-monitoring-on-the-real-data)
 - [Change history](#change-history)
 
 ## How tests are organised
@@ -40,7 +46,7 @@ Tests are grouped by the piece they check. Group B holds the foundations (packag
 |---|---|---|---|---|---|
 | Unit | `tests/unit/` | none | Nothing | `make test`, `make test-image` | CI (job `tests`), and inside the image (job `integration`) |
 | Integration | `tests/integration/` | `integration` (`destructive` for B4 and T8.2) | Docker: compose Postgres and MLflow, or the built images | `make test-integration` | CI (job `integration`) |
-| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15, T5.13, T5.14, T6.8, T10.6, T12.6, T14.6, T15.7, T17.9, T18.15; MLflow for T14.6 and T17.9; the Prefect server for T17.9) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
+| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15, T5.13, T5.14, T6.8, T10.6, T12.6, T14.6, T15.7, T17.9, T18.15, T28.1, T28.2; MLflow for T14.6, T17.9 and T28.2; the Prefect server for T17.9 and T28.2) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
 
 Integration and data tests never skip: if what they need is missing, they fail.
 
@@ -80,7 +86,13 @@ Changing what an approved test checks needs Juan's approval again. B6 fails if a
 | T20 Purchases | F5, old step 4.2, second pull request | 5 | 2026-11-25 | [technical.md, F5](technical.md#second-pull-request-the-simulated-investor-and-its-purchases) |
 | T21 Simulated investor | F5, old step 4.2, second pull request | 5 | 2026-11-25 | [technical.md, F5](technical.md#second-pull-request-the-simulated-investor-and-its-purchases) |
 | T22 Delivery | F5, step 5.2, third pull request | 6 | 2026-11-25 (T22.1 and T22.4 extended, T22.5 added, the same day; T22.6 added after E-056) | [technical.md, F5](technical.md#third-pull-request-versioned-images-in-a-registry) |
-| **Total** | | **186** | | |
+| T23 Drift | F6, step 6.1, first pull request | 6 | 2026-11-26 | [technical.md, F6](technical.md#first-pull-request-drift-and-metrics) |
+| T24 Monitoring reference | F6, step 6.1, first pull request | 3 | 2026-11-26 | [technical.md, F6](technical.md#first-pull-request-drift-and-metrics) |
+| T25 Early warning | F6, step 6.1, first pull request | 4 | 2026-11-26 | [technical.md, F6](technical.md#first-pull-request-drift-and-metrics) |
+| T26 Real performance | F6, step 6.1, first pull request | 2 | 2026-11-26 | [technical.md, F6](technical.md#first-pull-request-drift-and-metrics) |
+| T27 Monitoring in the flow | F6, step 6.1, first pull request | 5 | 2026-11-26 | [technical.md, F6](technical.md#first-pull-request-drift-and-metrics) |
+| T28 Monitoring on the real data | F6, step 6.1, first pull request | 2 | 2026-11-26 | [technical.md, F6](technical.md#first-pull-request-drift-and-metrics) |
+| **Total** | | **208** | | |
 
 ## B Foundations
 
@@ -429,6 +441,70 @@ F5, step 5.2, third pull request (D-130 to D-136). What runs only on main (the j
 | T22.5 | The brakes of the publication program, with a registry in memory: an image that was not tested is never pushed; an image pulled back that is not the tested one, a version already on another image, or a moved tag on another digest (E-051) stop the publication without moving `main`; a repeated run of the same commit finishes without pushing again; a fresh pull drops the local copies first; the answers of `docker` become clear errors ("not found" is absence, anything else stops); the command line exits 1 with the reason, and on success writes the summary of what it published | `tests/unit/test_publish.py::test_an_image_that_was_not_tested_is_never_pushed`<br>`tests/unit/test_publish.py::test_an_image_pulled_back_that_is_not_the_tested_one_stops_everything`<br>`tests/unit/test_publish.py::test_a_version_already_on_another_image_is_never_rewritten`<br>`tests/unit/test_publish.py::test_a_moved_tag_that_lands_on_another_digest_is_reported`<br>`tests/unit/test_publish.py::test_a_repeated_run_of_the_same_commit_finishes_without_pushing_again`<br>`tests/unit/test_publish.py::test_a_fresh_pull_drops_the_local_copies_before_pulling`<br>`tests/unit/test_publish.py::test_answers_of_docker_become_clear_errors`<br>`tests/unit/test_publish.py::test_the_command_line_says_why_it_stops_and_summarises_what_it_published` | Unit | CI, image |
 | T22.6 | The admin key of the API in compose (D-111, D-118): every service of the `train` image is classified as running the monthly flow (worker, clock) or not (MLflow, Prefect), so a new one forces the choice; the two that run it get `API_URL` and `API_ADMIN_KEY`, so after a promotion they can tell the API to reload; no other service gets the admin key | `tests/unit/test_compose.py::test_every_service_of_the_train_image_is_classified`<br>`tests/unit/test_compose.py::test_the_services_that_run_the_flow_can_tell_the_api_to_reload`<br>`tests/unit/test_compose.py::test_no_other_service_has_the_admin_key` | Unit | CI, image |
 
+## T23 Drift
+
+F6, step 6.1, first pull request (D-139, D-140). Pure functions of `credit_risk/monitoring/drift.py` on the made-up loans of the training tests, turned into the 30 features by `credit_risk.features`.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T23.1 | The PSI of a distribution against itself is 0, and the two worked examples of `grade` given to Juan give 0.052 and 0.272; shares over different bins are refused | `tests/unit/test_monitoring.py::test_psi_is_zero_for_the_same_shares_and_matches_the_hand_examples` | Unit | CI, image |
+| T23.2 | No change, no drift: two samples of 20,000 loans of the same distribution give a PSI under 0.01 in each of the 30 features | `tests/unit/test_monitoring.py::test_two_samples_of_the_same_distribution_show_no_drift` | Unit | CI, image |
+| T23.3 | An injected change is seen in that variable only: `int_rate` 2 points higher, or grade D more than doubled (the second example), gives a PSI above 0.25 in it and under 0.01 in every other feature | `tests/unit/test_monitoring.py::test_an_injected_change_is_seen_in_that_variable_only` | Unit | CI, image |
+| T23.4 | The bins come from the reference: cut at its deciles, a value out of range falls in the bin at that end, a value equal to a cut point in the bin that ends there, and a variable that is almost always 0 gets its cut points once and no empty twin bins | `tests/unit/test_monitoring.py::test_bins_are_cut_at_the_deciles_of_the_reference` | Unit | CI, image |
+| T23.5 | Missing and new values have their own bins: a category never seen is counted as new and moves the PSI; an empty bin counts with the floor of 0.01%, never infinity; numbers outside the range of the reference are new, missing ones (null or NaN) go to their bin | `tests/unit/test_monitoring.py::test_missing_and_new_values_have_their_own_bin` | Unit | CI, image |
+| T23.6 | The KS statistic is that of `scipy.stats.ks_2samp` against the reference sample, which is the whole reference up to 5,000 values and a fixed draw above; none for categorical variables | `tests/unit/test_monitoring.py::test_ks_is_the_scipy_statistic_against_the_reference_sample` | Unit | CI, image |
+
+## T24 Monitoring reference
+
+F6, step 6.1, first pull request (D-138, D-142). On the clock story of `tests/integration/test_clock.py` (T17), where the flow builds the references.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T24.1 | Every pair of champions that answered, and the pair in service, has a reference with the cutoff of its later model and the listings of cutoff - 12 to cutoff - 1, one row per watched variable; none is deleted; the first pair, trained at T0 (2012-01), has 2011 | `tests/integration/test_clock.py::test_each_pair_of_champions_has_the_reference_of_the_12_months_before_its_cutoff` | Integration | CI |
+| T24.2 | The reference scores a loan exactly as the API did: for the loans of 2012-02, the PD, the LGD and the expected loss rate of the reference are those stored by the API | `tests/integration/test_clock.py::test_the_reference_scores_a_loan_exactly_as_the_api_did` | Integration | CI |
+| T24.3 | Building a reference writes nothing to `serving.predictions`, `serving.requests` or `serving.purchases`, and is done once per pair | `tests/integration/test_clock.py::test_building_a_reference_writes_nothing_to_the_predictions` | Integration | CI |
+
+## T25 Early warning
+
+F6, step 6.1, first pull request (D-143). The share of first-year defaults by hand (unit) and from the database (integration); the cohort with loans written straight into Postgres.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T25.1 | The share of the defaults that came in the first year, by term and grade, matches the hand computation; a grade with fewer than 50 defaults takes the share of its term; in the database, only the cohorts matured at the cutoff, their defaults delivered by then and the statuses of the current policy count | `tests/unit/test_monitoring.py::test_first_year_share_by_term_and_grade_with_the_term_for_small_grades`<br>`tests/integration/test_monitoring.py::test_the_first_year_share_is_measured_on_the_cohorts_matured_at_the_cutoff` | Unit, integration | CI |
+| T25.2 | Only labels already delivered count: cohort c is measured in month c + 17 with the outcomes delivered by then; an early default delivered later does not count; a last payment at issue + 11 is early, at issue + 12 is not; before c + 17 the cohort has no row | `tests/integration/test_monitoring.py::test_the_early_warning_counts_only_the_outcomes_delivered_by_its_month` | Integration | CI |
+| T25.3 | The ratio and its 95% Wilson interval: observed equal to expected gives an interval around 1, twice gives one above 1; the interval against its formula and at both edges (E-057); the AUC on the 12-month default | `tests/unit/test_monitoring.py::test_the_ratio_and_its_wilson_interval` | Unit | CI, image |
+| T25.4 | Each cohort is measured with the PD version that predicted it, with the first-year share at that version's cutoff; a loan scored again later counts with its first answer | `tests/integration/test_monitoring.py::test_each_cohort_is_measured_with_the_model_version_that_predicted_it` | Integration | CI |
+
+## T26 Real performance
+
+F6, step 6.1, first pull request (D-144).
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T26.1 | A cohort is measured only when it matures (term + 5) and with the outcomes delivered by then: one arriving later is unresolved; the LGD only on defaults resolved at least 12 months before; a 60-month loan of the same cohort is not measured yet | `tests/integration/test_monitoring.py::test_a_cohort_is_measured_when_it_matures_with_the_outcomes_known_then` | Integration | CI |
+| T26.2 | The metrics are those of F3 for the same data: AUC, Brier score and calibration error overall and by grade as `credit_risk.compare`; RMSE and level of the LGD; the realised return of the purchases as `credit_risk.business` | `tests/unit/test_monitoring.py::test_performance_uses_the_metrics_of_promotion_and_the_returns_of_business` | Unit | CI, image |
+
+## T27 Monitoring in the flow
+
+F6, step 6.1, first pull request (D-145, D-146). T27.2, T27.4 and T27.5 on the clock story of `tests/integration/test_clock.py`.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T27.1 | The migration of `monitoring` goes up, down and up again; the tables refuse impossible rows: a negative PSI, a drift of a variable with no reference, an interval whose lower end is above the ratio, an early warning not measured at cohort + 17 | `tests/integration/test_monitoring.py::test_the_monitoring_tables_migrate_and_refuse_impossible_rows` | Integration | CI |
+| T27.2 | `monitor` runs every month right after `load` and before `version`; T0, with no predictions yet, is noted and does not fail | `tests/integration/test_clock.py::test_monitor_runs_every_month_after_load_and_before_training` | Integration | CI |
+| T27.3 | Measuring a month again gives the same rows, not more; after an outcome changes, running the month again replaces its rows | `tests/integration/test_monitoring.py::test_measuring_a_month_again_replaces_its_rows` | Integration | CI |
+| T27.4 | A failed `monitor` fails the month: a `flow_failed` alert names the task and its error, the clock does not move, and the next advance does the month | `tests/integration/test_clock.py::test_a_failed_monitor_fails_the_month_and_the_clock_stays` | Integration | CI |
+| T27.5 | Every month of the story with predictions keeps its drift: 33 rows (30 features, 3 predictions) per pair that answered; T0 has none | `tests/integration/test_clock.py::test_every_month_with_predictions_keeps_its_drift` | Integration | CI |
+
+## T28 Monitoring on the real data
+
+F6, step 6.1, first pull request (D-143, D-145). Local only, like every data test.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T28.1 | The share of first-year defaults on the cohorts matured at T0 agrees with the audit: 41% for 36 months, within 5 points; only 36-month loans have matured | `tests/data/test_monitoring_data.py::test_the_first_year_share_at_t0_agrees_with_the_audit` | Data | Local |
+| T28.2 | The real year of T17.9: every month from 2014-02 to 2014-12 has its drift for the 30 features and the 3 predictions of each pair that answered, and T0 none; it prints the largest PSI of each month without fixing any value (thresholds are for 6.2) | `tests/data/test_clock_data.py::test_every_month_of_the_real_year_with_predictions_has_its_drift` | Data | Local |
+
 ## Change history
 
 | Date | Test | Change | Why |
@@ -473,3 +549,5 @@ F5, step 5.2, third pull request (D-130 to D-136). What runs only on main (the j
 | 2026-11-25 | T22.5 | Written (F5, third pull request) | The rule of 90% of changed lines covered ([D-064](decisions.md#d-064)) showed that the brakes of `ci/publish.py`, which only fire when something goes wrong, had no test; approved by Juan |
 | 2026-11-25 | T18.12 | The value that must not reach the log is `term="sixty months please"`, no longer `term="bad"`. What the test checks is unchanged | It failed at random on main: a random request id held "bad" ([E-053](errors.md#e-053)); approved by Juan |
 | 2026-11-25 | T22.6 | Written (F5, after the first publication) | The clock had no admin key in compose and no test read compose ([E-056](errors.md#e-056)); Juan chose a unit test on compose over a slower integration test, and approved it |
+| 2026-11-26 | T23.1 to T23.6, T24.1 to T24.3, T25.1 to T25.4, T26.1, T26.2, T27.1 to T27.5, T28.1, T28.2 | Written (F6, first pull request) | Approved by Juan |
+| 2026-11-26 | T16.8, T17.6 | T16.8: `monitor` and `reference` never run after a failed validation either. T17.6: every month runs `monitor` after `load`, and the retraining months also `reference`. What each test checks is unchanged | The flow has two more tasks ([D-145](decisions.md#d-145), [D-142](decisions.md#d-142)) |
