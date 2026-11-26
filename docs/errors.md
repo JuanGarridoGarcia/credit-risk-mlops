@@ -72,6 +72,8 @@ The question for each entry is not "who did it" but "what was missing in the sys
 | [E-062](#e-062) | 2026-11-26 | 6.2 | The study read `sim.clock` to know whether the exam was over; T17.3 caught it | Minor |
 | [E-063](#e-063) | 2026-11-26 | 6.2 | In CI, T33.3 failed inside the test image: the summary of the study was not copied into it | Minor |
 | [E-064](#e-064) | 2026-11-26 | 6.2 (found on main) | The publication of the merge of #20 stopped: the smoke test could not read compose without the two Grafana passwords | Moderate |
+| [E-065](#e-065) | 2026-11-26 | 6.2 (exam) | The exam stopped at 2016-04: the inner search of the LGD scored loans of a term the PD does not cover, and every error was NaN | Serious |
+| [E-066](#e-066) | 2026-11-26 | 6.2 (exam) | Starting the exam again from nothing kept the models of the previous exam in MLflow, and its first month failed | Minor |
 
 ## Errors
 
@@ -697,3 +699,23 @@ Date: 2026-11-26 · Step: 6.2 (found on main) · Severity: moderate
 - **Cause**: the smoke test (`tests/smoke.py`, D-134) runs compose with an environment of its own, not `.env`. Compose reads the whole file before starting any service, and 6.2 added two variables it requires (`GRAFANA_ADMIN_PASSWORD`, `GRAFANA_DB_PASSWORD`, written `${...:?}`). The smoke test does not start Grafana, but compose refuses to interpolate the file without them. The publish job runs only on main, so the pull request could not show it.
 - **Fix**: the smoke test gives both a placeholder, as it already did for the keys of the worker and the clock. Reproduced with `docker compose config` and the smoke environment alone: it fails without them and passes with them.
 - **Prevention**: proposed to Juan: a unit test that every variable compose requires (`${NAME:?...}`) is set by the smoke test, so a new required variable fails in the pull request, not on main.
+
+<a id="e-065"></a>
+### E-065 The exam stopped at 2016-04: the inner search of the LGD scored loans of a term the PD does not cover, and every error was NaN
+
+Date: 2026-11-26 · Step: 6.2 (exam of the thresholds) · Severity: serious
+
+- **Symptom**: the monthly flow of 2016-04 of the exam failed in `train-lgd`: the 50 LightGBM trials ended `failed with value nan` and Optuna raised `ValueError: No trials are completed yet.` The clock stopped there with a `flow_failed` alert.
+- **Cause**: the LGD only predicts the terms the PD covers (D-100, D-101) and gives null (NaN) for any other term. At 2016-04 the PD covered only 36 months (too few 60-month defaults in its validation, D-070), but the first 60-month loans already had a known LGD inside the inner validation of the LGD (36 of 1,876 rows). The inner search scored every row, so one NaN made each RMSE NaN. The outer comparison already filtered to the covered terms (D-094); the inner search did not. The ridge search hid the same fault: `max` over NaN scores silently kept the first alpha of the grid.
+- **Fix**: `train_lgd` scores the inner search (and its early stopping) only on the rows of the covered terms, as validation is scored; training keeps every term, as before. Reproduced on the training set of 2016-04 of the exam: RMSE NaN before, 0.235 on the covered rows after. Every earlier cutoff is unchanged, because the uncovered rows only appear from 2016-04 (earlier they would have failed the same way).
+- **Prevention**: a unit test with a term outside the covered ones in the inner validation, proposed to Juan. The exam itself caught it, which is its purpose: the period 2014 to 2018 is the first time 60-month loans enter the LGD before the PD covers them.
+
+<a id="e-066"></a>
+### E-066 Starting the exam again from nothing kept the models of the previous exam in MLflow, and its first month failed
+
+Date: 2026-11-26 · Step: 6.2 (exam of the thresholds) · Severity: minor
+
+- **Symptom**: after E-065, `FRESH=1 make exam` failed in its first month: `exam-pd version 9: training set 5e8c517a... not found`.
+- **Cause**: `FRESH=1` dropped the database of the exam but not what the exam leaves outside it: the models `exam-*` in the MLflow registry and the folders of `data/exam`. The new run found the champion of the old one, whose training set only existed in the dropped database. The folders were a worse risk: the landing of the old run held months up to 2016-04, which a new run could have loaded early (data from the future).
+- **Fix**: `tests/data/exam.py` removes, before a fresh start, the folders `landing`, `validation` and `training_sets`, the models `exam-*` and the runs of the experiments `exam-*` (the experiments stay, emptied, because MLflow does not log into a deleted one). The log stays. The first start at 12:40 had not met it because the prefix was new then.
+- **Prevention**: the fresh start is checked by the exam itself: the first month trains version 1 of each model again.

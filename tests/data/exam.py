@@ -11,12 +11,14 @@ Needs the real source file (``make data``) and the services of docker compose.
 """
 
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
 
 import mlflow
 import psycopg
+from mlflow.tracking import MlflowClient
 
 from credit_risk.flows import Paths
 from credit_risk.settings import Settings
@@ -39,16 +41,33 @@ def conninfo(settings: Settings) -> str:
     return settings.postgres_conninfo().replace(f"dbname={settings.postgres_db}", f"dbname={NAME}")
 
 
+def forget() -> None:
+    """Remove what an earlier exam left outside its database: the folders the system writes
+    and the models and runs of :data:`PREFIX` (E-066). The log of the exam stays."""
+    for folder in ("landing", "validation", "training_sets"):
+        shutil.rmtree(FOLDER / folder, ignore_errors=True)
+    client = MlflowClient()
+    for model in client.search_registered_models(f"name LIKE '{PREFIX}%'"):
+        for version in client.search_model_versions(f"name='{model.name}'"):
+            client.delete_model_version(model.name, version.version)
+        client.delete_registered_model(model.name)
+    # The experiments stay, emptied: MLflow refuses to log into a deleted one.
+    for experiment in client.search_experiments(filter_string=f"name LIKE '{PREFIX}%'"):
+        for found in client.search_runs([experiment.experiment_id], max_results=50000):
+            client.delete_run(found.info.run_id)
+
+
 def run(until: str = LAST, *, fresh: bool = False) -> list[str]:
     """Replay up to ``until`` on the exam's database; return the months run now."""
     settings = Settings()
+    mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5000"))
     with psycopg.connect(settings.postgres_conninfo(), autocommit=True) as admin:
         exists = admin.execute("SELECT 1 FROM pg_database WHERE datname = %s", (NAME,)).fetchone()
         if fresh or not exists:
             admin.execute(f'DROP DATABASE IF EXISTS "{NAME}" WITH (FORCE)')
+            forget()
             admin.execute(f'CREATE DATABASE "{NAME}"')
     dbmate(database_url(settings, NAME), "up")
-    mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5000"))
     os.environ["POSTGRES_DB"] = NAME
     os.environ.setdefault("CREDIT_RISK_COMMIT", "e" * 40)
     paths = Paths(

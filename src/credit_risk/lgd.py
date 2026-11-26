@@ -200,6 +200,9 @@ def train_lgd(
     searches: dict[str, Search] = {}
     if params is None:
         inner_train, inner_validation = inner_split(train, cutoff)
+        # Scored only on the terms the PD covers, as validation is below: the LGD of any
+        # other term is null and its error has no value (E-065). Training keeps every term.
+        inner_validation = inner_validation.filter(pl.col("term").is_in(list(terms)))
         searches["ridge"] = search_ridge(inner_train, inner_validation, terms, seen)
         searches["lightgbm"] = search_lightgbm(
             inner_train, inner_validation, seed, terms, seen, trials
