@@ -10,7 +10,9 @@
 - :func:`monitor` measures one month: the drift of the loans listed that month, the
   early warning of the cohort listed 17 months before, and the performance of the
   cohorts that matured this month. It replaces whatever the month had stored, in one
-  transaction, so running a month again changes nothing (D-145).
+  transaction, so running a month again changes nothing (D-145). In the same
+  transaction it records the alerts the measurements raise, by the rules of
+  :mod:`credit_risk.monitoring.alerting` (D-147, D-149), each signal once.
 """
 
 import logging
@@ -25,12 +27,13 @@ import polars as pl
 from mlflow import MlflowClient
 from psycopg import Connection, sql
 
-from credit_risk import registry
+from credit_risk import alerts, registry
 from credit_risk.api.scoring import Champions, cleaning_errors, score
 from credit_risk.contracts import LISTINGS
 from credit_risk.features import CATEGORICAL, FEATURES
 from credit_risk.ingest import raw_frame
 from credit_risk.model import LGDModel, PDModel
+from credit_risk.monitoring import alerting
 from credit_risk.monitoring.drift import Bins, Drift, Kind, fit, measure
 from credit_risk.monitoring.outcomes import (
     EARLY_AFTER,
@@ -367,10 +370,54 @@ class Month:
     performance: int
     references_built: int
     notes: list[str]
+    #: Alerts the month raised (D-149), and how many were new (not recorded before).
+    alerts: int = 0
+    alerts_recorded: int = 0
 
 
-def monitor(conn: Connection, period: date, prefix: str = "") -> Month:
-    """Measure ``period`` and store it, replacing what the month had (D-145)."""
+def validation_auc(name: str, version: str) -> float | None:
+    """The validation AUC logged with the run of a registered PD version."""
+    client = MlflowClient()
+    run_id = client.get_model_version(name, version).run_id
+    if run_id is None:
+        return None
+    run = client.get_run(run_id)
+    value = run.data.metrics.get("auc")
+    return None if value is None else float(value)
+
+
+def month_alerts(
+    period: date,
+    drifts: list[dict[str, Any]],
+    warnings: list[dict[str, Any]],
+    results: list[dict[str, Any]],
+    prefix: str = "",
+    thresholds: alerting.Thresholds | None = None,
+) -> list[alerts.Alert]:
+    """The alerts of one month's measurements (D-149, D-156)."""
+    t = thresholds or alerting.load()
+    aucs: dict[str, float | None] = {}
+
+    def reference(version: str) -> float | None:
+        if version not in aucs:
+            aucs[version] = validation_auc(f"{prefix}pd", version)
+        return aucs[version]
+
+    return [
+        *alerting.drift_alerts(period, drifts, t),
+        *alerting.early_warning_alerts(period, warnings, t),
+        *alerting.performance_alerts(period, results, t, reference),
+    ]
+
+
+def monitor(
+    conn: Connection,
+    period: date,
+    prefix: str = "",
+    thresholds: alerting.Thresholds | None = None,
+) -> Month:
+    """Measure ``period``, store it (replacing what the month had, D-145) and record
+    the alerts it raises (D-149)."""
     notes: list[str] = []
     built = 0
     drifts: list[dict[str, Any]] = []
@@ -446,15 +493,21 @@ def monitor(conn: Connection, period: date, prefix: str = "") -> Month:
                     (cohort, term, pd_version, lgd_version, segment, evaluated, loans,
                      defaults, unresolved, auc, brier, calibration_error, mean_pd,
                      default_rate, lgd_loans, lgd_rmse, lgd_level, purchases, invested,
-                     received, realised_return)
+                     received, realised_return, auc_low, auc_high, calibration_low,
+                     calibration_high)
                 VALUES (%(cohort)s, %(term)s, %(pd_version)s, %(lgd_version)s, %(segment)s,
                         %(evaluated)s, %(loans)s, %(defaults)s, %(unresolved)s, %(auc)s,
                         %(brier)s, %(calibration_error)s, %(mean_pd)s, %(default_rate)s,
                         %(lgd_loans)s, %(lgd_rmse)s, %(lgd_level)s, %(purchases)s,
-                        %(invested)s, %(received)s, %(realised_return)s)
+                        %(invested)s, %(received)s, %(realised_return)s, %(auc_low)s,
+                        %(auc_high)s, %(calibration_low)s, %(calibration_high)s)
                 """,
                 results,
             )
+        # The alerts of the month (D-147, D-149), in the same transaction as what they
+        # read; a month run again records each signal once (D-145).
+        found = month_alerts(period, drifts, warnings, results, prefix, thresholds)
+        recorded = sum(alerts.record(a, conn) for a in found)
     month = Month(
         period=f"{period:%Y-%m}",
         pairs=list(months),
@@ -463,6 +516,8 @@ def monitor(conn: Connection, period: date, prefix: str = "") -> Month:
         performance=len(results),
         references_built=built,
         notes=notes,
+        alerts=len(found),
+        alerts_recorded=recorded,
     )
     for note in notes:
         log.info("monitor %s: %s", month.period, note)

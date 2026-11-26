@@ -1,0 +1,21 @@
+# The only data source (D-153): the project's Postgres, read as grafana_reader, the role
+# that can only SELECT the tables of the dashboards (D-155). Values from the environment.
+apiVersion: 1
+
+datasources:
+  - name: Postgres
+    uid: credit-risk-postgres
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: postgres:5432
+    user: grafana_reader
+    isDefault: true
+    editable: false
+    jsonData:
+      database: ${GRAFANA_DB_NAME}
+      sslmode: disable
+      postgresVersion: 1800
+      timescaledb: false
+      maxOpenConns: 5
+    secureJsonData:
+      password: ${GRAFANA_DB_PASSWORD}

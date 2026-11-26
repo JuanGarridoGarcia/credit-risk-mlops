@@ -71,7 +71,7 @@ One line per theme; each links to its full card with the alternatives considered
 | Orchestration | Prefect runs the monthly cycle: load and validate, version, train PD and LGD, promote; only identifiers travel between tasks ([D-099](docs/decisions.md#d-099), [D-100](docs/decisions.md#d-100)); running a month again changes nothing ([D-101](docs/decisions.md#d-101)); only transient failures are retried ([D-102](docs/decisions.md#d-102)); the simulator stays outside the system ([D-105](docs/decisions.md#d-105)); retraining every quarter ([D-106](docs/decisions.md#d-106)); a simulated clock moves the system one month at a time and never skips or repeats a month ([D-107](docs/decisions.md#d-107)); failures, promotions, rejections and rollbacks recorded as alerts ([D-108](docs/decisions.md#d-108)) |
 | Serving | One API, the only way to a prediction ([D-008](docs/decisions.md#d-008)): it takes listings as the provider delivers them and cleans them with the code of the monthly load ([D-116](docs/decisions.md#d-116)); it answers PD, LGD, expected loss, expected return and whether the loan passes the buy threshold, with four reasons and the versions used ([D-112](docs/decisions.md#d-112)); every answer is stored before it leaves, once per loan and pair of models ([D-113](docs/decisions.md#d-113), [D-114](docs/decisions.md#d-114), [D-121](docs/decisions.md#d-121)); champions come from the MLflow registry and are swapped as a whole after a notice from the flow ([D-110](docs/decisions.md#d-110), [D-111](docs/decisions.md#d-111)); API keys per permission ([D-118](docs/decisions.md#d-118)); a simulated investor sends each month to the API before the system's flow and reports what it bought, so monitoring measures real orders ([D-123](docs/decisions.md#d-123), [D-124](docs/decisions.md#d-124)), each tied to the answer it was decided on and made harmless to repeat by its order number ([D-126](docs/decisions.md#d-126), [D-129](docs/decisions.md#d-129)) |
 | Delivery | Every merge to main publishes the serve and train images that CI tested, without building them again, to GitHub Container Registry ([D-130](docs/decisions.md#d-130), [D-131](docs/decisions.md#d-131), [D-133](docs/decisions.md#d-133)); each is named by its commit for ever, and `main` moves to it only after Trivy finds nothing serious and a smoke test gets a real prediction from the published images ([D-132](docs/decisions.md#d-132), [D-134](docs/decisions.md#d-134), [D-135](docs/decisions.md#d-135)); a release tag `vX.Y.Z` adds the version to what main published ([D-132](docs/decisions.md#d-132)) |
-| Monitoring | Every month the flow measures what the models received and answered against the 12 months before their cutoff, with the PSI ([D-138](docs/decisions.md#d-138), [D-139](docs/decisions.md#d-139), [D-141](docs/decisions.md#d-141)); labels come 3 to 5 years late, so a 12-month default rate checks the PD after 17 months ([D-143](docs/decisions.md#d-143)) and matured cohorts are measured like a challenger ([D-144](docs/decisions.md#d-144)) |
+| Monitoring | Every month the flow measures what the models received and answered against the 12 months before their cutoff, with the PSI ([D-138](docs/decisions.md#d-138), [D-139](docs/decisions.md#d-139), [D-141](docs/decisions.md#d-141)); labels come 3 to 5 years late, so a 12-month default rate checks the PD after 17 months ([D-143](docs/decisions.md#d-143)) and matured cohorts are measured like a challenger ([D-144](docs/decisions.md#d-144)); the flow itself decides what is an alert, by layers: input drift is only shown, prediction drift and early warning are warnings, a real drop is an error ([D-147](docs/decisions.md#d-147), [D-149](docs/decisions.md#d-149)), with thresholds calibrated only on what was known at T0 and frozen for the simulation, its exam ([D-150](docs/decisions.md#d-150), [D-156](docs/decisions.md#d-156), [thresholds](docs/thresholds.md)); Grafana shows three dashboards (system, data, model) read-only and sends each alert once to Telegram ([D-148](docs/decisions.md#d-148), [D-152](docs/decisions.md#d-152), [D-155](docs/decisions.md#d-155)) |
 | Modelling | Baselines use only the grade ([D-004](docs/decisions.md#d-004)); models are judged on ranking and calibration ([D-006](docs/decisions.md#d-006)) and on realised return at equal budget ([D-007](docs/decisions.md#d-007)). Training decisions come in F3 |
 
 ## How to run it
@@ -85,14 +85,18 @@ make install            # environment from uv.lock, git hooks, .env from .env.ex
 make lint               # style, formatting, types, lock in sync
 make test               # unit tests with coverage
 make build              # the two application images, serve and train
-make up                 # Postgres, MLflow (UI at http://localhost:5000), Prefect (UI at http://localhost:4200), its worker, the simulated clock and the API (http://localhost:8000/docs)
+make up                 # Postgres, MLflow (UI at http://localhost:5000), Prefect (UI at http://localhost:4200), its worker, the simulated clock, the API (http://localhost:8000/docs) and Grafana (http://localhost:3000, user admin)
 make test-integration   # tests against Postgres, MLflow and the images
 make train T=2014-01    # train, register and try to promote the PD and LGD models
 make advance            # simulated clock: publish the next month and run the monthly flow for it
 make replay TO=2014-12  # advance month by month until December 2014
 make rollback MODEL=pd  # put back the previous champion
+make exam               # the simulation 2014 to 2018 with the thresholds frozen (hours; resumes)
+make calibrate          # the study of the alert thresholds, and the tables of docs/thresholds.md
 make down               # stop; data stays in the volume
 ```
+
+Alerts reach Telegram when `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are set in `.env` (a bot made with @BotFather, and the id of your chat with it); without them Grafana only shows them.
 
 Instead of `make build`, the stack can start from a published version (any commit of main: `:sha-abc1234`; the latest good one: `:main`):
 
@@ -115,7 +119,7 @@ TRAIN_IMAGE=ghcr.io/juangarridogarcia/credit-risk-train:main make up
 | F3 Model | Baselines, experiments, model tests, registry, explainability | Done |
 | F4 Automation | Orchestrated monthly cycle and simulated clock | Done |
 | F5 Deployment | API, replayer, published image, continuous delivery | Done (API in #12; simulated investor and purchases in #13; published images in #14, first publication after the fixes of #15 to #17) |
-| F6 Monitoring | Drift, dashboard, alerts, triggered retraining | In progress (drift, early warning and real performance every month in this pull request; dashboards and alerts next) |
+| F6 Monitoring | Drift, dashboard, alerts, triggered retraining | In progress (drift, early warning and real performance every month in #19; dashboards, alerts and their calibrated thresholds in this pull request; triggered retraining next) |
 | F7 Closing | End to end, AWS with infrastructure as code | Pending |
 
 Step by step detail in the [tracking sheet](docs/technical.md#1-tracking-sheet).
@@ -126,8 +130,9 @@ Step by step detail in the [tracking sheet](docs/technical.md#1-tracking-sheet).
 |---|---|
 | `src/credit_risk/` | The system, as an installable Python package |
 | `tests/` | `unit/` (no services) and `integration/` (Docker) |
-| `docs/` | [Problem](docs/problem.md), [data audit](docs/data_audit.md), [decisions](docs/decisions.md), [errors](docs/errors.md), [validation rules](docs/validation_rules.md), [test catalogue](docs/tests.md), [technical document](docs/technical.md) |
+| `docs/` | [Problem](docs/problem.md), [data audit](docs/data_audit.md), [decisions](docs/decisions.md), [errors](docs/errors.md), [validation rules](docs/validation_rules.md), [test catalogue](docs/tests.md), [alert thresholds](docs/thresholds.md), [technical document](docs/technical.md) |
+| `grafana/` | Dashboards, data source and alert delivery, provisioned when Grafana starts |
 | `notebooks/` | Exploration and report notebooks (never production code) |
-| `reports/` | Tables and figures generated by the notebooks |
+| `reports/` | Tables and figures generated by the notebooks and by the study of the thresholds |
 
 The research phase of this work, which answers "which model and why", lives in [A Deep Dive into Expected Loss](https://github.com/JuanGarridoGarcia/A-Deep-Dive-into-Expected-Loss-through-Credit-Scoring-Industry-Standard-Machine-Learning). This repository answers "how that model is operated in production".

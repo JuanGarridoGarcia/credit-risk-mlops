@@ -1,10 +1,13 @@
 """Alerts: every event a person should know about, recorded in ``ops.alerts`` (D-108).
 
-Six kinds: a flow that failed, a model promoted to champion, a challenger rejected, a
-rollback, and from F5 a champion the API could not load and a reload notice that did not
-reach the API (D-111). They are only recorded here; Grafana reads the table in F6 and sends them on,
-together with the drift alerts, through the channel chosen then. A verdict on a registered
-version is recorded once, however many times its month runs (unique index, D-101).
+Ten kinds: a flow that failed, a model promoted to champion, a challenger rejected, a
+rollback; from F5 a champion the API could not load and a reload notice that did not
+reach the API (D-111); from F6 the drift of a prediction, an early warning, a drop of
+real performance and a large level correction of a new LGD (D-149, D-151), decided by
+:mod:`credit_risk.monitoring.alerting`. They are only recorded here; Grafana reads the
+table and sends the warnings and errors on to Telegram (D-147, D-148). A verdict on a
+registered version, or a monitoring signal of a month, is recorded once, however many
+times its month runs (unique indexes, D-101, D-145).
 """
 
 import json
@@ -28,6 +31,11 @@ KINDS: Final = {
     # the flow's reload notice did not reach the API (its polling catches up).
     "model_load_failed": "error",
     "reload_failed": "warning",
+    # Step 6.2 (D-149, D-151): what the monitoring of a month and a new LGD found.
+    "prediction_drift": "warning",
+    "early_warning": "warning",
+    "performance_drop": "error",
+    "lgd_level_shift": "warning",
 }
 
 

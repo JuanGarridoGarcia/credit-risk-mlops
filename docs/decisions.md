@@ -115,7 +115,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-105](#d-105) | 2026-11-24 | 4.1 | Publishing deliveries is not a task of the system's flow (D-043 kept) | Active |
 | [D-106](#d-106) | 2026-11-24 | 4.1 | Retraining every quarter (January, April, July, October); every month is loaded | Active |
 | [D-107](#d-107) | 2026-11-24 | 4.1 | The simulated clock: an "advance one month" flow with its state in `sim.clock` | Active |
-| [D-108](#d-108) | 2026-11-24 | 4.1 | Alerts recorded in `ops.alerts`; the channel that delivers them is chosen in F6 | Active |
+| [D-108](#d-108) | 2026-11-24 | 4.1 | Alerts recorded in `ops.alerts`; the channel that delivers them is chosen in F6 | Active (channel chosen in D-148) |
 | [D-109](#d-109) | 2026-11-24 | F5 | Scope of F5 and three pull requests: the API, the replayer, the published image | Active |
 | [D-110](#d-110) | 2026-11-24 | 5.1 | The API loads the champions from the MLflow registry by their alias | Active |
 | [D-111](#d-111) | 2026-11-24 | 5.1 | A new champion reaches the API by a notice from the flow, with polling as the safety net | Active |
@@ -154,6 +154,17 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-144](#d-144) | 2026-11-26 | 6.1 | A matured cohort is measured with the metrics of promotion, the LGD and the realised return | Active |
 | [D-145](#d-145) | 2026-11-26 | 6.1 | Monitoring is a task of the system's flow, every month, after loading and before training | Active |
 | [D-146](#d-146) | 2026-11-26 | 6.1 | One table per kind of measure, in a schema `monitoring` | Active |
+| [D-147](#d-147) | 2026-11-26 | 6.2 | The rules that decide an alert run in Python in the monthly flow; Grafana shows and delivers | Active |
+| [D-148](#d-148) | 2026-11-26 | 6.2 | Alerts are delivered by a Telegram bot; with no secrets Grafana starts with no channel | Active |
+| [D-149](#d-149) | 2026-11-26 | 6.2 | Alerts by layers: input drift never alerts, prediction drift and early warning are warnings, a real drop is an error | Active |
+| [D-150](#d-150) | 2026-11-26 | 6.2 | Thresholds calibrated by a study of the history known at T0; 2014 to 2018 is their exam | Active |
+| [D-151](#d-151) | 2026-11-26 | 6.2 | A new LGD with a large level correction is promoted by the usual rules, with a warning | Active |
+| [D-152](#d-152) | 2026-11-26 | 6.2 | Three linked dashboards: System, Data and Model, on the simulated time | Active |
+| [D-153](#d-153) | 2026-11-26 | 6.2 | Dashboards as Grafana JSON in the repository, provisioned; a test runs the SQL of every panel | Active |
+| [D-154](#d-154) | 2026-11-26 | 6.2 | Every attempt of every task is recorded in `ops.task_runs` | Active |
+| [D-155](#d-155) | 2026-11-26 | 6.2 | Grafana reads with a read-only role and asks for a login; no anonymous access until F8 | Active |
+| [D-156](#d-156) | 2026-11-26 | 6.2 | The values of the thresholds, by rules written before reading the study | Active |
+| [D-157](#d-157) | 2026-11-26 | 6.2 | The study of the thresholds is left out of the coverage of CI; the data tests T33 check it | Active |
 
 ## Decisions
 
@@ -1278,7 +1289,7 @@ Date: 2026-11-24 · Step: 4.1 · Status: Active
 
 ### D-108 Alerts recorded in `ops.alerts`; the channel that delivers them is chosen in F6
 
-Date: 2026-11-24 · Step: 4.1 · Status: Active
+Date: 2026-11-24 · Step: 4.1 · Status: Active (the channel was chosen in D-148, 2026-11-26; D-149 adds four kinds)
 
 - **Context**: an alert has two parts: recording the event (what, when, which month and task, which error) and getting it to a person (email, Slack, phone). Step 4.1 asks for an alert when a flow fails; a change of champion, by promotion or rollback, was until now a WARNING line in the log (D-082).
 - **Decision**: one table, `ops.alerts`, records four kinds of event: `flow_failed` (severity error, written by an `on_failure` hook of the system's flow, with the month, the failed task and the error), `promoted` (warning: model, new version, previous champion), `rejected` (info, with the failed rules) and `rolled_back` (warning, written by `python -m credit_risk.registry rollback`). A verdict on a version is recorded once however many times its month runs (unique index on kind, model and version for promotions and rejections). Grafana reads the table in F6 and sends the alerts through the channel chosen then, together with the drift alerts. Until then they are read with SQL or in the Prefect UI.
@@ -1704,3 +1715,124 @@ Date: 2026-11-26 · Step: 6.1 · Status: Active
 - **Alternatives considered**: (A) one long table (month, model, subject, metric, value): no migration for a new metric, but weak types, no checks, and every query filters by metric name; (C) MLflow metrics of a monitoring run per month: next to the models, but MLflow is for experiments, not time series, and Grafana does not read it well.
 - **Why**: types and checks in the database, direct queries for dashboards and trigger, the criterion of D-113.
 - **Consequences**: migration `20261126090000_create_monitoring.sql`; a new metric needs a migration (D-048). Test T27.1.
+
+<a id="d-147"></a>
+### D-147 The rules that decide an alert run in Python in the monthly flow; Grafana shows and delivers
+
+Date: 2026-11-26 · Step: 6.2 · Status: Active
+
+- **Context**: 6.2 asks for dashboards and for alerts on calibrated thresholds. Someone has to compare each month's measures with the thresholds and decide that something is an alert; 6.3 will retrain on the same signals.
+- **Decision**: the task `monitor`, after measuring the month, applies the rules of `credit_risk/monitoring/alerting.py` to what it measured, with the thresholds of a file in the repository, and writes the alerts to `ops.alerts` in the same transaction. Grafana does not decide anything: one provisioned rule finds the warnings and errors of `ops.alerts` of the last 7 days, one instance per alert, and sends each once (grouped by alert, no repeat, no "resolved" message). It looks every 10 seconds; each look is one small indexed query.
+- **Alternatives considered**: (B) rules of Grafana on the `monitoring` tables: the standard way and no code of ours, but Grafana evaluates on real time, not on the simulated clock, the rules are hard to test, and 6.3 would have to repeat them in Python; (C) Prometheus and Alertmanager: the industry pair, but two more services for monthly data that is already in Postgres.
+- **Why**: one place for the rules, tested like the rest, run inside the simulated clock; the trigger of 6.3 reads the same `ops.alerts`.
+- **Consequences**: Grafana needs read access to `ops.alerts` only (D-155). Tests T29 (rules), T30 (in the flow) and T32.4 (delivery once).
+
+<a id="d-148"></a>
+### D-148 Alerts are delivered by a Telegram bot; with no secrets Grafana starts with no channel
+
+Date: 2026-11-26 · Step: 6.2 · Status: Active
+
+- **Context**: D-108 left the channel for F6. A person must get the warnings and errors without opening Grafana.
+- **Decision**: a Telegram bot made with BotFather; its token and the id of the chat go in `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (local `.env`, never in git). `grafana/start.sh` writes the contact point of each channel that is set before Grafana starts, and deletes the ones that are not. With neither secret Grafana starts with no channel and the alerts are only shown. The tests use a webhook (`GRAFANA_WEBHOOK_URL`) to a receiver inside the test process.
+- **Alternatives considered**: (B) Discord, one webhook as secret: simpler, but a second app to watch; (C) email by SMTP with an app password: universal, but a password of a personal account as secret and slower to notice; (D) no channel until F7, with AWS SNS: nothing to set up now, but 6.2 would not deliver anything.
+- **Why**: free, reaches the phone at once, two secrets, and Grafana supports it natively.
+- **Consequences**: CI never sends to Telegram. Tests T32.4 and T32.5. Error E-058 (old contact points kept in Grafana's volume).
+
+<a id="d-149"></a>
+### D-149 Alerts by layers: input drift never alerts, prediction drift and early warning are warnings, a real drop is an error
+
+Date: 2026-11-26 · Step: 6.2 · Status: Active
+
+- **Context**: 6.1 measures 30 variables, 3 predictions, the early warning and the real performance every month. An alert on each of them would ring all the time; the history before T0 shows input PSIs above 1 (D-150).
+- **Decision**: the drift of an input variable never alerts; the Data dashboard shows it, to explain. The drift of a prediction above its threshold is a `prediction_drift` warning; an early warning whose whole interval is above its threshold is an `early_warning` warning; a matured cohort clearly worse than validation, or with an LGD level error beyond its threshold, is a `performance_drop` error; a new LGD with a level correction beyond its threshold is an `lgd_level_shift` warning (D-151). A value equal to its threshold does not alert. Every alert carries a `signal` (what was measured, on which models), and a unique index records each signal once per month. `info` alerts are only shown.
+- **Alternatives considered**: (B) everything alerts: nothing missed, but the messages stop being read; (C) only results (early warning and performance): few messages, but the population change seen in the predictions would arrive 17 months late.
+- **Why**: the severity follows how sure and how serious the signal is: a different population is worth a look, a worse model is a problem.
+- **Consequences**: four more kinds in `ops.alerts` (migration `20261126130000_alerts_for_monitoring.sql`), ten in all. T17.2 changes (history in tests.md). Tests T29 and T30.
+
+<a id="d-150"></a>
+### D-150 Thresholds calibrated by a study of the history known at T0; 2014 to 2018 is their exam
+
+Date: 2026-11-26 · Step: 6.2 · Status: Active
+
+- **Context**: the playbook asks for thresholds calibrated on history and justified in writing. The first proposal was to calibrate on the whole simulation 2014 to 2018; Juan objected that it uses the future to set the thresholds of the past.
+- **Decision**: a study (`credit_risk/monitoring/calibrate.py`) reads only what was known at T0 (up to 2013-12) and refuses anything later. With the pair of champions trained at T0 it measures, on the history its PD never saw, the drift of every month at each age of the reference, the early warning of every cohort, the performance of the last matured cohorts and the level correction of the LGD. The values come out of it by rules (D-156) and are frozen; the simulation 2014 to 2018 is their exam (`make exam`), and a change after it is a new decision. Written up in `docs/thresholds.md`.
+- **Alternatives considered**: standard values (PSI 0.1 and 0.25 of the literature): no study, but nothing says they fit these loans; the 99th percentile of each signal: automatic, but a percentile always fires 1% of the months and needs a long history; (B) calibrate on 2014-15 and examine on 2016-18: honest, but the thresholds would not exist for the first two years; (C) the whole simulation with the bias written down: more data, but the exam would be no exam.
+- **Why**: the only choice that a real system could have made at T0, and that leaves a real exam.
+- **Consequences**: the study takes about a minute; the exam takes hours, so it is a resumable command and its tests (T33) are data tests, not CI. Tests T33.1 to T33.4.
+
+<a id="d-151"></a>
+### D-151 A new LGD with a large level correction is promoted by the usual rules, with a warning
+
+Date: 2026-11-26 · Step: 6.2 · Status: Active
+
+- **Context**: F3 left open what to do when a retrained LGD needs a level correction (D-094) above 0.15: a sign that the loss changed between training and validation.
+- **Decision**: the promotion follows the usual rules; if the correction is beyond the threshold, an `lgd_level_shift` warning goes to `ops.alerts` (and Telegram), saying whether the version was promoted.
+- **Alternatives considered**: (B) block the challenger even if it wins, until Juan acts: safer, but the simulation would stop learning on a correction that is exactly what fixes the level; (C) ignore it: no new rule, but the change would only be seen by whoever opens the panel.
+- **Why**: the correction is the remedy, not the illness: a person should know, but the rules already decide whether the model is better.
+- **Consequences**: the flow reads the tag `level_shift` of the LGD run after the verdict. Test T29.5.
+
+<a id="d-152"></a>
+### D-152 Three linked dashboards: System, Data and Model, on the simulated time
+
+Date: 2026-11-26 · Step: 6.2 · Status: Active
+
+- **Context**: three different questions: does the system run, did the population change, are the models still right. F8 will need a dashboard to show.
+- **Decision**: three dashboards linked to each other. System: months loaded, failed attempts, seconds per task, latency and answers of the API, latest alerts, training sets. Data: PSI of every input variable by month, one variable in detail (PSI, KS, missing and new values). Model: PSI of the predictions with their thresholds, the early warning by term, AUC with its interval, calibration and LGD level, realised return, by grade, and the champions. The time axis is the simulated month, not the real clock.
+- **Alternatives considered**: (B) one long dashboard with folding rows: everything in one place, but slow and hard to show; (C) one technical (system and data) and one of business (performance and return): good for a manager, but mixes system and data, which answer different questions.
+- **Why**: one question per dashboard; Model is the base of the F8 demo.
+- **Consequences**: `grafana/dashboards/system.json`, `data.json`, `model.json`; the API panels read `serving.requests` of the last 7 days (real time). Test T32.1.
+
+<a id="d-153"></a>
+### D-153 Dashboards as Grafana JSON in the repository, provisioned; a test runs the SQL of every panel
+
+Date: 2026-11-26 · Step: 6.2 · Status: Active
+
+- **Context**: a dashboard made by hand in the interface is lost with the volume and is not reviewed. A column renamed by a migration breaks a panel silently.
+- **Decision**: the dashboards are the JSON files of `grafana/dashboards`, loaded by Grafana's file provisioning when it starts (not editable in the interface). `credit_risk.monitoring.grafana.queries` takes out the SQL of every panel, and a test runs each one as the read-only role on the migrated database, checking the columns each panel expects.
+- **Alternatives considered**: (B) written by Python with grafana-foundation-sdk: typed, but one more dependency and one more layer to learn; (C) Terraform's Grafana provider: the industrial way for many instances, but state to keep and much more setup for one local Grafana.
+- **Why**: what Grafana runs is what is reviewed, and CI catches a broken panel.
+- **Consequences**: a change of a dashboard is a change of its JSON. Tests T32.1 and T32.2.
+
+<a id="d-154"></a>
+### D-154 Every attempt of every task is recorded in `ops.task_runs`
+
+Date: 2026-11-26 · Step: 6.2 · Status: Active
+
+- **Context**: the System dashboard needs how long each task takes and which ones fail. Prefect keeps that in its own database.
+- **Decision**: a decorator around each task function writes one row per attempt to `ops.task_runs`: month, flow, task, flow run, attempt, start, seconds, state (completed or failed) and the error. A failure to write it is logged and never fails the task.
+- **Alternatives considered**: (B) Grafana reads Prefect's database: no code of ours, but its schema is internal and can change with any upgrade; (C) no flow data: simpler, but the System dashboard would show only the API.
+- **Why**: our own table, with its migration and tests, does not break on a Prefect upgrade.
+- **Consequences**: migration `20261126130100_create_task_runs.sql`; `reference_task` now takes the month. Tests T31.1 and T31.2.
+
+<a id="d-155"></a>
+### D-155 Grafana reads with a read-only role and asks for a login; no anonymous access until F8
+
+Date: 2026-11-26 · Step: 6.2 · Status: Active
+
+- **Context**: the user of the application can write and delete. Grafana only needs to read the tables of its panels.
+- **Decision**: a role `grafana_reader`, created by a migration with no login, has SELECT on the tables of the dashboards only (`monitoring.*`, `ops.alerts`, `ops.task_runs`, `ops.training_sets`, `serving.requests`), read-only transactions by default and a statement timeout of 30 seconds. Its login and password come from `GRAFANA_DB_PASSWORD`, set by `make migrate`, so no password is in a migration. Grafana asks for the admin login; anonymous access and sign-up are off.
+- **Alternatives considered**: (B) the user of the application: nothing to set up, but a panel could write or delete; (C) read-only and anonymous from now: ready for the demo, but data shown to anyone who reaches the port before F8 decides how to publish it.
+- **Why**: least privilege; the public question is F8's.
+- **Consequences**: migration `20261126130200_create_grafana_reader.sql`; `credit_risk.monitoring.grafana.set_login`. Tests T32.3 and T32.6.
+
+<a id="d-156"></a>
+### D-156 The values of the thresholds, by rules written before reading the study
+
+Date: 2026-11-26 · Step: 6.2 · Status: Active
+
+- **Context**: the study of D-150 gives tables, not values. The rules that turn them into values must be fixed before reading them, or the values are chosen to fit.
+- **Decision**: PSI of a prediction: the smallest value of the grid 0.10, 0.15, 0.20, 0.25 that no month exceeded with a reference 0 to 2 months old (0.25 for the PD and the expected loss rate, 0.15 for the LGD). Early warning: the whole interval above 1.0, chosen by Juan knowing that on the history it fires on 2011-04 and on 7 of the last 8 cohorts (a real gap: the T0 model underestimates the early defaults of the newer cohorts). Performance: the margins of D-093, 0.01 on the AUC and on the calibration error. LGD level error and level correction: the first value of the grid 0.05, 0.10, 0.15, 0.20 above every correction seen (0.15). Each value is in `thresholds.toml` with its reason; loading refuses a missing value, a value out of range or a missing reason.
+- **Alternatives considered** (early warning): above 1.1: on the history it fires on 6 of the last 8 cohorts and on 2009-11; above 1.2: it would never have fired before T0, so it would not see the gap that is known to exist.
+- **Why**: rules first, values after; and a threshold that sees the problem we know about.
+- **Consequences**: expect early warnings in the first months of the exam. `calibrate.propose` applies the rules; T33.3 checks the file against them. Tests T29.1 and T33.3.
+
+<a id="d-157"></a>
+### D-157 The study of the thresholds is left out of the coverage of CI; the data tests T33 check it
+
+Date: 2026-11-26 · Step: 6.2 · Status: Active
+
+- **Context**: D-064 asks CI to cover 90% of the lines each pull request changes. The study of D-150 (`credit_risk/monitoring/calibrate.py`, about 640 lines) needs the real data and the models trained at T0, so only the data tests T33.1, T33.2 and T33.4 run it, locally; in CI only its rules (`propose`, T33.3) run. With it, the changed lines of 6.2 would be about 55 to 75% covered.
+- **Decision**: `calibrate.py` is omitted from the coverage measure (`[tool.coverage.run] omit`, with its reason). It still passes ruff and mypy in CI, and T33.3 imports it, so a change elsewhere that breaks its imports fails CI.
+- **Alternatives considered**: (B) unit tests of its pure parts (summary, tables, drift on a made-up frame) and `pragma: no cover` on the parts that read the database: more coverage, but new tests for a tool, and marked lines are a patch; (C) an integration test of the whole study on a made-up history: full coverage, but it trains a pair of models at T0 in CI and adds minutes to a job close to its limit.
+- **Why**: it is a tool of analysis run by hand, not code the system runs every month, like the audit notebook checked by D-065; its real check already exists.
+- **Consequences**: a change that breaks the logic of the study is found when `make calibrate` or `make test-data` runs, not in CI.

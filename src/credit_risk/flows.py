@@ -31,18 +31,22 @@ Postgres or MLflow. Anything else, a failed validation above all, stops the flow
 """
 
 import argparse
+import functools
+import inspect
 import logging
 import os
 import shutil
 import time
 import urllib.request
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Final
 from urllib.parse import quote
 
 import psycopg
+from mlflow import MlflowClient
 from mlflow.exceptions import MlflowException
 from prefect import flow, task
 from prefect.client.schemas.objects import State, TaskRun
@@ -54,6 +58,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from credit_risk import alerts, buy_rule, pipeline, registry
 from credit_risk.ingest import catch_up
+from credit_risk.monitoring import alerting
 from credit_risk.monitoring import store as monitoring
 from credit_risk.settings import Settings
 from credit_risk.snapshot import ROOT, build, git_commit, read_evaluation, read_features
@@ -127,6 +132,70 @@ def _connect() -> psycopg.Connection[Any]:
     return psycopg.connect(Settings().postgres_conninfo(), autocommit=True)
 
 
+# ---------------------------------------------------------------- task runs (D-154)
+
+
+def write_task_run(
+    task_name: str,
+    period: str,
+    started: datetime,
+    seconds: float,
+    error: BaseException | None,
+) -> None:
+    """One row of ``ops.task_runs``. Never fails the task: a row that cannot be
+    written (the database is down, which is often why the task failed) is logged."""
+    from prefect.runtime import task_run
+
+    values = {
+        "period": _month(period),
+        "flow": FLOW,
+        "task": task_name,
+        "flow_run": str(flow_run.id) if flow_run.id else None,
+        "attempt": max(int(task_run.run_count or 1), 1),
+        "started": started,
+        "seconds": max(seconds, 0.0),
+        "state": "failed" if error is not None else "completed",
+        "error": repr(error)[:2000] if error is not None else None,
+    }
+    try:
+        with _connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO ops.task_runs
+                    (period, flow, task, flow_run, attempt, started, seconds, state, error)
+                VALUES (%(period)s, %(flow)s, %(task)s, %(flow_run)s, %(attempt)s,
+                        %(started)s, %(seconds)s, %(state)s, %(error)s)
+                """,
+                values,
+            )
+    except Exception:
+        log.exception("could not record the run of task %s of %s", task_name, period)
+
+
+def recorded[**P, R](task_name: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    """Record every attempt of the task in ``ops.task_runs``: its month (the argument
+    ``period``), start, duration and how it ended (D-154)."""
+
+    def decorate(function: Callable[P, R]) -> Callable[P, R]:
+        signature = inspect.signature(function)
+
+        @functools.wraps(function)
+        def run(*args: P.args, **kwargs: P.kwargs) -> R:
+            period = str(signature.bind(*args, **kwargs).arguments["period"])
+            started, clock = datetime.now(UTC), time.perf_counter()
+            try:
+                result = function(*args, **kwargs)
+            except BaseException as error:
+                write_task_run(task_name, period, started, time.perf_counter() - clock, error)
+                raise
+            write_task_run(task_name, period, started, time.perf_counter() - clock, None)
+            return result
+
+        return run
+
+    return decorate
+
+
 class Paths(BaseModel):
     """Where the flow reads and writes; relative paths are from the working directory.
 
@@ -141,6 +210,7 @@ class Paths(BaseModel):
 
 
 @task(name="load", **RETRY)
+@recorded("load")
 def load_task(period: str, paths: Paths) -> int:
     """Load and validate every delivered month up to ``period`` (D-104); return how many."""
     with _connect() as conn:
@@ -149,6 +219,7 @@ def load_task(period: str, paths: Paths) -> int:
 
 
 @task(name="monitor", **RETRY)
+@recorded("monitor")
 def monitor_task(period: str, prefix: str) -> dict[str, Any]:
     """Measure the month against the reference of its champions and store it (D-145)."""
     with _connect() as conn:
@@ -157,7 +228,8 @@ def monitor_task(period: str, prefix: str) -> dict[str, Any]:
 
 
 @task(name="reference", **RETRY)
-def reference_task(prefix: str) -> bool:
+@recorded("reference")
+def reference_task(period: str, prefix: str) -> bool:
     """Build the reference of the champion pair if it has none yet (D-142)."""
     pair = monitoring.current_pair(prefix)
     if pair is None:
@@ -167,6 +239,7 @@ def reference_task(prefix: str) -> bool:
 
 
 @task(name="version", **RETRY)
+@recorded("version")
 def version_task(period: str, paths: Paths) -> str:
     """Build (or find) the training set at ``period``; return its version."""
     with _connect() as conn:
@@ -205,21 +278,42 @@ def _features(version: str, paths: Paths) -> Any:
         return read_features(conn, LocalStore(Path(paths.training_sets)), version)
 
 
+def level_shift(name: str, version: str) -> float | None:
+    """The level correction (D-094) logged with the run of a registered LGD version."""
+    client = MlflowClient()
+    run_id = client.get_model_version(name, version).run_id
+    if run_id is None:
+        return None
+    tags = client.get_run(run_id).data.tags
+    value = tags.get("level_shift")
+    return None if value is None else float(value)
+
+
 def _with_alerts(target: str, prefix: str, period: str, train: Any) -> Trained:
-    """Run ``train`` and record its verdict and any change of champion (D-108)."""
+    """Run ``train`` and record its verdict, any change of champion (D-108) and, for a
+    new LGD, a level correction above its threshold (D-151)."""
     name = f"{prefix}{target}"
     before = registry.champion(name)
     outcome: pipeline.Outcome = train()
     after = registry.champion(name)
     summary = _summary(outcome)
-    for alert in alerts.verdict_alerts(
+    found = alerts.verdict_alerts(
         name, outcome.version, summary.promoted, summary.reasons, before, after, _month(period)
-    ):
+    )
+    shift = level_shift(name, outcome.version) if target == "lgd" else None
+    if shift is not None:
+        alert = alerting.level_shift_alert(
+            name, outcome.version, shift, after == outcome.version, _month(period),
+            alerting.load(),
+        )  # fmt: skip
+        found += [alert] if alert is not None else []
+    for alert in found:
         alerts.record(alert)
     return replace(summary, changed=after != before)
 
 
 @task(name="train-pd", **RETRY)
+@recorded("train-pd")
 def train_pd_task(period: str, version: str, paths: Paths, prefix: str, trials: int) -> Trained:
     """PD of the training set ``version``: trained, registered and judged (D-100, D-101)."""
     return _with_alerts(
@@ -233,6 +327,7 @@ def train_pd_task(period: str, version: str, paths: Paths, prefix: str, trials: 
 
 
 @task(name="train-lgd", **RETRY)
+@recorded("train-lgd")
 def train_lgd_task(
     period: str,
     version: str,
@@ -258,6 +353,7 @@ def train_lgd_task(
 
 
 @task(name="buy-rule", **RETRY)
+@recorded("buy-rule")
 def buy_rule_task(period: str, version: str, paths: Paths, prefix: str) -> bool:
     """The buy rule of the champion pair (D-120); return whether its champion moved."""
     name = f"{prefix}{buy_rule.NAME}"
@@ -300,6 +396,7 @@ RELOAD_TIMEOUT: Final = 30.0
 
 
 @task(name="reload")
+@recorded("reload")
 def reload_task(period: str) -> bool:
     """Ask the API to load the new champions now (D-111); return whether it answered.
 
@@ -440,7 +537,7 @@ def monthly(
     pd_ = train_pd_task(period, version, paths, prefix, trials)
     lgd = train_lgd_task(period, version, pd_.covered_terms, paths, prefix, trials)
     rule_moved = buy_rule_task(period, version, paths, prefix)
-    referenced = reference_task(prefix)
+    referenced = reference_task(period, prefix)
     reloaded = reload_task(period) if pd_.changed or lgd.changed or rule_moved else None
     summary = {
         "period": period,

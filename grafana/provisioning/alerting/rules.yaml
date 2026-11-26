@@ -1,0 +1,61 @@
+# How the alerts reach a person (D-147, D-148). The rules that decide an alert run in the
+# monthly flow and write ops.alerts; this rule only finds the warnings and errors of the
+# last 7 days, one instance per alert_id, so each alert is sent once (repeat interval of
+# a year, no message when it ages out). A Grafana down for less than 7 days sends what it
+# missed when it comes back. It runs every 10 seconds: a tiny query on an index.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: credit-risk
+    folder: Credit risk
+    interval: 10s
+    rules:
+      - uid: credit-risk-ops-alerts
+        title: Credit risk alert
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: credit-risk-postgres
+            model:
+              refId: A
+              datasource:
+                type: grafana-postgresql-datasource
+                uid: credit-risk-postgres
+              editorMode: code
+              format: table
+              rawQuery: true
+              rawSql: |-
+                SELECT alert_id::text AS alert_id, kind, severity,
+                       coalesce(to_char(period, 'YYYY-MM'), '') AS period,
+                       left(message, 500) AS message, 1 AS value
+                FROM ops.alerts
+                WHERE severity IN ('warning', 'error')
+                  AND at > now() - interval '7 days'
+          - refId: B
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              datasource:
+                type: __expr__
+                uid: __expr__
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        isPaused: false
+        labels:
+          source: ops.alerts
+        annotations:
+          summary: "{{ $labels.severity }} {{ $labels.kind }} {{ $labels.period }}: {{ $labels.message }}"

@@ -142,6 +142,10 @@ filterwarnings = [
 # ci: the delivery tooling (step 5.2), outside the package and every image.
 source = ["credit_risk", "ci"]
 branch = true
+# The study of the alert thresholds (D-150) runs only on the real data, by hand
+# (make calibrate); its check is the data tests T33, not CI. Its rules (propose) are
+# also run by the unit test T33.3. D-157.
+omit = ["*/credit_risk/monitoring/calibrate.py"]
 
 [tool.coverage.report]
 show_missing = true

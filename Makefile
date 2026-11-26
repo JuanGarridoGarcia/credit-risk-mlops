@@ -13,7 +13,7 @@ DOCKER_BUILD_FLAGS ?=
 # Loads .env into the environment of a recipe line (the Python settings read it from there).
 LOAD_ENV := set -a && . ./.env && set +a
 
-.PHONY: help install lint format test build test-image up down test-integration clean audit check data publish test-data migrate ingest snapshot diff-cover notebooks train advance replay rollback
+.PHONY: help install lint format test build test-image up down test-integration clean audit check data publish test-data migrate ingest snapshot diff-cover notebooks train advance replay rollback exam calibrate
 
 help: ## List the available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -49,9 +49,10 @@ publish: data ## Simulator: publish every monthly delivery up to PERIOD (YYYY-MM
 	@test -n "$(PERIOD)" || { echo "usage: make publish PERIOD=YYYY-MM"; exit 1; }
 	$(UV) python -m credit_risk.simulator --until $(PERIOD)
 
-migrate: up ## Apply the pending schema migrations (db/migrations) to the database in .env
+migrate: up ## Apply the pending schema migrations (db/migrations) to the database in .env, and let Grafana's read-only role log in (D-155)
 	$(LOAD_ENV) && DATABASE_URL="$(DATABASE_URL)" docker run --rm --network host -e DATABASE_URL \
 		-v "$(CURDIR)/db:/db:ro" $(DBMATE_IMAGE) --migrations-dir /db/migrations --no-dump-schema up
+	$(LOAD_ENV) && $(UV) python -m credit_risk.monitoring.grafana
 
 ingest: migrate ## Load the deliveries of PERIOD (YYYY-MM) into raw and clean (run 'make publish' first)
 	@test -n "$(PERIOD)" || { echo "usage: make ingest PERIOD=YYYY-MM"; exit 1; }
@@ -79,6 +80,12 @@ rollback: up ## Put back the champion before the current one of MODEL (pd or lgd
 test-data: data ## Run the tests that need the real data file (not in CI)
 	$(UV) pytest -m data
 
+exam: data migrate ## Exam of the alert thresholds (D-150): replay 2014-01 to 2018-12 on a database of its own; resumes where it stopped (FRESH=1 starts again); takes hours
+	$(LOAD_ENV) && $(UV) python -m tests.data.exam
+
+calibrate: up ## Study of the alert thresholds on the exam's database at T0 (D-150); writes reports/thresholds and the tables of docs/thresholds.md
+	$(LOAD_ENV) && POSTGRES_DB=threshold_exam $(UV) python -m credit_risk.monitoring.calibrate --prefix exam-
+
 notebooks: ## Run the audit notebook top to bottom; fails if its outputs differ from the committed ones (D-065)
 	$(UV) --group notebooks jupyter nbconvert --to notebook --execute --inplace notebooks/00_data_audit.ipynb
 	git diff --exit-code --stat -- reports/data_audit ':(exclude)*.png'
@@ -91,7 +98,7 @@ test-image: ## Run the unit tests inside an image with the package installed as 
 	docker build $(DOCKER_BUILD_FLAGS) --target test -t credit-risk:test .
 	docker run --rm credit-risk:test
 
-up: ## Start the services (Postgres, MLflow, Prefect, its worker, the clock and the API) and wait until they are healthy (run 'make build' first)
+up: ## Start the services (Postgres, MLflow, Prefect, its worker, the clock, the API and Grafana) and wait until they are healthy (run 'make build' first)
 	@test -f .env || { echo ".env missing: run 'make install' or copy .env.example"; exit 1; }
 	docker compose up -d --wait
 

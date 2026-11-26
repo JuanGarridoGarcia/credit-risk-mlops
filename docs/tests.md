@@ -36,6 +36,11 @@ Every test of the project, what it checks, where it lives and where it runs. Jua
 - [T26 Real performance](#t26-real-performance)
 - [T27 Monitoring in the flow](#t27-monitoring-in-the-flow)
 - [T28 Monitoring on the real data](#t28-monitoring-on-the-real-data)
+- [T29 Alert rules](#t29-alert-rules)
+- [T30 Alerts in the flow](#t30-alerts-in-the-flow)
+- [T31 Task runs](#t31-task-runs)
+- [T32 Grafana](#t32-grafana)
+- [T33 Calibration and exam](#t33-calibration-and-exam)
 - [Change history](#change-history)
 
 ## How tests are organised
@@ -46,7 +51,7 @@ Tests are grouped by the piece they check. Group B holds the foundations (packag
 |---|---|---|---|---|---|
 | Unit | `tests/unit/` | none | Nothing | `make test`, `make test-image` | CI (job `tests`), and inside the image (job `integration`) |
 | Integration | `tests/integration/` | `integration` (`destructive` for B4 and T8.2) | Docker: compose Postgres and MLflow, or the built images | `make test-integration` | CI (job `integration`) |
-| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15, T5.13, T5.14, T6.8, T10.6, T12.6, T14.6, T15.7, T17.9, T18.15, T28.1, T28.2; MLflow for T14.6, T17.9 and T28.2; the Prefect server for T17.9 and T28.2) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
+| Data | `tests/data/` | `data` | The real Lending Club file and its deliveries in `data/` (and Postgres for T3.13, T3.15, T4.15, T5.13, T5.14, T6.8, T10.6, T12.6, T14.6, T15.7, T17.9, T18.15, T28.1, T28.2, T33.1, T33.2, T33.4; MLflow for T14.6, T17.9, T28.2, T33.1, T33.2; the Prefect server for T17.9 and T28.2; T33 reads the database `make exam` leaves) | `make test-data` | Local only: the file is 1.6 GB and Kaggle needs a token |
 
 Integration and data tests never skip: if what they need is missing, they fail.
 
@@ -92,7 +97,12 @@ Changing what an approved test checks needs Juan's approval again. B6 fails if a
 | T26 Real performance | F6, step 6.1, first pull request | 2 | 2026-11-26 | [technical.md, F6](technical.md#first-pull-request-drift-and-metrics) |
 | T27 Monitoring in the flow | F6, step 6.1, first pull request | 5 | 2026-11-26 | [technical.md, F6](technical.md#first-pull-request-drift-and-metrics) |
 | T28 Monitoring on the real data | F6, step 6.1, first pull request | 2 | 2026-11-26 | [technical.md, F6](technical.md#first-pull-request-drift-and-metrics) |
-| **Total** | | **208** | | |
+| T29 Alert rules | F6, step 6.2, second pull request | 5 | 2026-11-26 | [technical.md, F6](technical.md#second-pull-request-dashboards-and-alerts) |
+| T30 Alerts in the flow | F6, step 6.2, second pull request | 3 | 2026-11-26 | [technical.md, F6](technical.md#second-pull-request-dashboards-and-alerts) |
+| T31 Task runs | F6, step 6.2, second pull request | 2 | 2026-11-26 | [technical.md, F6](technical.md#second-pull-request-dashboards-and-alerts) |
+| T32 Grafana | F6, step 6.2, second pull request | 6 | 2026-11-26 | [technical.md, F6](technical.md#second-pull-request-dashboards-and-alerts) |
+| T33 Calibration and exam | F6, step 6.2, second pull request | 4 | 2026-11-26 | [thresholds.md](thresholds.md), [technical.md, F6](technical.md#second-pull-request-dashboards-and-alerts) |
+| **Total** | | **228** | | |
 
 ## B Foundations
 
@@ -505,6 +515,61 @@ F6, step 6.1, first pull request (D-143, D-145). Local only, like every data tes
 | T28.1 | The share of first-year defaults on the cohorts matured at T0 agrees with the audit: 41% for 36 months, within 5 points; only 36-month loans have matured | `tests/data/test_monitoring_data.py::test_the_first_year_share_at_t0_agrees_with_the_audit` | Data | Local |
 | T28.2 | The real year of T17.9: every month from 2014-02 to 2014-12 has its drift for the 30 features and the 3 predictions of each pair that answered, and T0 none; it prints the largest PSI of each month without fixing any value (thresholds are for 6.2) | `tests/data/test_clock_data.py::test_every_month_of_the_real_year_with_predictions_has_its_drift` | Data | Local |
 
+## T29 Alert rules
+
+F6, step 6.2, second pull request (D-147, D-149, D-151, D-156). Pure functions of `credit_risk/monitoring/alerting.py`; the thresholds are read from the packaged file, so the tests hold whatever its values are.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T29.1 | The thresholds file is validated when loaded: every signal of D-149 is there, each value within its possible range and with a written reason; a missing section or value, a value out of range, a value that is not a number, a missing reason or a file that does not parse is refused with a clear message. Every new kind has the severity of D-149 | `tests/unit/test_alerting.py::test_the_thresholds_file_is_complete_in_range_and_explained` | Unit | CI, image |
+| T29.2 | The layers of D-149: an input variable with a huge PSI raises nothing; a prediction above its threshold raises a `prediction_drift` warning naming its signal and pair; at or below its threshold, nothing | `tests/unit/test_alerting.py::test_only_the_predictions_alert_and_only_above_their_threshold` | Unit | CI, image |
+| T29.3 | The early warning raises an alert only when the lower end of its interval is above the threshold; a high ratio whose interval crosses it, or a lower end equal to it, raises nothing | `tests/unit/test_alerting.py::test_the_early_warning_alerts_only_with_its_whole_interval_above` | Unit | CI, image |
+| T29.4 | A matured cohort whose whole AUC interval is below the validation AUC minus the margin, whose whole calibration interval is above its margin, or whose LGD level error is beyond its threshold, raises a `performance_drop` error each; within, or by grade only, nothing; a PD version with no validation AUC is not judged on its AUC | `tests/unit/test_alerting.py::test_a_matured_cohort_clearly_worse_than_validation_is_an_error` | Unit | CI, image |
+| T29.5 | A new LGD with a level correction beyond the threshold (either sign) raises an `lgd_level_shift` warning that states its verdict, promoted or not, which the rule never changes; at or below the threshold, nothing | `tests/unit/test_alerting.py::test_a_large_level_correction_warns_and_leaves_the_verdict_alone` | Unit | CI, image |
+
+## T30 Alerts in the flow
+
+F6, step 6.2, second pull request (D-147, D-149). Postgres only, like T27.3: the reference is a made-up set of 600 PDs and the months are written straight into `serving.predictions`.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T30.1 | An injected change raises the alert (asked by the playbook): a month drawn like the reference records nothing; a month with the PD doubled makes `monitor` record a `prediction_drift` warning for the PD, with its PSI equal to the stored drift, and none for the LGD | `tests/integration/test_alerting.py::test_an_injected_change_of_the_pd_raises_the_alert` | Integration | CI |
+| T30.2 | Measuring a month again records each alert once: the second run finds the same alerts and records none | `tests/integration/test_alerting.py::test_measuring_a_month_again_records_each_alert_once` | Integration | CI |
+| T30.3 | The migration accepts the four new kinds with their severity, each signal or version once; it refuses an unknown kind and a monitoring alert with no signal | `tests/integration/test_alerting.py::test_the_new_kinds_are_accepted_with_their_severity_and_others_refused` | Integration | CI |
+
+## T31 Task runs
+
+F6, step 6.2, second pull request (D-154), on the clock story of `tests/integration/test_clock.py`.
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T31.1 | Every task of every month of the story leaves one row in `ops.task_runs` with its month, name, start, seconds (0 or more) and state `completed`; the tasks of each month are the ones its flow ran | `tests/integration/test_clock.py::test_every_task_of_a_month_leaves_its_run` | Integration | CI |
+| T31.2 | The `load` that fails in 2012-03 leaves its row `failed` with its error; the month done again adds a `completed` row in another flow run and leaves the failed one as it was | `tests/integration/test_clock.py::test_a_failed_task_leaves_its_failed_run_and_the_month_again_adds_rows` | Integration | CI |
+
+## T32 Grafana
+
+F6, step 6.2, second pull request (D-147, D-148, D-152 to D-155). Grafana of docker compose; the channel of the tests is a webhook to a receiver inside the test process (Grafana is started again with `GRAFANA_WEBHOOK_URL`, and once more without it at the end).
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T32.1 | Grafana starts healthy with the three dashboards, the data source (as `grafana_reader`) and the delivery rule already provisioned, read through its API (asked by the playbook: "the dashboard is created automatically"); each dashboard links to the three | `tests/integration/test_grafana.py::test_grafana_starts_with_its_dashboards_source_and_rule_provisioned` | Integration | CI |
+| T32.2 | Every SQL query of every panel of the three dashboards runs as `grafana_reader` on the migrated test database and returns the columns its panel expects (D-153) | `tests/integration/test_grafana.py::test_every_panel_query_runs_as_the_reader` | Integration | CI |
+| T32.3 | `grafana_reader` reads the tables of the dashboards and nothing else (`raw`, `clean`, `serving.predictions`, `serving.purchases`, `ops.ingest_log` refused); it is read-only by default and, even when it asks to write, cannot insert, update, delete or truncate | `tests/integration/test_grafana.py::test_the_reader_reads_the_dashboards_tables_and_nothing_else` | Integration | CI |
+| T32.4 | Delivery end to end: a new warning in `ops.alerts` reaches the receiver once within 2 minutes, with its kind, severity and message; 35 seconds later (three more evaluations) it has not been sent again, and an `info` was never sent | `tests/integration/test_grafana.py::test_a_new_warning_reaches_the_channel_once` | Integration | CI |
+| T32.5 | Without the Telegram secrets Grafana starts, its contact point has the webhook only, the dashboards are loaded, and delivery works (T32.4, in the same state) | `tests/integration/test_grafana.py::test_without_telegram_grafana_starts_and_the_other_channel_works` | Integration | CI |
+| T32.6 | Without logging in, the API of dashboards and data sources answers 401 and a dashboard page sends to the login: no anonymous access (D-155) | `tests/integration/test_grafana.py::test_nothing_is_shown_without_logging_in` | Integration | CI |
+
+## T33 Calibration and exam
+
+F6, step 6.2, second pull request (D-150, D-156), written up in [thresholds.md](thresholds.md). T33.1 has a unit part; T33.3 is a unit test on the committed summary of the study; the others read the database that `make exam` leaves (it takes hours, more than a test may; the tests fail with what to run when it is missing).
+
+| ID | What it checks | Functions | Kind | Runs in |
+|---|---|---|---|---|
+| T33.1 | The study does not look at the future: every month, cohort and cutoff it asks the database for, and every one in its result, is no later than 2013-12; and `check_known` refuses a month of 2014 with a clear message | `tests/unit/test_alerting.py::test_the_study_refuses_anything_unknown_at_t0`, `tests/data/test_calibration_data.py::test_the_study_reads_nothing_after_what_was_known_at_t0` | Unit, data | CI, image (unit part); local |
+| T33.2 | The study is reproducible: two runs give the same result, its summary is the committed `reports/thresholds/summary.json`, and the tables published in `docs/thresholds.md` are the ones it writes (like D-065 for the notebook) | `tests/data/test_calibration_data.py::test_the_study_is_reproducible_and_its_published_tables_are_its_own` | Data | Local |
+| T33.3 | The values of the thresholds file follow the written rules of the study (`calibrate.propose` on the committed summary); on made-up studies, an old reference does not count, a correction of either sign counts, and a signal above every value of the grid is refused | `tests/unit/test_alerting.py::test_the_thresholds_follow_the_written_rules_of_the_study` | Unit | CI, image |
+| T33.4 | The exam: the simulation 2014-01 to 2018-12 with the thresholds frozen ran every month (no `flow_failed`), every month with predictions has its drift, and the alerts of each kind and month are the committed `reports/thresholds/exam.json` and the table of `docs/thresholds.md` | `tests/data/test_calibration_data.py::test_the_exam_runs_every_month_and_raises_the_documented_alerts` | Data | Local |
+
 ## Change history
 
 | Date | Test | Change | Why |
@@ -551,3 +616,5 @@ F6, step 6.1, first pull request (D-143, D-145). Local only, like every data tes
 | 2026-11-25 | T22.6 | Written (F5, after the first publication) | The clock had no admin key in compose and no test read compose ([E-056](errors.md#e-056)); Juan chose a unit test on compose over a slower integration test, and approved it |
 | 2026-11-26 | T23.1 to T23.6, T24.1 to T24.3, T25.1 to T25.4, T26.1, T26.2, T27.1 to T27.5, T28.1, T28.2 | Written (F6, first pull request) | Approved by Juan |
 | 2026-11-26 | T16.8, T17.6 | T16.8: `monitor` and `reference` never run after a failed validation either. T17.6: every month runs `monitor` after `load`, and the retraining months also `reference`. What each test checks is unchanged | The flow has two more tasks ([D-145](decisions.md#d-145), [D-142](decisions.md#d-142)) |
+| 2026-11-26 | T29.1 to T29.5, T30.1 to T30.3, T31.1, T31.2, T32.1 to T32.6, T33.1 to T33.4 | Written (F6, second pull request). T33.3 is a unit test on the committed summary of the study, so it runs in CI; T33.1, T33.2 and T33.4 read the database of `make exam` instead of running the exam inside the test; the receiver of T32 runs in the test process, not in compose | Approved by Juan. The exam takes hours and the machine of the project restarts now and then, so it is a command that resumes; a receiver in the test process needs no extra service |
+| 2026-11-26 | T25 to T27 (fixture `mdb` of `tests/integration/test_monitoring.py`) | The fixture also empties `ops.alerts` and gives the validation AUC of a version directly. What each test checks is unchanged | `monitor` now records alerts and reads the validation AUC from MLflow ([D-147](decisions.md#d-147)) |

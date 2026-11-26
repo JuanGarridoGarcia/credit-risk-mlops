@@ -1,0 +1,47 @@
+# The thresholds of the monitoring alerts (D-149, D-156).
+#
+# Calibrated with only what was known at T0, 2014-01 (D-150): the study of
+# credit_risk.monitoring.calibrate, written up in docs/thresholds.md. They stay frozen
+# for the simulation 2014 to 2018, which is their exam; a change is a new decision.
+# Every value says why it is what it is.
+
+[prediction_drift.pd]
+psi = 0.25
+reason = """The smallest value of the grid 0.10, 0.15, 0.20, 0.25 that no month exceeded \
+with a reference 0 to 2 months old before T0 (largest: 0.219). With the quarterly \
+retraining (D-106) a reference is that old; a larger PSI says the population moved \
+beyond what a fresh reference shows."""
+
+[prediction_drift.lgd]
+psi = 0.15
+reason = """Same rule as the PD: largest PSI with a reference 0 to 2 months old before \
+T0 was 0.121."""
+
+[prediction_drift.el_rate]
+psi = 0.25
+reason = """Same rule as the PD: largest PSI with a reference 0 to 2 months old before \
+T0 was 0.217."""
+
+[early_warning]
+ratio_low = 1.0
+reason = """The whole 95% interval of observed / expected above 1: more defaults in the \
+first year than the PD expects, for sure. Chosen by Juan on 2026-11-26 (D-156) knowing \
+that before T0 it fired in 2009-11, 2011-04 and 7 of the last 8 cohorts, a real gap."""
+
+[performance]
+auc_margin = 0.01
+calibration_margin = 0.01
+lgd_level = 0.15
+reason = """A matured cohort is clearly worse when the whole interval of its AUC is \
+below the champion's validation AUC minus 0.01, or the whole interval of its \
+calibration error is above 0.01 (a Platt calibrated PD has none on validation, D-076): \
+the margins of a segment clearly worse at promotion (D-093). No cohort matured before \
+T0 crossed them. The LGD level error (predicted minus observed, D-017) above 0.15 is \
+more than any level correction the LGD needed before T0 (largest: 0.134)."""
+
+[lgd_level_shift]
+shift = 0.15
+reason = """The first value of the grid 0.05, 0.10, 0.15, 0.20 above every level \
+correction of the baseline LGD at a quarterly pseudo cutoff before T0 (0.047 to \
+0.134). A larger correction means the loss moved more than ever between training and \
+validation (D-151)."""

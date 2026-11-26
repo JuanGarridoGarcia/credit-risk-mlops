@@ -1,0 +1,11 @@
+# Every alert goes to the contact point of the channels that are set (start.sh), alone
+# (grouped by its alert_id), at once, and never again (D-147).
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: credit-risk
+    group_by: ["alert_id"]
+    group_wait: 0s
+    group_interval: 1m
+    repeat_interval: 8760h

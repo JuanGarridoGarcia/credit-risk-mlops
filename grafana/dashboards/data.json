@@ -1,0 +1,239 @@
+{
+  "uid": "credit-risk-data",
+  "title": "Credit risk: Data",
+  "description": "Has what comes in changed? Drift of the 30 inputs against the reference of the champions (D-138, D-139). Input drift never alerts by itself (D-149).",
+  "tags": [
+    "credit-risk"
+  ],
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 1,
+  "time": {
+    "from": "2013-06-01T00:00:00.000Z",
+    "to": "2019-01-31T00:00:00.000Z"
+  },
+  "timepicker": {},
+  "timezone": "utc",
+  "refresh": "1m",
+  "links": [
+    {
+      "title": "System",
+      "url": "/d/credit-risk-system",
+      "type": "link",
+      "icon": "dashboard"
+    },
+    {
+      "title": "Data",
+      "url": "/d/credit-risk-data",
+      "type": "link",
+      "icon": "dashboard"
+    },
+    {
+      "title": "Model",
+      "url": "/d/credit-risk-model",
+      "type": "link",
+      "icon": "dashboard"
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "subject",
+        "label": "Variable",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "credit-risk-postgres"
+        },
+        "query": "SELECT DISTINCT subject FROM monitoring.drift WHERE kind <> 'prediction' ORDER BY 1",
+        "definition": "SELECT DISTINCT subject FROM monitoring.drift WHERE kind <> 'prediction' ORDER BY 1",
+        "refresh": 1,
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "text": "int_rate",
+          "value": "int_rate"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "PSI of every input, month by month",
+      "type": "state-timeline",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "credit-risk-postgres"
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "description": "Green below 0.10, yellow to 0.25, red above: the usual reading of the PSI. Inputs only inform; the alerts are on the predictions (D-149).",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "credit-risk-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT period::timestamptz AS time, subject AS metric, max(psi) AS value\nFROM monitoring.drift\nWHERE kind <> 'prediction' AND $__timeFilter(period)\nGROUP BY period, subject\nORDER BY period"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 85
+          },
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 0.25
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": false,
+        "rowHeight": 0.9,
+        "legend": {
+          "showLegend": false
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "PSI of ${subject}",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "credit-risk-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "description": "PSI against the reference, and the KS statistic for information (D-139).",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "credit-risk-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT period::timestamptz AS time, psi AS \"PSI\", ks AS \"KS (information)\"\nFROM monitoring.drift\nWHERE subject = '$subject' AND $__timeFilter(period)\nORDER BY period"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "decimals": 3
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 3,
+      "title": "Missing and new values of ${subject}",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "credit-risk-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "description": "Share of missing values, and of categories never seen or numbers outside the range of the reference.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "credit-risk-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT period::timestamptz AS time, null_share AS \"missing share\",\n       new_values::double precision / NULLIF(rows, 0) AS \"new values share\"\nFROM monitoring.drift\nWHERE subject = '$subject' AND $__timeFilter(period)\nORDER BY period"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 4,
+      "title": "Largest input drift of the latest month",
+      "type": "table",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "credit-risk-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "description": "The inputs that moved most in the last month measured.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "credit-risk-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT subject AS \"variable\", kind, round(psi::numeric, 3) AS \"PSI\",\n       round(null_share::numeric, 3) AS \"missing\", new_values AS \"new values\",\n       to_char(period, 'YYYY-MM') AS \"month\"\nFROM monitoring.drift\nWHERE kind <> 'prediction'\n  AND period = (SELECT max(period) FROM monitoring.drift)\nORDER BY psi DESC\nLIMIT 15"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {}
+    }
+  ]
+}
