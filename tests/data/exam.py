@@ -12,6 +12,7 @@ Needs the real source file (``make data``) and the services of docker compose.
 
 import os
 import shutil
+import signal
 import sys
 import time
 from pathlib import Path
@@ -81,7 +82,14 @@ def run(until: str = LAST, *, fresh: bool = False) -> list[str]:
         return clock.replay(until, world, paths, FIRST, PREFIX)
 
 
+def _stop(signum: int, _frame: object) -> None:
+    # SIGTERM would end the process at once and leave the API of the exam running, alone
+    # and writing alerts into the exam's database (E-067): unwind instead, so it stops.
+    sys.exit(128 + signum)
+
+
 def main() -> None:
+    signal.signal(signal.SIGTERM, _stop)
     until = sys.argv[1] if len(sys.argv) > 1 else LAST
     start = time.perf_counter()
     months = run(until, fresh=os.environ.get("FRESH") == "1")

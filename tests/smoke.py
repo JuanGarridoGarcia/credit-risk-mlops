@@ -55,13 +55,13 @@ def _compose(project: str, env: dict[str, str], *args: str) -> subprocess.Comple
     )  # fmt: skip
 
 
-@contextmanager
-def services(serve: str, train: str) -> Iterator[dict[str, str]]:
-    """Postgres, MLflow and the API from the given images; yields their ports."""
-    project = f"credit-risk-smoke-{uuid.uuid4().hex[:8]}"
-    ports = {name: str(free_port()) for name in ("postgres", "mlflow", "api")}
-    env = {
-        **os.environ,
+def environment(serve: str, train: str, ports: dict[str, str]) -> dict[str, str]:
+    """What the smoke test gives compose on top of the environment of its process.
+
+    It must set every variable compose requires (``${NAME:?...}``), whatever service
+    needs it: compose reads the whole file before starting any (T22.7, E-064).
+    """
+    return {
         "SERVE_IMAGE": serve,
         "TRAIN_IMAGE": train,
         "POSTGRES_DB": USER,
@@ -79,6 +79,14 @@ def services(serve: str, train: str) -> Iterator[dict[str, str]]:
         "GRAFANA_ADMIN_PASSWORD": PASSWORD,
         "GRAFANA_DB_PASSWORD": PASSWORD,
     }
+
+
+@contextmanager
+def services(serve: str, train: str) -> Iterator[dict[str, str]]:
+    """Postgres, MLflow and the API from the given images; yields their ports."""
+    project = f"credit-risk-smoke-{uuid.uuid4().hex[:8]}"
+    ports = {name: str(free_port()) for name in ("postgres", "mlflow", "api")}
+    env = {**os.environ, **environment(serve, train, ports)}
     try:
         # Postgres is not ours and the publish job runs on a fresh machine, which has never
         # pulled it (E-055): pull it, by the digest pinned in compose.
