@@ -21,6 +21,7 @@ from psycopg.rows import dict_row
 
 from credit_risk.monitoring import calibrate
 from credit_risk.settings import Settings
+from tests.calibrate_support import months_found, spied_study
 from tests.data import exam
 
 pytestmark = pytest.mark.data
@@ -52,39 +53,7 @@ def conn() -> Iterator[psycopg.Connection[Any]]:
 @pytest.fixture(scope="module")
 def spied(conn: psycopg.Connection[Any]) -> tuple[dict[str, Any], dict[str, list[date]]]:
     """The study, with every month it asks the database for recorded."""
-    asked: dict[str, list[date]] = {"scored": [], "outcomes": [], "frames": [], "shares": []}
-    original = {
-        name: getattr(calibrate, name)
-        for name in ("scored_reference", "_outcomes", "build_frames", "first_year_shares")
-    }
-
-    def scored(c: Any, champions: Any, months: list[date]) -> Any:
-        asked["scored"] += months
-        return original["scored_reference"](c, champions, months)
-
-    def outcomes(c: Any, listed: date, at: date) -> Any:
-        asked["outcomes"] += [listed, at]
-        return original["_outcomes"](c, listed, at)
-
-    def frames(c: Any, cutoff: date, *args: Any, **kwargs: Any) -> Any:
-        asked["frames"].append(cutoff)
-        return original["build_frames"](c, cutoff, *args, **kwargs)
-
-    def shares(c: Any, last: date) -> Any:
-        asked["shares"].append(last)
-        return original["first_year_shares"](c, last)
-
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(calibrate, "scored_reference", scored)
-        patch.setattr(calibrate, "_outcomes", outcomes)
-        patch.setattr(calibrate, "build_frames", frames)
-        patch.setattr(calibrate, "first_year_shares", shares)
-        result = calibrate.study(conn, calibrate.t0_pair(conn), exam.PREFIX)
-    return result, asked
-
-
-def _month(text: str) -> date:
-    return date.fromisoformat(f"{text}-01")
+    return spied_study(conn, exam.PREFIX)
 
 
 # T33.1 (data part)
@@ -94,15 +63,9 @@ def test_the_study_reads_nothing_after_what_was_known_at_t0(
     result, asked = spied
     for what, months in asked.items():
         assert months, f"the study asked for no {what}"
-        assert max(months) <= calibrate.LAST_KNOWN, what
-    found = [
-        *(_month(r["month"]) for r in result["drift"]),
-        *(_month(r["evaluated"]) for r in result["early_warning"]),
-        *(_month(r["cohort"]) for r in result["performance"]["cohorts"]),
-        *(_month(r["cutoff"]) for r in result["level"]),
-    ]
-    assert max(found) <= calibrate.LAST_KNOWN
-    assert result["last_known"] == f"{calibrate.LAST_KNOWN:%Y-%m}"
+        assert max(months) <= calibrate.REAL.last_known, what
+    assert max(months_found(result)) <= calibrate.REAL.last_known
+    assert result["last_known"] == f"{calibrate.REAL.last_known:%Y-%m}"
 
 
 # T33.2
@@ -125,7 +88,7 @@ def test_the_exam_runs_every_month_and_raises_the_documented_alerts(
 ) -> None:
     month = conn.execute("SELECT month FROM sim.clock").fetchone()
     assert month is not None, "run 'make exam' first"
-    assert month[0] == calibrate.EXAM_LAST, "run 'make exam' to the end"
+    assert month[0] == calibrate.REAL.exam_last, "run 'make exam' to the end"
     with conn.cursor(row_factory=dict_row) as cursor:
         failed = cursor.execute("SELECT * FROM ops.alerts WHERE kind = 'flow_failed'").fetchall()
     assert failed == [], "every month of the exam ran"

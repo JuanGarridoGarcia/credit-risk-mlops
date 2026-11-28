@@ -169,10 +169,10 @@ def test_a_large_level_correction_warns_and_leaves_the_verdict_alone() -> None:
 
 # T33.1 (unit part)
 def test_the_study_refuses_anything_unknown_at_t0() -> None:
-    calibrate.check_known("months", [date(2012, 1, 1), calibrate.LAST_KNOWN])
+    calibrate.check_known("months", [date(2012, 1, 1), calibrate.REAL.last_known])
     with pytest.raises(calibrate.FutureDataError, match="2014-01 is after 2013-12"):
         calibrate.check_known("months", [date(2013, 6, 1), date(2014, 1, 1)])
-    assert calibrate.LAST_KNOWN < calibrate.T0
+    assert calibrate.REAL.last_known < calibrate.REAL.t0
 
 
 # T33.3

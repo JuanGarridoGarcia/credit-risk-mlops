@@ -1126,4 +1126,6 @@ The result is in [thresholds.md, section 6](thresholds.md#6-the-exam-2014-to-201
 | E-066 | A fresh exam kept the models of the previous one |
 | E-067 | Stopping the exam left its API running alone, writing false alerts |
 
+**After PR #22: the study in CI ([D-157](decisions.md#d-157)).** PR #22 left `calibrate.py` out of the coverage measure, since only the data tests ran it. Juan rejected that: leaving code out reads like a way around the rule. Now the dates of the study travel as a `Calendar` (the real one is the default, so `make calibrate` gives the same files), its command line takes the folder to write into, and two tests at the end of the clock story run it whole on the made-up history: T33.5 the study with T0 at 2012-01 (nothing after 2011-12 is read, every part has rows, two runs agree, and on 15 loans a month the rules refuse to choose a threshold: the PSI of the PD reaches 3.03 by chance alone) and T33.6 the command line on a copy of `docs/thresholds.md`. No line of the package is left out of the coverage now.
+
 **For F8** (noted, not built): the Model dashboard is the base of the demo; publishing it needs a decision on anonymous, read-only access.
