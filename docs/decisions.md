@@ -164,7 +164,7 @@ Rules: a decision is never deleted or rewritten. If it changes, a new decision s
 | [D-154](#d-154) | 2026-11-26 | 6.2 | Every attempt of every task is recorded in `ops.task_runs` | Active |
 | [D-155](#d-155) | 2026-11-26 | 6.2 | Grafana reads with a read-only role and asks for a login; no anonymous access until F8 | Active |
 | [D-156](#d-156) | 2026-11-26 | 6.2 | The values of the thresholds, by rules written before reading the study | Active |
-| [D-157](#d-157) | 2026-11-26 | 6.2 | The study of the thresholds is left out of the coverage of CI; the data tests T33 check it | Active |
+| [D-157](#d-157) | 2026-11-26 | 6.2 | The study of the thresholds runs whole in CI, on the history of the clock tests with dates of its own | Active |
 
 ## Decisions
 
@@ -1827,12 +1827,12 @@ Date: 2026-11-26 · Step: 6.2 · Status: Active
 - **Consequences**: expect early warnings in the first months of the exam. `calibrate.propose` applies the rules; T33.3 checks the file against them. Tests T29.1 and T33.3.
 
 <a id="d-157"></a>
-### D-157 The study of the thresholds is left out of the coverage of CI; the data tests T33 check it
+### D-157 The study of the thresholds runs whole in CI, on the history of the clock tests with dates of its own
 
 Date: 2026-11-26 · Step: 6.2 · Status: Active
 
-- **Context**: D-064 asks CI to cover 90% of the lines each pull request changes. The study of D-150 (`credit_risk/monitoring/calibrate.py`, about 640 lines) needs the real data and the models trained at T0, so only the data tests T33.1, T33.2 and T33.4 run it, locally; in CI only its rules (`propose`, T33.3) run. With it, the changed lines of 6.2 would be about 55 to 75% covered.
-- **Decision**: `calibrate.py` is omitted from the coverage measure (`[tool.coverage.run] omit`, with its reason). It still passes ruff and mypy in CI, and T33.3 imports it, so a change elsewhere that breaks its imports fails CI.
-- **Alternatives considered**: (B) unit tests of its pure parts (summary, tables, drift on a made-up frame) and `pragma: no cover` on the parts that read the database: more coverage, but new tests for a tool, and marked lines are a patch; (C) an integration test of the whole study on a made-up history: full coverage, but it trains a pair of models at T0 in CI and adds minutes to a job close to its limit.
-- **Why**: it is a tool of analysis run by hand, not code the system runs every month, like the audit notebook checked by D-065; its real check already exists.
-- **Consequences**: a change that breaks the logic of the study is found when `make calibrate` or `make test-data` runs, not in CI.
+- **Context**: D-064 asks CI to cover 90% of the lines each pull request changes. The study of D-150 (`credit_risk/monitoring/calibrate.py`, about 680 lines) needs the models trained at T0 and the months before T0, so only the data tests T33.1, T33.2 and T33.4 ran it, locally, on the real data; in CI only its rules (`propose`, T33.3) ran. PR #22 merged it left out of the coverage measure (option A below) while this was decided.
+- **Decision**: (C) the whole study runs in CI. Its dates (T0, the first pseudo cutoff of the drift, the first of the LGD level, the last month of the exam) are no longer fixed in the code: they travel together as a `Calendar` that the study takes as a parameter, with the dates of the real data (`calibrate.REAL`) as the default, so `make calibrate` and its results do not change. Its command line takes the folder to write into (`--root`). At the end of the story of the clock tests (T17, which already trains a pair of models at 2012-01 and runs to 2012-06), T33.5 runs the study with T0 at 2012-01 and T33.6 runs the command line on a copy of `docs/thresholds.md`. No line is left out of the coverage: the `omit` of `pyproject.toml` and the `pragma: no cover` of `main` are gone.
+- **Alternatives considered**: (A) leave `calibrate.py` out of the coverage measure, since its real check is the data tests: rejected by Juan, as leaving code out reads like hardcoding a way around the rule; (B) unit tests of its pure parts and `pragma: no cover` on the parts that read the database: marked lines are the same patch on a smaller scale.
+- **Why**: the study writes the thresholds the system runs with, so a change that breaks it should fail where every other change fails, in CI, not hours later in `make test-data`. Reusing the clock story costs no new training: the models and the history are already there, and the study on about 360 loans takes seconds.
+- **Consequences**: the dates of the made-up history are in `tests/integration/test_clock.py` (`STUDY`), next to the story that makes it. T33.5 checks the mechanics (no month after T0, every part has rows, two runs agree), not the values: on 15 loans a month they mean nothing. There chance alone gives a PSI of the PD of about 3, so the rules of `propose` refuse to choose a threshold, and T33.5 and T33.6 check that refusal (Juan, against raising the loans of the made-up history, which would slow every clock and flow test and still not promise a PSI below 0.25); that the rules choose values of their grids is T33.3, on the real study, and the values are checked on the real data by T33.2 and T33.4.

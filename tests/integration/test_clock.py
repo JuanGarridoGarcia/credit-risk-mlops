@@ -3,7 +3,9 @@ alerts table (D-108) against the services of docker compose, approved by Juan on
 2026-11-24; T21.2 to T21.5: the simulated investor inside the clock (D-123 to D-129),
 approved by Juan on 2026-11-25; T24.1 to T24.3, T27.2, T27.4 and T27.5: the monitoring of
 each month inside the clock (D-138 to D-146), and T31.1, T31.2: the run of every task in
-``ops.task_runs`` (D-154), approved by Juan on 2026-11-26.
+``ops.task_runs`` (D-154), approved by Juan on 2026-11-26; T33.5 and T33.6: the study of
+the thresholds (D-150) and its command line on the history the story leaves (D-157),
+approved by Juan on 2026-11-26.
 
 As in ``test_flows.py``, the flows run in this process on a database of their own and
 model names of their own, with the small made-up source of ``tests/synthetic_source.py``;
@@ -17,6 +19,7 @@ part of it.
 import asyncio
 import csv
 import gzip
+import json
 import os
 import uuid
 from collections.abc import Iterator
@@ -38,11 +41,13 @@ from credit_risk import alerts, flows, registry
 from credit_risk.contracts import LISTING_COLUMNS, LISTINGS, delivery_path
 from credit_risk.flows import Paths
 from credit_risk.ingest import read_delivery
+from credit_risk.monitoring import calibrate
 from credit_risk.monitoring import store as monitoring
 from credit_risk.settings import Settings
 from credit_risk.simulator import clock, replayer
 from credit_risk.simulator.clock import World
 from tests.api_support import ADMIN_KEY, PREDICT_KEY
+from tests.calibrate_support import ASKED, months_found, spied_study
 from tests.investor_support import check_month
 from tests.synthetic_source import write_source
 from tests.valid_rows import month_text
@@ -635,3 +640,96 @@ def test_a_failed_monitor_fails_the_month_and_the_clock_stays(
     monkeypatch.undo()
     _advance(story)
     assert clock.now() == last
+
+
+# ---------------------------------------------------------------- the study of the thresholds
+
+#: The dates of the study on the story's history: T0 is the first retraining month, the
+#: pseudo cutoffs start once the 12 months of their reference are after the PD's training
+#: data (listings up to 2008-08), and the exam is over at the last month of the source.
+STUDY = calibrate.Calendar(
+    t0=date(2012, 1, 1),
+    first_cutoff=date(2011, 1, 1),
+    first_level_cutoff=date(2011, 3, 1),
+    exam_last=UNTIL,
+)
+
+
+@pytest.fixture(scope="module")
+def studied(story: Story) -> tuple[dict[str, Any], dict[str, list[date]]]:
+    """The study on the story's history, with every month it asked the database for."""
+    with psycopg.connect(story.conninfo, autocommit=True) as conn:
+        return spied_study(conn, story.prefix, STUDY)
+
+
+# T33.5
+def test_the_study_runs_whole_on_the_story_and_reads_nothing_after_t0(
+    story: Story, studied: tuple[dict[str, Any], dict[str, list[date]]]
+) -> None:
+    result, asked = studied
+    last = STUDY.last_known
+    assert last == date(2011, 12, 1)
+    assert set(asked) == set(ASKED)
+    for what, months in asked.items():
+        assert months, f"the study asked for no {what}"
+        assert max(months) <= last, what
+    assert max(months_found(result)) <= last
+    assert result["last_known"] == "2011-12"
+    for part in ("drift", "early_warning", "level"):
+        assert result[part], f"{part} has rows"
+    assert result["performance"]["cohorts"], "performance has rows"
+
+    # On about 15 loans a month chance alone moves the PSI far above every value of the
+    # grid, and the rules refuse to choose a threshold instead of guessing one. That they
+    # choose values of their grids on the real study is T33.3.
+    with pytest.raises(ValueError, match="above every value of the grid"):
+        calibrate.propose(calibrate.summary(result))
+
+    with psycopg.connect(story.conninfo, autocommit=True) as conn:
+        again = calibrate.study(conn, calibrate.t0_pair(conn), story.prefix, STUDY)
+    assert calibrate.summary(again) == calibrate.summary(result), "two runs, the same summary"
+
+
+def _outside(document: str) -> str:
+    """The document without the generated tables."""
+    markers = [(calibrate.BEGIN, calibrate.END), (calibrate.EXAM_BEGIN, calibrate.EXAM_END)]
+    for begin, end in markers:
+        head, rest = document.split(begin)
+        document = head + begin + end + rest.split(end)[1]
+    return document
+
+
+# T33.6
+def test_the_command_line_writes_the_summary_the_exam_and_only_the_tables(
+    story: Story,
+    studied: tuple[dict[str, Any], dict[str, list[date]]],
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repository"
+    original = (Path(__file__).resolve().parents[2] / calibrate.DOCUMENT).read_text()
+    (root / calibrate.DOCUMENT).parent.mkdir(parents=True)
+    (root / calibrate.DOCUMENT).write_text(original)
+
+    # It writes everything, then says the rules refuse on this history (T33.5).
+    with pytest.raises(ValueError, match="above every value of the grid"):
+        calibrate.main(["--prefix", story.prefix, "--root", str(root)], STUDY)
+
+    found = json.loads((root / calibrate.SUMMARY).read_text())
+    assert found == calibrate.summary(studied[0])
+    document = (root / calibrate.DOCUMENT).read_text()
+    assert calibrate.published(document) == calibrate.tables(found)
+    assert _outside(document) == _outside(original), "the rest of the document is untouched"
+
+    alerts = json.loads((root / calibrate.EXAM).read_text())["alerts"]
+    assert calibrate.published(
+        document, calibrate.EXAM_BEGIN, calibrate.EXAM_END
+    ) == calibrate.exam_table(alerts)
+    raised = [a for a in _alerts(story) if a["kind"] in calibrate.THRESHOLD_KINDS]
+    assert raised, "the story raises alerts of the thresholds (prediction drift)"
+    listed = sorted((a["month"], a["kind"]) for a in alerts for _ in range(a["alerts"]))
+    month = [a["period"] or a["at"].date().replace(day=1) for a in raised]
+    assert listed == sorted((f"{m:%Y-%m}", a["kind"]) for m, a in zip(month, raised, strict=True))
+    totals = ", ".join(
+        f"{k} {sum(a['kind'] == k for a in raised)}" for k in calibrate.THRESHOLD_KINDS
+    )
+    assert f"Totals: {totals}." in document

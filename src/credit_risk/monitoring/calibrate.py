@@ -2,8 +2,12 @@
 
 The thresholds of the alerts (D-149) are set before the system starts, so they can use
 only the data the system had at T0 (2014-01): every month, cohort and outcome read here
-is no later than :data:`LAST_KNOWN` (2013-12), and :func:`check_known` refuses anything
-later. The simulation 2014 to 2018 then is the exam of the frozen thresholds.
+is no later than the last month known at T0 (2013-12), and :func:`check_known` refuses
+anything later. The simulation 2014 to 2018 then is the exam of the frozen thresholds.
+
+The dates below are those of the real data, :data:`REAL`. They travel together as a
+:class:`Calendar`, so that the integration tests run the whole study, and its command
+line, on the small made-up history of the clock tests with dates of their own (D-157).
 
 The models are the pair of champions at T0. The PD learns from listings up to about
 2010-08 (the cohorts matured at T0), so the months between that and T0 are real history
@@ -58,21 +62,40 @@ from credit_risk.validation.contract import CHARGE_OFF_LAG_MONTHS
 
 log = logging.getLogger(__name__)
 
-#: The first month of the simulation; nothing from it on is used.
-T0: Final = date(2014, 1, 1)
-#: The last month whose data the study may read.
-LAST_KNOWN: Final = date(2013, 12, 1)
-#: The first pseudo cutoff whose reference is entirely after the T0 PD's training data.
-FIRST_CUTOFF: Final = date(2011, 9, 1)
+
+@dataclass(frozen=True)
+class Calendar:
+    """The dates of the study."""
+
+    #: The first month of the simulation; nothing from it on is used.
+    t0: date
+    #: The first pseudo cutoff whose reference is entirely after the T0 PD's training data.
+    first_cutoff: date
+    #: Pseudo cutoffs of the LGD level study: every quarter from here to the last known.
+    first_level_cutoff: date
+    #: The last month of the simulation: the exam is over when it has been monitored.
+    exam_last: date
+
+    @property
+    def last_known(self) -> date:
+        """The last month whose data the study may read."""
+        return add_months(self.t0, -1)
+
+
+#: The dates of the real data.
+REAL: Final = Calendar(
+    t0=date(2014, 1, 1),
+    first_cutoff=date(2011, 9, 1),
+    first_level_cutoff=date(2011, 1, 1),
+    exam_last=date(2018, 12, 1),
+)
 #: The longest lag measured: a reference serves until the next promotion.
 MAX_LAG: Final = 11
 #: Draws of the noise of the PSI, and its percentile.
 NOISE_DRAWS: Final = 200
 NOISE_PERCENTILE: Final = 99
-#: The cohorts of the performance study: the last six 36-month cohorts matured by 2013-12.
+#: The cohorts of the performance study: the last six 36-month cohorts matured at T0.
 PERFORMANCE_COHORTS: Final = 6
-#: Pseudo cutoffs of the LGD level study: every quarter from here to LAST_KNOWN.
-FIRST_LEVEL_CUTOFF: Final = date(2011, 1, 1)
 SEED: Final = 0
 
 
@@ -80,11 +103,12 @@ class FutureDataError(ValueError):
     """The study was handed data from after what was known at T0."""
 
 
-def check_known(what: str, months: Iterable[date]) -> None:
-    """Refuse any month after :data:`LAST_KNOWN` (T33.1)."""
-    late = sorted(m for m in months if m > LAST_KNOWN)
+def check_known(what: str, months: Iterable[date], calendar: Calendar = REAL) -> None:
+    """Refuse any month after the last one known at T0 (T33.1)."""
+    last = calendar.last_known
+    late = sorted(m for m in months if m > last)
     if late:
-        raise FutureDataError(f"{what}: {late[0]:%Y-%m} is after {LAST_KNOWN:%Y-%m}, unknown at T0")
+        raise FutureDataError(f"{what}: {late[0]:%Y-%m} is after {last:%Y-%m}, unknown at T0")
 
 
 def months_between(first: date, last: date) -> list[date]:
@@ -98,9 +122,11 @@ def months_between(first: date, last: date) -> list[date]:
 # ---------------------------------------------------------------- drift
 
 
-def scored_months(conn: Connection, champions: Champions, months: list[date]) -> pl.DataFrame:
+def scored_months(
+    conn: Connection, champions: Champions, months: list[date], calendar: Calendar = REAL
+) -> pl.DataFrame:
     """Every listing of ``months`` scored by the champions, with its month."""
-    check_known("scored months", months)
+    check_known("scored months", months, calendar)
     parts = []
     for month in months:
         try:
@@ -131,12 +157,13 @@ class DriftRow:
     noise: float
 
 
-def drift_study(scored: pl.DataFrame, last: date = LAST_KNOWN) -> list[DriftRow]:
+def drift_study(scored: pl.DataFrame, calendar: Calendar = REAL) -> list[DriftRow]:
     """PSI of every subject of every month after each pseudo cutoff, at its lag."""
-    check_known("drift months", scored["period"].unique().to_list())
+    check_known("drift months", scored["period"].unique().to_list(), calendar)
+    last = calendar.last_known
     rng = np.random.default_rng(SEED)
     out = []
-    for cutoff in months_between(FIRST_CUTOFF, last):
+    for cutoff in months_between(calendar.first_cutoff, last):
         reference = scored.filter(pl.col("period").is_in(reference_months(cutoff)))
         bins = {b.subject: b for b in reference_bins(reference)}
         for lag in range(MAX_LAG + 1):
@@ -199,18 +226,19 @@ class EarlyRow:
 
 
 def early_warning_study(
-    conn: Connection, scored: pl.DataFrame, last: date = LAST_KNOWN
+    conn: Connection, scored: pl.DataFrame, calendar: Calendar = REAL
 ) -> list[EarlyRow]:
-    """The early warning (D-143) of every cohort measured at 17 months by ``last``."""
+    """The early warning (D-143) of every cohort measured at 17 months by the last known."""
     from credit_risk.monitoring.outcomes import EARLY_AFTER, EARLY_MONTHS
 
+    last = calendar.last_known
     shares = first_year_shares(conn, last)
     out = []
     for listed in sorted(scored["period"].unique().to_list()):
         at = add_months(listed, EARLY_AFTER)
         if at > last:
             continue
-        check_known("early warning", [listed, at])
+        check_known("early warning", [listed, at], calendar)
         known = _outcomes(conn, listed, at)
         loans = scored.filter((pl.col("period") == listed) & pl.col("pd").is_not_null()).join(
             known, on="loan_id", how="left"
@@ -255,11 +283,13 @@ class PerformanceRow:
     calibration_high: float
 
 
-def _labelled(conn: Connection, champions: Champions, months: list[date]) -> pl.DataFrame:
-    at = LAST_KNOWN
+def _labelled(
+    conn: Connection, champions: Champions, months: list[date], calendar: Calendar
+) -> pl.DataFrame:
+    at = calendar.last_known
     frames = []
     for month in months:
-        check_known("performance", [month])
+        check_known("performance", [month], calendar)
         scored = scored_reference(conn, champions, [month]).filter(
             (pl.col("term") == 36) & pl.col("pd").is_not_null()
         )
@@ -272,11 +302,13 @@ def _labelled(conn: Connection, champions: Champions, months: list[date]) -> pl.
     return pl.concat(frames)
 
 
-def performance_study(conn: Connection, champions: Champions) -> dict[str, Any]:
+def performance_study(
+    conn: Connection, champions: Champions, calendar: Calendar = REAL
+) -> dict[str, Any]:
     """AUC and calibration error of each of the last matured 36-month cohorts, and pooled."""
-    newest = add_months(LAST_KNOWN, -(36 + CHARGE_OFF_LAG_MONTHS))
+    newest = add_months(calendar.last_known, -(36 + CHARGE_OFF_LAG_MONTHS))
     months = [add_months(newest, -k) for k in range(PERFORMANCE_COHORTS - 1, -1, -1)]
-    loans = _labelled(conn, champions, months)
+    loans = _labelled(conn, champions, months, calendar)
 
     def metrics(frame: pl.DataFrame) -> tuple[tuple[float, ...], tuple[float, ...]]:
         y = frame["label"].to_numpy().astype(np.float64)
@@ -308,12 +340,12 @@ def performance_study(conn: Connection, champions: Champions) -> dict[str, Any]:
 # ---------------------------------------------------------------- LGD level
 
 
-def level_study(conn: Connection) -> list[dict[str, Any]]:
+def level_study(conn: Connection, calendar: Calendar = REAL) -> list[dict[str, Any]]:
     """The level correction of the baseline LGD at a pseudo cutoff every quarter."""
     out = []
-    cutoff = FIRST_LEVEL_CUTOFF
-    while cutoff <= LAST_KNOWN:
-        check_known("level", [cutoff])
+    cutoff = calendar.first_level_cutoff
+    while cutoff <= calendar.last_known:
+        check_known("level", [cutoff], calendar)
         try:
             with conn.transaction():
                 features, _, _ = build_frames(conn, cutoff)
@@ -352,20 +384,22 @@ def t0_pair(conn: Connection) -> Pair:
     return (row[0], row[1])
 
 
-def study(conn: Connection, pair: Pair, prefix: str = "") -> dict[str, Any]:
+def study(
+    conn: Connection, pair: Pair, prefix: str = "", calendar: Calendar = REAL
+) -> dict[str, Any]:
     """Every part of the study, for the pair of champions at T0."""
     champions = _champions(pair, prefix)
-    first = add_months(FIRST_CUTOFF, -12)
-    scored = scored_months(conn, champions, months_between(first, LAST_KNOWN))
-    log.info("scored %d listings from %s to %s", scored.height, first, LAST_KNOWN)
+    first, last = add_months(calendar.first_cutoff, -12), calendar.last_known
+    scored = scored_months(conn, champions, months_between(first, last), calendar)
+    log.info("scored %d listings from %s to %s", scored.height, first, last)
     return {
         "pair": list(pair),
-        "last_known": f"{LAST_KNOWN:%Y-%m}",
+        "last_known": f"{last:%Y-%m}",
         "lgd_age_months": LGD_AGE_MONTHS,
-        "drift": [asdict(r) for r in drift_study(scored)],
-        "early_warning": [asdict(r) for r in early_warning_study(conn, scored)],
-        "performance": performance_study(conn, champions),
-        "level": level_study(conn),
+        "drift": [asdict(r) for r in drift_study(scored, calendar)],
+        "early_warning": [asdict(r) for r in early_warning_study(conn, scored, calendar)],
+        "performance": performance_study(conn, champions, calendar),
+        "level": level_study(conn, calendar),
     }
 
 
@@ -548,8 +582,6 @@ THRESHOLD_KINDS: Final = (
     "performance_drop",
     "lgd_level_shift",
 )
-#: The last month of the simulation: the exam is over when it has been monitored.
-EXAM_LAST: Final = date(2018, 12, 1)
 
 
 def _what(kind: str, details: Mapping[str, Any]) -> str:
@@ -589,7 +621,8 @@ def exam_table(found: list[dict[str, Any]]) -> str:
 
 # ---------------------------------------------------------------- what is published
 
-#: Where the summaries are committed, and the document that publishes them.
+#: Where the summaries are committed, and the document that publishes them, relative to
+#: the root of the repository.
 SUMMARY: Final = Path("reports/thresholds/summary.json")
 EXAM: Final = Path("reports/thresholds/exam.json")
 DOCUMENT: Final = Path("docs/thresholds.md")
@@ -606,7 +639,8 @@ def published(document: str, begin: str = BEGIN, end: str = END) -> str:
     return document[start : document.index(end)].strip("\n") + "\n"
 
 
-def main() -> None:  # pragma: no cover - thin command line, run by make calibrate
+def main(argv: list[str] | None = None, calendar: Calendar = REAL) -> None:
+    """The command line of ``make calibrate``; T33.6 runs it on the clock tests' history."""
     import argparse
 
     import psycopg
@@ -616,29 +650,43 @@ def main() -> None:  # pragma: no cover - thin command line, run by make calibra
     parser = argparse.ArgumentParser(description="The study of the alert thresholds (D-150).")
     parser.add_argument("--prefix", default="", help="prefix of the model names")
     parser.add_argument("--full", type=Path, help="also write the whole study here")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--root", type=Path, default=Path(), help="root of the repository to write into"
+    )
+    args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     with psycopg.connect(Settings().postgres_conninfo(), autocommit=True) as conn:
-        result = study(conn, t0_pair(conn), args.prefix)
+        result = study(conn, t0_pair(conn), args.prefix, calendar)
         last = conn.execute("SELECT max(period) FROM monitoring.drift").fetchone()
-        alerts = exam(conn) if last is not None and last[0] and last[0] >= EXAM_LAST else None
+        over = last is not None and last[0] is not None and last[0] >= calendar.exam_last
+        alerts = exam(conn) if over else None
     if args.full:
         save(result, args.full)
     found = summary(result)
-    save(found, SUMMARY)
-    document = DOCUMENT.read_text()
+    save(found, args.root / SUMMARY)
+    path = args.root / DOCUMENT
+    document = path.read_text()
     document = document.replace(published(document), tables(found))
     if alerts is not None:
-        save({"alerts": alerts}, EXAM)
+        save({"alerts": alerts}, args.root / EXAM)
         document = document.replace(published(document, EXAM_BEGIN, EXAM_END), exam_table(alerts))
     else:
         log.info("the exam is not over: its table stays as it is")
-    DOCUMENT.write_text(document)
+    path.write_text(document)
     log.info("proposed thresholds: %s", propose(found))
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     main()
 
 
-__all__ = ["PREDICTIONS", "FutureDataError", "check_known", "propose", "study", "summary"]
+__all__ = [
+    "PREDICTIONS",
+    "REAL",
+    "Calendar",
+    "FutureDataError",
+    "check_known",
+    "propose",
+    "study",
+    "summary",
+]

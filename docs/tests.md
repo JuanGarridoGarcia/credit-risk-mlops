@@ -101,8 +101,8 @@ Changing what an approved test checks needs Juan's approval again. B6 fails if a
 | T30 Alerts in the flow | F6, step 6.2, second pull request | 3 | 2026-11-26 | [technical.md, F6](technical.md#second-pull-request-dashboards-and-alerts) |
 | T31 Task runs | F6, step 6.2, second pull request | 2 | 2026-11-26 | [technical.md, F6](technical.md#second-pull-request-dashboards-and-alerts) |
 | T32 Grafana | F6, step 6.2, second pull request | 6 | 2026-11-26 | [technical.md, F6](technical.md#second-pull-request-dashboards-and-alerts) |
-| T33 Calibration and exam | F6, step 6.2, second pull request | 4 | 2026-11-26 | [thresholds.md](thresholds.md), [technical.md, F6](technical.md#second-pull-request-dashboards-and-alerts) |
-| **Total** | | **230** | | |
+| T33 Calibration and exam | F6, step 6.2, second pull request; T33.5 and T33.6 after PR #22 | 6 | 2026-11-26 | [thresholds.md](thresholds.md), [technical.md, F6](technical.md#second-pull-request-dashboards-and-alerts) |
+| **Total** | | **232** | | |
 
 ## B Foundations
 
@@ -563,7 +563,7 @@ F6, step 6.2, second pull request (D-147, D-148, D-152 to D-155). Grafana of doc
 
 ## T33 Calibration and exam
 
-F6, step 6.2, second pull request (D-150, D-156), written up in [thresholds.md](thresholds.md). T33.1 has a unit part; T33.3 is a unit test on the committed summary of the study; the others read the database that `make exam` leaves (it takes hours, more than a test may; the tests fail with what to run when it is missing).
+F6, step 6.2, second pull request (D-150, D-156), written up in [thresholds.md](thresholds.md). T33.1 has a unit part; T33.3 is a unit test on the committed summary of the study; T33.1, T33.2 and T33.4 read the database that `make exam` leaves (it takes hours, more than a test may; the tests fail with what to run when it is missing). T33.5 and T33.6 run the whole study and its command line in CI, on the small made-up history the clock tests (T17) leave, with dates of their own (D-157).
 
 | ID | What it checks | Functions | Kind | Runs in |
 |---|---|---|---|---|
@@ -571,6 +571,8 @@ F6, step 6.2, second pull request (D-150, D-156), written up in [thresholds.md](
 | T33.2 | The study is reproducible: two runs give the same result, its summary is the committed `reports/thresholds/summary.json`, and the tables published in `docs/thresholds.md` are the ones it writes (like D-065 for the notebook) | `tests/data/test_calibration_data.py::test_the_study_is_reproducible_and_its_published_tables_are_its_own` | Data | Local |
 | T33.3 | The values of the thresholds file follow the written rules of the study (`calibrate.propose` on the committed summary); on made-up studies, an old reference does not count, a correction of either sign counts, and a signal above every value of the grid is refused | `tests/unit/test_alerting.py::test_the_thresholds_follow_the_written_rules_of_the_study` | Unit | CI, image |
 | T33.4 | The exam: the simulation 2014-01 to 2018-12 with the thresholds frozen ran every month (no `flow_failed`), every month with predictions has its drift, and the alerts of each kind and month are the committed `reports/thresholds/exam.json` and the table of `docs/thresholds.md` | `tests/data/test_calibration_data.py::test_the_exam_runs_every_month_and_raises_the_documented_alerts` | Data | Local |
+| T33.5 | The whole study on the history of the clock tests, with T0 at 2012-01: every month it asks the database for (the same record as T33.1) is no later than 2011-12, and so is every month of its result; each of its four parts (drift, early warning, performance, LGD level) has at least one row; on about 15 loans a month the rules of `propose` refuse to choose a threshold, with their clear message, instead of guessing one (that they choose values of their grids is T33.3, on the real study); two runs give the same summary | `tests/integration/test_clock.py::test_the_study_runs_whole_on_the_story_and_reads_nothing_after_t0` | Integration | CI |
+| T33.6 | The command line of `make calibrate` on a folder holding a copy of `docs/thresholds.md`: it writes the summary of the study, the exam file and the tables between their markers, and leaves the rest of the document as it was, then stops with the refusal of the rules (T33.5) instead of hiding it; the exam table lists exactly the alerts of the threshold kinds in the story's `ops.alerts`, by month and kind (the story raises some, so the table is not empty), and its totals are their counts | `tests/integration/test_clock.py::test_the_command_line_writes_the_summary_the_exam_and_only_the_tables` | Integration | CI |
 
 ## Change history
 
@@ -621,3 +623,4 @@ F6, step 6.2, second pull request (D-150, D-156), written up in [thresholds.md](
 | 2026-11-26 | T29.1 to T29.5, T30.1 to T30.3, T31.1, T31.2, T32.1 to T32.6, T33.1 to T33.4 | Written (F6, second pull request). T33.3 is a unit test on the committed summary of the study, so it runs in CI; T33.1, T33.2 and T33.4 read the database of `make exam` instead of running the exam inside the test; the receiver of T32 runs in the test process, not in compose | Approved by Juan. The exam takes hours and the machine of the project restarts now and then, so it is a command that resumes; a receiver in the test process needs no extra service |
 | 2026-11-26 | T25 to T27 (fixture `mdb` of `tests/integration/test_monitoring.py`) | The fixture also empties `ops.alerts` and gives the validation AUC of a version directly. What each test checks is unchanged | `monitor` now records alerts and reads the validation AUC from MLflow ([D-147](decisions.md#d-147)) |
 | 2026-11-26 | T12.8, T22.7 | Written (F6, after PR #21) | Prevention of [E-065](errors.md#e-065) and [E-064](errors.md#e-064). Each was shown to fail without its fix and pass with it. The environment of the smoke test moved to its own function so T22.7 can read it without Docker; what the smoke test does is unchanged. Approved by Juan |
+| 2026-11-26 | T33.5, T33.6; T33.1 (data part) | Written (F6, after PR #22). The record of what the study asks the database for moved from T33.1 to `tests/calibrate_support.py`, so that T33.5 uses the same one; what T33.1 checks is unchanged. As approved, T33.5 checked that `propose` gives values of its grids; the first run gave a PSI of the PD of 3.03 on 15 loans a month, and Juan chose that T33.5 and T33.6 check the refusal of the rules instead | The study is checked in CI instead of being left out of the coverage ([D-157](decisions.md#d-157)). Approved by Juan |
